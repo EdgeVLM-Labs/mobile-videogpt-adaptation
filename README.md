@@ -91,7 +91,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from mobilevideogpt.utils import preprocess_input
 
 # Model and tokenizer paths
-pretrained_path = "Mobile-VideoGPT-1.5B" 
+pretrained_path = "Amshaker/Mobile-VideoGPT-1.5B" 
 video_path = "sample_videos/v_JspVuT6rsLA.mp4"
 prompt = "Can you describe what is happening in the video in detail?"
 
@@ -181,7 +181,7 @@ If you're using Mobile-VideoGPT in your research or applications, please cite us
     author={Shaker, Abdelrahman and Maaz, Muhammad and Rezatofighi, Hamid and Khan, Salman and Khan, Fahad Shahbaz},
     journal={arxiv},
     year={2025},
-    url={https://arxiv.org/abs/X.X}
+    url={https://arxiv.org/abs/2503.21782}
 }
 ```
 
