@@ -15,7 +15,7 @@
 #### **<sup>1</sup> Mohamed bin Zayed University of Artificial Intelligence**, <sup>2</sup>Monash University
 
 ---
-[![Paper](https://img.shields.io/badge/arXiv-Paper-blue.svg)](https://arxiv.org/abs/2406.09418)
+[![Paper](https://img.shields.io/badge/arXiv-Paper-blue.svg)](https://arxiv.org/abs/2503.21782)
 [![YouTube](https://badges.aleen42.com/src/youtube.svg)](https://youtu.be/6Ueqq_D_mR0)
 [![Models](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue)](https://huggingface.co/collections/Amshaker/mobile-videogpt-fast-and-accurate-video-understanding-langu-67dc745074f8dd68d93b6b92)
 [![Project](https://img.shields.io/badge/Project-Website-87CEEB)](https://amshaker.github.io/Mobile-VideoGPT/)
@@ -178,7 +178,7 @@ If you're using Mobile-VideoGPT in your research or applications, please cite us
 ```bibtex
 @article{Shaker2025MobileVideoGPT,
     title={Mobile-VideoGPT: Fast and Accurate Video Understanding Language Model},
-    author={Shaker, Abdelrahman and Maaz, Muhammad and Rezatofighi, Hamid and Khan, Salman and Khan, Fahad Shahbaz},
+    author={Shaker, Abdelrahman and Maaz, Muhammad and Gou, Chenhui and Rezatofighi, Hamid and Khan, Salman and Khan, Fahad Shahbaz},
     journal={arxiv},
     year={2025},
     url={https://arxiv.org/abs/2503.21782}
