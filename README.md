@@ -24,6 +24,7 @@
 
 
 ## :rocket: News
+- **2-7-2025**: Deployed Mobile-VideoGPT and LLaVa-One-Vision 0.5B on Jetson Orin Nano. Mobile-VideoGPT achieves >2× faster throughput than LLaVa-One-Vision-0.5B. :fire::fire:
 - **28-3-2025**: Mobile-VideoGPT paper, model checkpoints, training and evaluation codes are released. :fire::fire:
 ---
 
@@ -36,7 +37,7 @@ we propose Mobile-VideoGPT, an efficient multimodal framework designed to operat
 </p>
 
 ---
-## Evaluation Summary on 6 benchmarks:
+## Evaluation Summary: Performance on 6 Benchmarks and Inference Throughput (Tokens per Second) on Jetson Orin Nano and RTX A6000
 
 <p align="center">
   <img src="docs/images/Intro_figure_2.png" alt="Contributions" width="800">
