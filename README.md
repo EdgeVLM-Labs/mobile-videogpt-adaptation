@@ -41,7 +41,7 @@ we propose Mobile-VideoGPT, an efficient multimodal framework designed to operat
 ## Evaluation Summary: Performance on 6 Benchmarks and Inference Throughput (Tokens per Second) on Jetson Orin Nano and RTX A6000
 
 <p align="center">
-  <img src="docs/images/Intro_figure_2.png" alt="Throughput" width="800">
+  <img src="docs/images/Intro_figure_3.png" alt="Throughput" width="800">
 </p>
 
 ## 🛠️ Installation 
