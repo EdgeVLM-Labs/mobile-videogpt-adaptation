@@ -10,7 +10,7 @@
 
 ### Mobile-VideoGPT: Fast and Accurate Video Understanding Language Model
 
-#### [Abdelrahman Shaker](https://amshaker.github.io/)<sup>1</sup>, [Muhammad Maaz](https://www.muhammadmaaz.com)<sup>1</sup> , [Chenhui Gou](https://scholar.google.com/citations?user=tlhShPsAAAAJ&hl=en)<sup>2</sup>, [Hamid Rezatofighi](https://scholar.google.com/citations?user=VxAuxMwAAAAJ&hl=en)<sup>2</sup>, [Salman Khan](https://salman-h-khan.github.io/)<sup>1</sup> and [Fahad Khan](https://sites.google.com/view/fahadkhans/home)<sup>1</sup>
+#### [Abdelrahman Shaker](https://amshaker.github.io/)<sup>1</sup>, [Muhammad Maaz](https://www.mmaaz60.com/)<sup>1</sup> , [Chenhui Gou](https://scholar.google.com/citations?user=tlhShPsAAAAJ&hl=en)<sup>2</sup>, [Hamid Rezatofighi](https://scholar.google.com/citations?user=VxAuxMwAAAAJ&hl=en)<sup>2</sup>, [Salman Khan](https://salman-h-khan.github.io/)<sup>1</sup> and [Fahad Khan](https://sites.google.com/view/fahadkhans/home)<sup>1</sup>
 
 #### **<sup>1</sup> Mohamed bin Zayed University of Artificial Intelligence**, <sup>2</sup>Monash University
 
