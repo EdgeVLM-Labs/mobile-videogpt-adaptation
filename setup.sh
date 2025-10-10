@@ -8,8 +8,8 @@
 set -e  # stop on error
 
 echo "🔧 Creating workspace..."
-python3 -m venv mobile_videogpt
-source mobile_videogpt/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 
 echo "📦 Cloning repositories..."
 git clone https://github.com/OpenGVLab/VideoMamba.git
@@ -21,6 +21,7 @@ git clone https://github.com/HazyResearch/flash-attention.git
 echo "🧱 Installing base Python packages..."
 pip install --upgrade pip
 pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu118
+
 pip install transformers==4.41.0
 
 pip install -r requirements.txt
