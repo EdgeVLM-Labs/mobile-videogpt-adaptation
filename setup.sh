@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================
-# 🚀 Setup Script for Mobile-VideoGPT
+# Setup Script for Mobile-VideoGPT
 # Based on: https://github.com/Amshaker/Mobile-VideoGPT#installation
 # Tested for CUDA 11.8 / PyTorch 2.1+
 # ==========================================
@@ -8,8 +8,8 @@
 set -e  # stop on error
 
 echo "🔧 Creating workspace..."
-conda create --name=mobile_videogpt python=3.11
-conda activate mobile_videogpt
+python3 -m venv mobile_videogpt
+source mobile_videogpt/bin/activate
 
 echo "📦 Cloning repositories..."
 git clone https://github.com/OpenGVLab/VideoMamba.git
