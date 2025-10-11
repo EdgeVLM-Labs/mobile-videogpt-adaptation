@@ -41,16 +41,16 @@ def run_inference(model, tokenizer, video_path: str, prompt: str):
             max_new_tokens=1024,
             use_cache=True,
         )
-    
+
     outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
     if outputs.endswith(stop_str):
         outputs = outputs[:-len(stop_str)].strip()
-    
+
     return outputs
 
 
 def main():
-    pretrained_path = "Mobile-VideoGPT-1.5B"
+    pretrained_path = "Amshaker/Mobile-VideoGPT-0.5B"
     video_path = "sample_videos/v_JspVuT6rsLA.mp4"
     prompt = "Can you describe what is happening in the video in detail?"
     model, tokenizer = load_model(pretrained_path)

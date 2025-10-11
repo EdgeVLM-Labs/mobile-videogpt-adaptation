@@ -22,7 +22,7 @@ from mamba_ssm.modules.mamba_simple import Mamba
 from huggingface_hub import hf_hub_download
 
 try:
-    from mamba_ssm.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
+    from mamba_ssm.ops.triton.layer_norm import RMSNorm, layer_norm_fn, rms_norm_fn
 except ImportError:
     RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
 
@@ -110,7 +110,8 @@ def create_block(
     factory_kwargs = {"device": device, "dtype": dtype}
     if ssm_cfg is None:
         ssm_cfg = {}
-    mixer_cls = partial(Mamba, layer_idx=layer_idx, bimamba=bimamba, **ssm_cfg, **factory_kwargs)
+    # Remove bimamba parameter as it's not supported in the standard Mamba implementation
+    mixer_cls = partial(Mamba, layer_idx=layer_idx, **ssm_cfg, **factory_kwargs)
     norm_cls = partial(nn.LayerNorm if not rms_norm else RMSNorm, eps=norm_epsilon)
     block = Block(
         d_model,
@@ -181,7 +182,7 @@ class PatchEmbed(nn.Module):
         self.tubelet_size = kernel_size
 
         self.proj = nn.Conv3d(
-            in_chans, embed_dim, 
+            in_chans, embed_dim,
             kernel_size=(kernel_size, patch_size[0], patch_size[1]),
             stride=(kernel_size, patch_size[0], patch_size[1])
         )
@@ -212,43 +213,43 @@ class Linear_Decoder(nn.Module):
     def forward(self, x):
         x = self.norm(self.head(x))
         return x
-    
+
 
 # sin-cos position encoding
 # https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/master/transformer/Models.py#L31
-def get_sinusoid_encoding_table(n_position, d_hid): 
-    ''' Sinusoid position encoding table ''' 
-    # TODO: make it with torch instead of numpy 
-    def get_position_angle_vec(position): 
-        return [position / np.power(10000, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)] 
+def get_sinusoid_encoding_table(n_position, d_hid):
+    ''' Sinusoid position encoding table '''
+    # TODO: make it with torch instead of numpy
+    def get_position_angle_vec(position):
+        return [position / np.power(10000, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)]
 
-    sinusoid_table = np.array([get_position_angle_vec(pos_i) for pos_i in range(n_position)]) 
-    sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2]) # dim 2i 
-    sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2]) # dim 2i+1 
+    sinusoid_table = np.array([get_position_angle_vec(pos_i) for pos_i in range(n_position)])
+    sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2]) # dim 2i
+    sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2]) # dim 2i+1
 
-    return  torch.tensor(sinusoid_table, dtype=torch.float, requires_grad=False).unsqueeze(0) 
+    return  torch.tensor(sinusoid_table, dtype=torch.float, requires_grad=False).unsqueeze(0)
 
 
 class PretrainVideoMamba(nn.Module):
     def __init__(
-            self, 
-            img_size=224, 
-            patch_size=16, 
-            depth=24, 
-            embed_dim=192, 
-            channels=3, 
+            self,
+            img_size=224,
+            patch_size=16,
+            depth=24,
+            embed_dim=192,
+            channels=3,
             drop_path_rate=0.,
-            ssm_cfg=None, 
-            norm_epsilon=1e-5, 
+            ssm_cfg=None,
+            norm_epsilon=1e-5,
             initializer_cfg=None,
             fused_add_norm=True,
-            rms_norm=True, 
+            rms_norm=True,
             residual_in_fp32=True,
             bimamba=True,
             pool_type="cls+avg",
             # video
-            kernel_size=1, 
-            num_frames=8, 
+            kernel_size=1,
+            num_frames=8,
             device=None,
             dtype=None,
             # checkpoint
@@ -282,7 +283,7 @@ class PretrainVideoMamba(nn.Module):
         self.d_model = self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
 
         self.patch_embed = PatchEmbed(
-            img_size=img_size, patch_size=patch_size, 
+            img_size=img_size, patch_size=patch_size,
             kernel_size=kernel_size,
             in_chans=channels, embed_dim=embed_dim
         )
@@ -313,25 +314,25 @@ class PretrainVideoMamba(nn.Module):
                 for i in range(depth)
             ]
         )
-        
+
         # output head
         self.norm = (nn.LayerNorm if not rms_norm else RMSNorm)(embed_dim, eps=norm_epsilon, **factory_kwargs)
 
         # CLIP decoder
         self.clip_decoder = nn.ModuleList([
             Linear_Decoder(
-                output_dim=clip_output_dim, 
-                embed_dim=clip_decoder_embed_dim, 
-                norm_layer=nn.LayerNorm, 
+                output_dim=clip_output_dim,
+                embed_dim=clip_decoder_embed_dim,
+                norm_layer=nn.LayerNorm,
             ) for _ in range(clip_return_layer)
         ])
 
         self.clip_pos_embed = get_sinusoid_encoding_table(
-            num_patches * num_frames // kernel_size + 1, 
+            num_patches * num_frames // kernel_size + 1,
             clip_decoder_embed_dim
         )
         self.clip_img_pos_embed = get_sinusoid_encoding_table(
-            num_patches + 1, 
+            num_patches + 1,
             clip_decoder_embed_dim
         )
 
@@ -361,7 +362,7 @@ class PretrainVideoMamba(nn.Module):
     @torch.jit.ignore
     def no_weight_decay(self):
         return {"pos_embed", "cls_token"}
-    
+
     def get_num_layers(self):
         return len(self.layers)
 
@@ -369,7 +370,7 @@ class PretrainVideoMamba(nn.Module):
     def load_pretrained(self, checkpoint_path, prefix=""):
         _load_weights(self, checkpoint_path, prefix)
 
-    def forward_features(self, x, mask=None, use_image=False): 
+    def forward_features(self, x, mask=None, use_image=False):
         x = self.patch_embed(x)
         B, C, T, H, W = x.shape
         x = x.permute(0, 2, 3, 4, 1).reshape(B * T, H * W, C)
@@ -377,7 +378,7 @@ class PretrainVideoMamba(nn.Module):
         cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_token, x), dim=1)
         x = x + self.pos_embed
-        
+
         if not use_image:
             cls_tokens = x[:B, :1, :]
             x = x[:, 1:]
@@ -427,10 +428,10 @@ class PretrainVideoMamba(nn.Module):
                 prenorm=False,
                 residual_in_fp32=self.residual_in_fp32,
             )
-        
+
         if (self.depth - 1) in self.return_index:
             x_clip_vis.append(residual)
-        
+
         x_vis = hidden_states
         x_clip_vis = torch.stack(x_clip_vis)
 
@@ -439,7 +440,7 @@ class PretrainVideoMamba(nn.Module):
     def forward(self, x, mask=None, use_image=False, keep_temporal=False):
         T = x.shape[2]
         x_vis, x_clip_vis = self.forward_features(x, mask, use_image)  # [B, N_vis, C_e]
-        
+
         # align CLIP:
         if mask is not None and len(x_clip_vis) > 0:
             K, B, _, C_CLIP = x_clip_vis.shape
@@ -465,7 +466,7 @@ class PretrainVideoMamba(nn.Module):
                 if keep_temporal:
                     B, _, C_CLIP = x_vis.shape
                     if self.pool_type == "cls+avg":
-                        x_pool_vis = self.pool_norm(x_vis_cls + x_vis.view(B, T, -1, C_CLIP).mean(2))  
+                        x_pool_vis = self.pool_norm(x_vis_cls + x_vis.view(B, T, -1, C_CLIP).mean(2))
                     elif self.pool_type == "cls_cat_avg":
                         x_pool_vis = self.pool_norm(torch.cat([x_vis_cls + x_vis.view(B, T, -1, C_CLIP).mean(2)], dim=1))
                     elif self.pool_type == "avg":
@@ -477,7 +478,7 @@ class PretrainVideoMamba(nn.Module):
                         x_pool_vis = self.pool_norm(torch.cat([x_vis_cls, x_vis.mean(1, keepdim=True)], dim=1))
                     elif self.pool_type == "avg":
                         x_pool_vis = self.pool_norm(x_vis.mean(1, keepdim=True))
-            
+
             return x_vis, x_pool_vis, x_clip
         else:
             return x_vis, x_clip
@@ -500,7 +501,7 @@ def load_state_dict(pretrained_path, model, ckpt_num_frame, num_frames):
 
     pos_embed_checkpoint = checkpoint_model['vision_encoder.pos_embed']
     embedding_size = pos_embed_checkpoint.shape[-1] # channel dim
-    num_patches = model.patch_embed.num_patches # 
+    num_patches = model.patch_embed.num_patches #
     num_extra_tokens = model.pos_embed.shape[-2] - num_patches # 0/1
     orig_size = int((pos_embed_checkpoint.shape[-2] - num_extra_tokens) ** 0.5)
     # height (== width) for the new position embedding
@@ -516,11 +517,11 @@ def load_state_dict(pretrained_path, model, ckpt_num_frame, num_frames):
         pos_tokens = torch.nn.functional.interpolate(
             pos_tokens, size=(new_size, new_size), mode='bicubic', align_corners=False)
         # B, C, H, W -> B, H, W, C ->  B, H, W, C
-        pos_tokens = pos_tokens.permute(0, 2, 3, 1).reshape(-1, new_size, new_size, embedding_size) 
+        pos_tokens = pos_tokens.permute(0, 2, 3, 1).reshape(-1, new_size, new_size, embedding_size)
         pos_tokens = pos_tokens.flatten(1, 2) # B, L, C
         new_pos_embed = torch.cat((extra_tokens, pos_tokens), dim=1)
         checkpoint_model['vision_encoder.pos_embed'] = new_pos_embed
-    
+
     # we use 8 frames for pretraining
     temporal_pos_embed = checkpoint_model['vision_encoder.temporal_pos_embedding']
     orig_t_size = ckpt_num_frame // model.patch_embed.tubelet_size
@@ -541,11 +542,11 @@ def load_state_dict(pretrained_path, model, ckpt_num_frame, num_frames):
 
 def build_videomamba(config, add_pool_norm=False):
     model = PretrainVideoMamba(
-        img_size=config.vision_encoder.img_size, 
-        patch_size=config.vision_encoder.patch_size, 
-        depth=config.vision_encoder.depth, 
-        embed_dim=config.vision_encoder.embed_dim, 
-        drop_path_rate=config.vision_encoder.drop_path_rate, 
+        img_size=config.vision_encoder.img_size,
+        patch_size=config.vision_encoder.patch_size,
+        depth=config.vision_encoder.depth,
+        embed_dim=config.vision_encoder.embed_dim,
+        drop_path_rate=config.vision_encoder.drop_path_rate,
         ssm_cfg=config.vision_encoder.ssm_cfg,
         norm_epsilon=config.vision_encoder.norm_epsilon,
         fused_add_norm=config.vision_encoder.fused_add_norm,
@@ -568,7 +569,7 @@ def build_videomamba(config, add_pool_norm=False):
         load_state_dict(
             pretrained_path=config.vision_encoder.pretrained,
             model=model,
-            ckpt_num_frame=config.vision_encoder.ckpt_num_frame, 
+            ckpt_num_frame=config.vision_encoder.ckpt_num_frame,
             num_frames=config.vision_encoder.num_frames,
         )
     else:
@@ -592,20 +593,20 @@ if __name__ == '__main__':
     config = {
         'vision_encoder':
             {
-            "img_size": 224, 
-            "patch_size": 16, 
-            "depth": 32, 
-            "embed_dim": 576, 
+            "img_size": 224,
+            "patch_size": 16,
+            "depth": 32,
+            "embed_dim": 576,
             "drop_path_rate": 0.,
-            "ssm_cfg": None, 
-            "norm_epsilon": 1e-5, 
+            "ssm_cfg": None,
+            "norm_epsilon": 1e-5,
             "fused_add_norm": True,
-            "rms_norm": True, 
+            "rms_norm": True,
             "residual_in_fp32": True,
             "bimamba": True,
             "pool_type": "cls",
             "kernel_size": 1,
-            "num_frames": 8, 
+            "num_frames": 8,
             "use_checkpoint": False,
             "checkpoint_num": 0,
             "clip_decoder_embed_dim": 576,
