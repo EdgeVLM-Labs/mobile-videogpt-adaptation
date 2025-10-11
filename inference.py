@@ -1,4 +1,19 @@
 import sys
+import os
+import warnings
+import logging
+
+# Suppress warnings at environment level
+os.environ['PYTHONWARNINGS'] = 'ignore'
+
+# Set warning filters at the very beginning
+warnings.filterwarnings("ignore")
+
+# Set logging levels to reduce verbosity
+logging.getLogger('mmengine').setLevel(logging.CRITICAL)
+logging.getLogger('transformers').setLevel(logging.CRITICAL)
+logging.getLogger('transformers.modeling_utils').setLevel(logging.CRITICAL)
+
 import torch
 from pathlib import Path
 from PIL import Image
@@ -35,8 +50,8 @@ def run_inference(model, tokenizer, video_path: str, prompt: str):
             images=torch.stack(video_frames, dim=0).half().cuda(),
             context_images=torch.stack(context_frames, dim=0).half().cuda(),
             do_sample=False,  # Use greedy decoding
-            temperature=0,
-            top_p=1,
+            # temperature=0,
+            # top_p=1,
             num_beams=1,
             max_new_tokens=1024,
             use_cache=True,

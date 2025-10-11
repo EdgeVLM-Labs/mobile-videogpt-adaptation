@@ -11,9 +11,9 @@ import torch.utils.checkpoint as checkpoint
 from einops import rearrange
 import numpy as np
 from timm.models.vision_transformer import _cfg
-from timm.models.layers import trunc_normal_
+from timm.layers import trunc_normal_
 
-from timm.models.layers import DropPath, to_2tuple
+from timm.layers import DropPath, to_2tuple
 from timm.models.vision_transformer import _load_weights
 
 import math
