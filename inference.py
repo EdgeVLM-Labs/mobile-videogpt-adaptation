@@ -66,9 +66,9 @@ def run_inference(model, tokenizer, video_path: str, prompt: str):
 
 def main():
     pretrained_path = "Amshaker/Mobile-VideoGPT-0.5B"
-    video_path = "sample_videos/00000002.mp4"
+    video_path = "sample_videos/00000340.mp4"
     # prompt = "Can you describe what is happening in the video in detail?"
-    prompt = "Describe the exercise the user is doing, analyze the form, and provide suggestions for improvement."
+    prompt = "Describe the exercise the user is doing, analyze the form, temporal and spatial features, identify if any incorrect way the user is performing the exercise and provide suggestions for improvement."
     model, tokenizer = load_model(pretrained_path)
     output = run_inference(model, tokenizer, video_path, prompt)
     print("🤖 Mobile-ViideoGPT Output: ", output)
