@@ -2,10 +2,7 @@
 # ==========================================
 # Setup Script for Mobile-VideoGPT
 # Based on: https://github.com/Amshaker/Mobile-VideoGPT#installation
-# Tested for CUDA 11.8 / PyTorch 2.1+
 # ==========================================
-
-set -e  # stop on error
 
 echo "🔧 Creating workspace..."
 
@@ -19,14 +16,13 @@ source ~/.bashrc
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 
-
+conda create --name=mobile_videogpt python=3.11
+conda activate mobile_videogpt
 
 # python3 -m venv venv
 # source venv/bin/activate
 
 echo "📦 Cloning repositories..."
-
-
 # --------------------------------------------------
 # 1️⃣ Install base dependencies
 # --------------------------------------------------
@@ -52,6 +48,7 @@ echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
 which nvcc
 
+conda activate mobile_videogpt
 
 python -c "import torch; print(f'torch version: {torch.__version__}')"
 
@@ -62,6 +59,7 @@ python -c "import causal_conv1d; print(f'causal_conv1d version: {causal_conv1d._
 
 pip install -e mamba
 pip install mamba
+pip install mamba_ssm
 
 cd ..
 
@@ -78,13 +76,11 @@ pip install flash-attn --no-build-isolation
 python -c "import flash_attn; print(f'flash_attn version: {flash_attn.__version__}')"
 cd ..
 
-pip install mamba_ssm
 # --------------------------------------------------
 # 4️⃣ Final touches
 # --------------------------------------------------
 echo "🧩 Installing development tools and extras..."
-pip install deepspeed accelerate bitsandbytes
-pip install ipykernel notebook tqdm
+# pip install deepspeed accelerate ipykernel notebook tqdm
 
 echo "✅ Setup complete!"
 echo "🚀 Mobile-VideoGPT environment is ready."
