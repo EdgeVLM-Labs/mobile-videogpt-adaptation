@@ -39,25 +39,27 @@ def collect_videos(repo_id):
 
 
 def sample_and_download(by_class, repo_id, local_dir, max_per_class):
-    """Samples random videos per class and downloads them."""
+    """Samples random videos per class and downloads them into <local_dir>/<class>/<file>."""
 
     random.seed(RANDOM_SEED)
     manifest = {}
     total_downloaded = 0
 
     for cls, vids in by_class.items():
-        os.makedirs(local_dir / cls, exist_ok=True)
+        class_dir = local_dir / cls
+        class_dir.mkdir(parents=True, exist_ok=True)
         sample = random.sample(vids, min(len(vids), max_per_class))
         print(f"🎥 {cls}: {len(sample)} sampled of {len(vids)} available")
 
         for rel_path in sample:
-            local_path = local_dir / rel_path
-            local_path.parent.mkdir(parents=True, exist_ok=True)
+            filename = os.path.basename(rel_path)
+            local_path = class_dir / filename
+
             try:
                 hf_hub_download(
                     repo_id=repo_id,
                     filename=rel_path,
-                    local_dir=str(local_path.parent),
+                    local_dir=str(class_dir),
                     repo_type="dataset",
                 )
                 manifest[str(local_path)] = cls
@@ -65,7 +67,7 @@ def sample_and_download(by_class, repo_id, local_dir, max_per_class):
             except Exception as e:
                 print(f"⚠️ Failed to download {rel_path}: {e}")
 
-    print(f"\n✅ Downloaded {total_downloaded} total videos.")
+    print(f"\n✅ Download complete: {total_downloaded} videos.")
     return manifest
 
 
