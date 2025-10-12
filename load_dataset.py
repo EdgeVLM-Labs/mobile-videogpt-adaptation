@@ -13,7 +13,7 @@ from pathlib import Path
 from huggingface_hub import list_repo_files, hf_hub_download
 
 REPO_ID = "EdgeVLM-Labs/QVED-Test-Dataset"
-LOCAL_DIR = Path("test-dataset")  # local download directory
+LOCAL_DIR = Path("dataset")  # local download directory
 MAX_PER_CLASS = 10
 FILE_EXT = ".mp4"
 GROUND_TRUTH_FILE = "fine_grained_labels.json"
@@ -103,7 +103,7 @@ def save_manifest(manifest, local_dir):
 
 
 def main():
-    
+
     LOCAL_DIR.mkdir(parents=True, exist_ok=True)
     by_class, all_files = collect_videos(REPO_ID)
     manifest = sample_and_download(by_class, REPO_ID, LOCAL_DIR, MAX_PER_CLASS)

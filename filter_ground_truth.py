@@ -8,13 +8,13 @@ import json
 from pathlib import Path
 
 # Paths
-BASE_DIR = Path("test-dataset")
+BASE_DIR = Path("dataset")
 GROUND_TRUTH_FILE = BASE_DIR / "fine_grained_labels.json"
 MANIFEST_FILE = BASE_DIR / "manifest.json"
 OUTPUT_FILE = BASE_DIR / "ground_truth.json"
 
 def main():
-    
+
     if not GROUND_TRUTH_FILE.exists() or not MANIFEST_FILE.exists():
         print("⚠️ Required files missing. Please run DownloadDataset.py first.")
         return
