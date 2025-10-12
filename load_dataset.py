@@ -11,6 +11,7 @@ import random
 import json
 from pathlib import Path
 from huggingface_hub import list_repo_files, hf_hub_download
+import shutil
 
 REPO_ID = "EdgeVLM-Labs/QVED-Test-Dataset"
 LOCAL_DIR = Path("dataset")  # local download directory
@@ -39,8 +40,7 @@ def collect_videos(repo_id):
 
 
 def sample_and_download(by_class, repo_id, local_dir, max_per_class):
-    """Samples random videos per class and downloads them into <local_dir>/<class>/<file>."""
-
+    """Samples random videos per class and downloads them into <local_dir>/<class>/<file> (no duplicate subfolders)."""
     random.seed(RANDOM_SEED)
     manifest = {}
     total_downloaded = 0
@@ -52,17 +52,19 @@ def sample_and_download(by_class, repo_id, local_dir, max_per_class):
         print(f"🎥 {cls}: {len(sample)} sampled of {len(vids)} available")
 
         for rel_path in sample:
-            filename = os.path.basename(rel_path)
-            local_path = class_dir / filename
+            filename = os.path.basename(rel_path)  # e.g., "00018209.mp4"
+            target_path = class_dir / filename
 
             try:
-                hf_hub_download(
+                cached_path = hf_hub_download(
                     repo_id=repo_id,
                     filename=rel_path,
-                    local_dir=str(class_dir),
                     repo_type="dataset",
                 )
-                manifest[str(local_path)] = cls
+
+                shutil.copy2(cached_path, target_path)
+
+                manifest[str(target_path)] = cls
                 total_downloaded += 1
             except Exception as e:
                 print(f"⚠️ Failed to download {rel_path}: {e}")
