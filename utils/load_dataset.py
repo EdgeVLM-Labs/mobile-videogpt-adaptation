@@ -41,6 +41,7 @@ def collect_videos(repo_id):
 
 def sample_and_download(by_class, repo_id, local_dir, max_per_class):
     """Samples random videos per class and downloads them into <local_dir>/<class>/<file> (no duplicate subfolders)."""
+
     random.seed(RANDOM_SEED)
     manifest = {}
     total_downloaded = 0

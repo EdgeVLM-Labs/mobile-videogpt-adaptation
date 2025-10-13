@@ -1,0 +1,89 @@
+import json
+import os
+import random
+from pathlib import Path
+from collections import defaultdict
+
+# CONFIG
+FINE_LABELS_JSON = "/abs/path/to/fine_grained_labels.json"
+OUTPUT_JSON = "playground/data/MobileGPT/qved_train.json"
+VIDEO_ROOT = "/abs/path/to/QVED_root"  # subfolders per exercise
+LIMIT_PER_CLASS = 100
+SYSTEM_PROMPT = "You are a concise fitness coach. Analyze the user's exercise and give corrective feedback."
+USER_PROMPT_TEMPLATE = "Analyze this {exercise} video and provide corrective feedback."
+SEED = 1337
+
+def main():
+    random.seed(SEED)
+
+    # Load fine-grained labels
+    with open(FINE_LABELS_JSON, 'r') as f:
+        fine_labels = json.load(f)
+
+    # Group by exercise class
+    exercise_groups = defaultdict(list)
+
+    for record in fine_labels:
+        video_path = record.get('video_path', '')
+        # Extract exercise name from folder or metadata
+        if 'exercise' in record:
+            exercise = record['exercise']
+        else:
+            # Derive from path: e.g., "exercise_name/video.mp4" -> "exercise_name"
+            parts = Path(video_path).parts
+            if len(parts) > 1:
+                exercise = parts[-2]  # Parent folder name
+            else:
+                exercise = "unknown"
+
+        # Get assistant answer from most descriptive label
+        if 'labels_descriptive' in record and record['labels_descriptive']:
+            assistant_answer = record['labels_descriptive']
+        elif 'labels' in record and record['labels']:
+            assistant_answer = record['labels'][0] if isinstance(record['labels'], list) else record['labels']
+        else:
+            assistant_answer = "No feedback available."
+
+        exercise_groups[exercise].append({
+            'video_path': video_path,
+            'exercise': exercise,
+            'assistant': assistant_answer
+        })
+
+    # Sample up to LIMIT_PER_CLASS per exercise
+    sampled_data = []
+    for exercise, records in exercise_groups.items():
+        sampled = random.sample(records, min(len(records), LIMIT_PER_CLASS))
+        sampled_data.extend(sampled)
+
+    # Convert to Mobile-VideoGPT format
+    output_data = []
+    for item in sampled_data:
+        # Make video path relative to repo root
+        video_rel = item['video_path']
+        if os.path.isabs(video_rel):
+            # Convert absolute to relative if needed
+            video_rel = os.path.relpath(video_rel, os.getcwd())
+
+        user_prompt = USER_PROMPT_TEMPLATE.format(exercise=item['exercise'])
+
+        output_data.append({
+            "video": video_rel,
+            "conversations": [
+                {"from": "system", "value": SYSTEM_PROMPT},
+                {"from": "user", "value": user_prompt},
+                {"from": "assistant", "value": item['assistant']}
+            ],
+            "split": "train"
+        })
+
+    # Write output JSON
+    os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
+    with open(OUTPUT_JSON, 'w') as f:
+        json.dump(output_data, f, indent=2)
+
+    print(f"Converted {len(output_data)} videos from {len(exercise_groups)} exercise classes")
+    print(f"Output saved to: {OUTPUT_JSON}")
+
+if __name__ == "__main__":
+    main()
