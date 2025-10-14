@@ -15,7 +15,7 @@ import shutil
 
 REPO_ID = "EdgeVLM-Labs/QVED-Test-Dataset"
 LOCAL_DIR = Path("dataset")  # local download directory
-MAX_PER_CLASS = 10
+MAX_PER_CLASS = 5
 FILE_EXT = ".mp4"
 GROUND_TRUTH_FILE = "fine_grained_labels.json"
 RANDOM_SEED = 42

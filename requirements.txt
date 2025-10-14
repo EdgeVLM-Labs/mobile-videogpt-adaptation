@@ -33,4 +33,4 @@ numpy<2.0
 huggingface_hub
 opencv-python
 deepspeed
-peft
+peft==0.10.0
