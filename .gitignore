@@ -145,3 +145,4 @@ checkpoints/
 images
 flash-attention/
 VideoMamba/
+dataset/

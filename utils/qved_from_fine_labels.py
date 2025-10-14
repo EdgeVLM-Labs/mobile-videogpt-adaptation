@@ -1,6 +1,5 @@
 import json
 import os
-import random
 from pathlib import Path
 from collections import defaultdict
 
@@ -9,13 +8,9 @@ BASE_DIR = Path("dataset")
 FINE_LABELS_JSON = BASE_DIR / "ground_truth.json"
 OUTPUT_JSON = BASE_DIR / "qved_train.json"
 VIDEO_ROOT = BASE_DIR  # subfolders per exercise
-LIMIT_PER_CLASS = 10
 USER_PROMPT_TEMPLATE = "Analyze this {exercise} video and provide corrective feedback."
-SEED = 1337
 
 def main():
-    random.seed(SEED)
-
     # Load fine-grained labels
     with open(FINE_LABELS_JSON, 'r') as f:
         fine_labels = json.load(f)
@@ -50,31 +45,26 @@ def main():
             'assistant': assistant_answer
         })
 
-    # Sample up to LIMIT_PER_CLASS per exercise
-    sampled_data = []
-    for exercise, records in exercise_groups.items():
-        sampled = random.sample(records, min(len(records), LIMIT_PER_CLASS))
-        sampled_data.extend(sampled)
-
     # Convert to Mobile-VideoGPT format
     output_data = []
-    for item in sampled_data:
-        # Make video path relative to repo root
-        video_rel = item['video_path']
-        if os.path.isabs(video_rel):
-            # Convert absolute to relative if needed
-            video_rel = os.path.relpath(video_rel, os.getcwd())
+    for exercise, records in exercise_groups.items():
+        for item in records:
+            # Make video path relative to repo root
+            video_rel = item['video_path']
+            if os.path.isabs(video_rel):
+                # Convert absolute to relative if needed
+                video_rel = os.path.relpath(video_rel, os.getcwd())
 
-        user_prompt = USER_PROMPT_TEMPLATE.format(exercise=item['exercise'])
+            user_prompt = USER_PROMPT_TEMPLATE.format(exercise=item['exercise'])
 
-        output_data.append({
-            "video": video_rel,
-            "conversations": [
-                {"from": "user", "value": user_prompt},
-                {"from": "assistant", "value": item['assistant']}
-            ],
-            "split": "train"
-        })
+            output_data.append({
+                "video": video_rel,
+                "conversations": [
+                    {"from": "user", "value": user_prompt},
+                    {"from": "assistant", "value": item['assistant']}
+                ],
+                "split": "train"
+            })
 
     # Write output JSON
     OUTPUT_JSON.parent.mkdir(parents=True, exist_ok=True)
