@@ -43,6 +43,13 @@ def main():
         full_video_path = filename_to_path[filename]
         exercise = filename_to_exercise[filename]
 
+        # Remove 'dataset/' prefix if present to make path relative to data_path
+        # data_path is 'dataset', so videos should be 'exercise_name/video.mp4'
+        if full_video_path.startswith('dataset/'):
+            relative_video_path = full_video_path[len('dataset/'):]
+        else:
+            relative_video_path = full_video_path
+
         # Get assistant answer from most descriptive label
         if 'labels_descriptive' in record and record['labels_descriptive']:
             assistant_answer = record['labels_descriptive']
@@ -60,7 +67,7 @@ def main():
         user_prompt = USER_PROMPT_TEMPLATE.format(exercise=exercise)
 
         output_data.append({
-            "video": full_video_path,
+            "video": relative_video_path,
             "conversations": [
                 {"from": "human", "value": user_prompt},
                 {"from": "gpt", "value": assistant_answer}
