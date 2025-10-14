@@ -39,6 +39,12 @@ def main():
         else:
             assistant_answer = "No feedback available."
 
+        # Ensure assistant answer is a single string
+        if isinstance(assistant_answer, list):
+            assistant_answer = '\n'.join(str(item) for item in assistant_answer)
+        else:
+            assistant_answer = str(assistant_answer)
+
         exercise_groups[exercise].append({
             'video_path': video_path,
             'exercise': exercise,
@@ -60,8 +66,8 @@ def main():
             output_data.append({
                 "video": video_rel,
                 "conversations": [
-                    {"from": "user", "value": user_prompt},
-                    {"from": "assistant", "value": item['assistant']}
+                    {"from": "human", "value": user_prompt},
+                    {"from": "gpt", "value": item['assistant']}
                 ],
                 "split": "train"
             })
