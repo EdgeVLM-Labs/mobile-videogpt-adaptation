@@ -8,6 +8,9 @@
 export PYTHONPATH="./:$PYTHONPATH"
 export DATASET_DIR="$(pwd)/playground/data"
 
+# Suppress DeepSpeed hostfile warning for single-GPU training
+export PDSH_RCMD_TYPE=ssh
+
 # Model paths - using pre-trained Mobile-VideoGPT-0.5B checkpoint
 BASE_LLM_PATH="Amshaker/Mobile-VideoGPT-0.5B"
 VISION_TOWER="OpenGVLab/VideoMamba"
@@ -40,9 +43,12 @@ echo "========================================="
 # Stage 3: Fine-tuning on QVED dataset
 # The Mobile-VideoGPT-0.5B checkpoint already includes trained projectors,
 # so we don't need to specify pretrain_mm_mlp_adapter or pretrain_image_mm_mlp_adapter
+#
+# Note: Using ZeRO-2 instead of ZeRO-3 due to Mamba SSM compatibility issues
+# ZeRO-3 causes tensor initialization errors with mamba_ssm modules
 
 deepspeed mobilevideogpt/train/train.py \
-  --deepspeed scripts/zero3.json \
+  --deepspeed scripts/zero2.json \
   --lora_enable True \
   --lora_r $LORA_R \
   --lora_alpha $LORA_ALPHA \
@@ -67,7 +73,7 @@ deepspeed mobilevideogpt/train/train.py \
   --per_device_train_batch_size $BATCH \
   --per_device_eval_batch_size 4 \
   --gradient_accumulation_steps $GACC \
-  --evaluation_strategy "no" \
+  --eval_strategy "no" \
   --save_strategy "steps" \
   --save_steps 50 \
   --save_total_limit 2 \

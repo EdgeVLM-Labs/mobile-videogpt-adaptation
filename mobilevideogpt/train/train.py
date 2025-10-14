@@ -1070,11 +1070,19 @@ def train():
 
     # Check if model is Qwen-based (handles both base Qwen2 models and Mobile-VideoGPT releases)
     if "Qwen2" in model_args.model_name_or_path or "Mobile-VideoGPT" in model_args.model_name_or_path:
+        # Determine dtype based on training args
+        if training_args.bf16:
+            torch_dtype = torch.bfloat16
+        elif training_args.fp16:
+            torch_dtype = torch.float16
+        else:
+            torch_dtype = torch.float32
+
         model = MobileVideoGPTQwenForCausalLM.from_pretrained(
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
             attn_implementation="flash_attention_2",
-            trust_remote_code=True,
+            torch_dtype=torch_dtype,
             num_select_k_frames_in_chunk=model_args.num_select_k_frames_in_chunk,
             topk = model_args.topk,
             **bnb_model_from_pretrained_args
