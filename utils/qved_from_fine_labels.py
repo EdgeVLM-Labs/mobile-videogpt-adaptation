@@ -4,12 +4,12 @@ import random
 from pathlib import Path
 from collections import defaultdict
 
-# CONFIG
-FINE_LABELS_JSON = "/abs/path/to/fine_grained_labels.json"
-OUTPUT_JSON = "playground/data/MobileGPT/qved_train.json"
-VIDEO_ROOT = "/abs/path/to/QVED_root"  # subfolders per exercise
-LIMIT_PER_CLASS = 100
-SYSTEM_PROMPT = "You are a concise fitness coach. Analyze the user's exercise and give corrective feedback."
+# Paths
+BASE_DIR = Path("dataset")
+FINE_LABELS_JSON = BASE_DIR / "ground_truth.json"
+OUTPUT_JSON = BASE_DIR / "qved_train.json"
+VIDEO_ROOT = BASE_DIR  # subfolders per exercise
+LIMIT_PER_CLASS = 10
 USER_PROMPT_TEMPLATE = "Analyze this {exercise} video and provide corrective feedback."
 SEED = 1337
 
@@ -70,7 +70,6 @@ def main():
         output_data.append({
             "video": video_rel,
             "conversations": [
-                {"from": "system", "value": SYSTEM_PROMPT},
                 {"from": "user", "value": user_prompt},
                 {"from": "assistant", "value": item['assistant']}
             ],
@@ -78,7 +77,7 @@ def main():
         })
 
     # Write output JSON
-    os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
+    OUTPUT_JSON.parent.mkdir(parents=True, exist_ok=True)
     with open(OUTPUT_JSON, 'w') as f:
         json.dump(output_data, f, indent=2)
 
