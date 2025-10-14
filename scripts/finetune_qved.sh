@@ -55,7 +55,7 @@ deepspeed mobilevideogpt/train/train.py \
   --mm_projector_lr $MM_PROJ_LR \
   --model_name_or_path "$BASE_LLM_PATH" \
   --version qwen2_instruct \
-  --dataset_use MobileGPT \
+  --dataset_use QVED \
   --vision_tower "$VISION_TOWER" \
   --image_vision_tower "$IMAGE_VISION_TOWER" \
   --mm_projector_type "$PROJECTOR_TYPE" \
