@@ -169,14 +169,36 @@ def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
 def find_all_linear_names(model):
     cls = torch.nn.Linear
     lora_module_names = set()
+    multimodal_keywords = ['mm_projector', 'vision_tower', 'image_vision_tower']
+
     for name, module in model.named_modules():
         if isinstance(module, cls):
-            names = name.split('.')
-            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
+            # Skip vision tower and projector layers
+            if any(mm_keyword in name for mm_keyword in multimodal_keywords):
+                continue
+            # Get the full path name for the linear layer
+            lora_module_names.add(name)
 
     if 'lm_head' in lora_module_names:  # needed for 16-bit
         lora_module_names.remove('lm_head')
-    return list(lora_module_names)
+
+    # If we have full path names, we need to convert to target patterns
+    # Extract just the linear layer names (e.g., 'q_proj', 'k_proj', 'v_proj', etc.)
+    target_modules = set()
+    for name in lora_module_names:
+        # Get the last component which should be the actual layer name
+        parts = name.split('.')
+        target_modules.add(parts[-1])
+
+    # Remove lm_head if present
+    target_modules.discard('lm_head')
+
+    # For Qwen2, typical LoRA targets are attention and MLP projections
+    # If target_modules is empty or has issues, use standard Qwen2 targets
+    if not target_modules:
+        target_modules = {'q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'}
+
+    return list(target_modules)
 
 
 def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
