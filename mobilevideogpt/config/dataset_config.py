@@ -109,7 +109,7 @@ ST_PERCEPTIONTEST_30_60_S ={
 
 # QVED dataset (auto-included if present)
 QVED_TRAIN = {
-    "annotation_path": f"{DATASET_DIR}/MobileGPT/qved_train.json",
-    "data_path": f"{DATASET_DIR}/MobileGPT",  # videos referenced relative to this
+    "annotation_path": "dataset/qved_train.json",
+    "data_path": "dataset",  # videos referenced relative to this
 }
 
