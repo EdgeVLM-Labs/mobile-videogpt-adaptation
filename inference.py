@@ -3,13 +3,9 @@ import os
 import warnings
 import logging
 
-# Suppress warnings at environment level
 os.environ['PYTHONWARNINGS'] = 'ignore'
-
-# Set warning filters at the very beginning
 warnings.filterwarnings("ignore")
 
-# Set logging levels to reduce verbosity
 logging.getLogger('mmengine').setLevel(logging.CRITICAL)
 logging.getLogger('transformers').setLevel(logging.CRITICAL)
 logging.getLogger('transformers.modeling_utils').setLevel(logging.CRITICAL)
@@ -19,10 +15,8 @@ from pathlib import Path
 from PIL import Image
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
-# Ensure Mobile-VideoGPT module is accessible
 sys.path.append("Mobile-VideoGPT")
 
-# Mobile-VideoGPT Imports
 from mobilevideogpt.utils import preprocess_input
 
 def load_model(pretrained_path: str, device: str = "cuda"):

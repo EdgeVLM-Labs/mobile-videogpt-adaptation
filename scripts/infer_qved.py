@@ -4,13 +4,10 @@ import warnings
 import logging
 import argparse
 
-# Suppress warnings at environment level
 os.environ['PYTHONWARNINGS'] = 'ignore'
 
-# Set warning filters at the very beginning
 warnings.filterwarnings("ignore")
 
-# Set logging levels to reduce verbosity
 logging.getLogger('mmengine').setLevel(logging.CRITICAL)
 logging.getLogger('transformers').setLevel(logging.CRITICAL)
 logging.getLogger('transformers.modeling_utils').setLevel(logging.CRITICAL)
@@ -19,10 +16,8 @@ import torch
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
-# Ensure Mobile-VideoGPT module is accessible
 sys.path.append(".")
 
-# Mobile-VideoGPT Imports
 from mobilevideogpt.utils import preprocess_input
 
 
@@ -74,7 +69,7 @@ def main():
     parser.add_argument(
         "--video_path",
         type=str,
-        default="sample_videos/00000340.mp4",
+        default="sample_videos/00017227.mp4",
         help="Path to the input video file"
     )
     parser.add_argument(
@@ -98,12 +93,10 @@ def main():
 
     args = parser.parse_args()
 
-    # Verify video file exists
     if not os.path.exists(args.video_path):
         print(f"❌ Error: Video file not found: {args.video_path}")
         sys.exit(1)
 
-    # Verify model path exists (for local paths)
     if not args.model_path.startswith("Amshaker/") and not os.path.exists(args.model_path):
         print(f"❌ Error: Model path not found: {args.model_path}")
         sys.exit(1)
