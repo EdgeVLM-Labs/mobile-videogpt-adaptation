@@ -20,6 +20,12 @@ PROJECTOR_TYPE="etp"
 # Output directory for finetuned model
 OUTPUT_DIR_PATH="results/qved_finetune_mobilevideogpt_0.5B"
 
+# Create output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR_PATH"
+
+# Log file for training output
+LOG_FILE="$OUTPUT_DIR_PATH/training_$(date +%Y%m%d_%H%M%S).log"
+
 # Training hyperparameters optimized for small dataset
 EPOCHS=10                    # More epochs for small dataset
 LR=1e-4                      # Conservative learning rate
@@ -35,6 +41,7 @@ echo "QVED Dataset Finetuning Configuration"
 echo "========================================="
 echo "Base Model: $BASE_LLM_PATH"
 echo "Output Dir: $OUTPUT_DIR_PATH"
+echo "Log File: $LOG_FILE"
 echo "Epochs: $EPOCHS"
 echo "Learning Rate: $LR"
 echo "Batch Size: $BATCH x $GACC accumulation steps = effective batch of $((BATCH * GACC))"
@@ -87,9 +94,26 @@ deepspeed mobilevideogpt/train/train.py \
   --lazy_preprocess True \
   --report_to none \
   --num_select_k_frames_in_chunk 4 \
-  --topk True
+  --topk True 2>&1 | tee "$LOG_FILE"
 
 echo "========================================="
 echo "Finetuning completed!"
 echo "Model saved to: $OUTPUT_DIR_PATH"
+echo "Log saved to: $LOG_FILE"
+echo "========================================="
+
+# Generate training plots
+echo ""
+echo "Generating training plots..."
+python utils/plot_training_stats.py \
+  --log_file "$LOG_FILE" \
+  --model_name "qved_finetune_mobilevideogpt_0.5B"
+
+if [ $? -eq 0 ]; then
+    echo "✓ Training plots generated successfully!"
+    echo "  Location: plots/qved_finetune_mobilevideogpt_0.5B/"
+else
+    echo "⚠ Warning: Failed to generate plots. You can generate them later with:"
+    echo "  python utils/plot_training_stats.py --log_file $LOG_FILE"
+fi
 echo "========================================="
