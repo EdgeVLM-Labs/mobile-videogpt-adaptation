@@ -15,21 +15,58 @@ logging.getLogger('transformers.modeling_utils').setLevel(logging.CRITICAL)
 import torch
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from peft import PeftModel
 
 sys.path.append(".")
 
 from mobilevideogpt.utils import preprocess_input
 
 
-def load_model(pretrained_path: str, device: str = "cuda"):
-    """Loads the pre-trained model and tokenizer."""
-    config = AutoConfig.from_pretrained(pretrained_path)
-    tokenizer = AutoTokenizer.from_pretrained(pretrained_path, use_fast=False)
-    model = AutoModelForCausalLM.from_pretrained(
-        pretrained_path,
-        config=config,
-        torch_dtype=torch.float16
-    )
+def load_model(pretrained_path: str, device: str = "cuda", base_model: str = "Amshaker/Mobile-VideoGPT-0.5B"):
+    """Loads the pre-trained model and tokenizer.
+
+    Args:
+        pretrained_path: Path to finetuned model (can be checkpoint or base dir with LoRA adapters)
+        device: Device to load model on
+        base_model: Base model to use when loading LoRA adapters
+    """
+    # Check if this is a LoRA checkpoint or full model
+    is_lora_checkpoint = False
+    adapter_path = pretrained_path
+
+    # If it's a checkpoint-* directory, it contains LoRA adapters
+    if "checkpoint-" in pretrained_path:
+        is_lora_checkpoint = True
+    # If it's the base finetuning dir, check for adapter files
+    elif os.path.exists(os.path.join(pretrained_path, "adapter_config.json")):
+        is_lora_checkpoint = True
+
+    if is_lora_checkpoint:
+        print(f"Loading LoRA adapters from: {adapter_path}")
+        print(f"Base model: {base_model}")
+
+        # Load base model first
+        config = AutoConfig.from_pretrained(base_model)
+        tokenizer = AutoTokenizer.from_pretrained(base_model, use_fast=False)
+        model = AutoModelForCausalLM.from_pretrained(
+            base_model,
+            config=config,
+            torch_dtype=torch.float16
+        )
+
+        # Load LoRA adapters
+        model = PeftModel.from_pretrained(model, adapter_path)
+        model = model.merge_and_unload()  # Merge LoRA weights into base model
+    else:
+        # Load full model directly
+        config = AutoConfig.from_pretrained(pretrained_path)
+        tokenizer = AutoTokenizer.from_pretrained(pretrained_path, use_fast=False)
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_path,
+            config=config,
+            torch_dtype=torch.float16
+        )
+
     model.to(device)
     return model, tokenizer
 
@@ -90,6 +127,12 @@ def main():
         default=512,
         help="Maximum number of new tokens to generate"
     )
+    parser.add_argument(
+        "--base_model",
+        type=str,
+        default="Amshaker/Mobile-VideoGPT-0.5B",
+        help="Base model to use when loading LoRA adapters"
+    )
 
     args = parser.parse_args()
 
@@ -102,7 +145,7 @@ def main():
         sys.exit(1)
 
     print(f"📦 Loading model from: {args.model_path}")
-    model, tokenizer = load_model(args.model_path, device=args.device)
+    model, tokenizer = load_model(args.model_path, device=args.device, base_model=args.base_model)
 
     print(f"🎥 Processing video: {args.video_path}")
     print(f"💬 Prompt: {args.prompt}")
