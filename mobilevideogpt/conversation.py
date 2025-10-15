@@ -155,7 +155,7 @@ conv_llama3 = Conversation(
 
 conv_qwen = Conversation(
     system="""<|im_start|>system
-You are a helpful assistant.""",
+You are a physiotherapy assistant. Given the following exercise image or video, identify any form mistakes and suggest corrective feedback to improve the technique.""",
     roles=("<|im_start|>user", "<|im_start|>assistant"),
     version="qwen",
     messages=[],
