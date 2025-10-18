@@ -52,12 +52,12 @@ conda activate mobile_videogpt
 
 python -c "import torch; print(f'torch version: {torch.__version__}')"
 
-pip install -e causal-conv1d
-pip install -e causal-conv1d --no-build-isolation
+# pip install -e causal-conv1d
+# pip install -e causal-conv1d --no-build-isolation
 pip install causal-conv1d
 python -c "import causal_conv1d; print(f'causal_conv1d version: {causal_conv1d.__version__}')"
 
-pip install -e mamba
+# pip install -e mamba
 pip install mamba
 pip install mamba_ssm
 
@@ -75,12 +75,6 @@ python setup.py install
 pip install flash-attn --no-build-isolation
 python -c "import flash_attn; print(f'flash_attn version: {flash_attn.__version__}')"
 cd ..
-
-# --------------------------------------------------
-# 4️⃣ Final touches
-# --------------------------------------------------
-echo "🧩 Installing development tools and extras..."
-# pip install deepspeed accelerate ipykernel notebook tqdm
 
 echo "✅ Setup complete!"
 echo "🚀 Mobile-VideoGPT environment is ready."
