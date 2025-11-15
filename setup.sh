@@ -24,7 +24,6 @@ pip install --upgrade pip
 
 apt-get update
 
-conda install -c nvidia cuda-toolkit=11.8 -y
 # python3 -m venv venv
 # source venv/bin/activate
 
@@ -51,9 +50,9 @@ echo "🎥 Installing VideoMamba..."
 git clone https://github.com/OpenGVLab/VideoMamba.git
 cd VideoMamba
 
-pip install torch==2.1.2 torchvision==0.16.2 torchaudio --index-url https://download.pytorch.org/whl/cu118
+# pip install torch==2.1.2 torchvision==0.16.2 torchaudio --index-url https://download.pytorch.org/whl/cu118
 
-pip install bitsandbytes==0.41.1
+# pip install bitsandbytes==0.41.1
 
 echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
@@ -67,11 +66,16 @@ python -c "import torch; print(f'torch version: {torch.__version__}')"
 # pip install -e causal-conv1d
 # pip install -e causal-conv1d --no-build-isolation
 pip install causal-conv1d
+
+# pip install https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.2.0.post2/causal_conv1d-1.2.0.post2+cu118torch2.1cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
+
 python -c "import causal_conv1d; print(f'causal_conv1d version: {causal_conv1d.__version__}')"
 
 # pip install -e mamba
 pip install mamba
 pip install mamba_ssm
+
+# pip install https://github.com/state-spaces/mamba/releases/download/v1.2.0.post1/mamba_ssm-1.2.0.post1+cu118torch2.1cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
 
 cd ..
 
@@ -121,6 +125,8 @@ try:
 except ImportError:
     print('❌ Flash Attention not installed')
 "
+
+conda install -c nvidia cuda-toolkit=11.8 -y
 
 echo "✅ Setup complete!"
 echo "🚀 Mobile-VideoGPT environment is ready."
