@@ -2,6 +2,8 @@
 # ==========================================
 # Setup Script for Mobile-VideoGPT
 # Based on: https://github.com/Amshaker/Mobile-VideoGPT#installation
+#
+# Use runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04 as base image
 # ==========================================
 
 echo "🔧 Creating workspace..."
@@ -22,7 +24,7 @@ conda activate mobile_videogpt
 
 pip install --upgrade pip
 
-apt-get update
+# apt-get update
 
 # python3 -m venv venv
 # source venv/bin/activate
@@ -79,6 +81,12 @@ pip install mamba_ssm
 
 cd ..
 
+# 1. Verify setup
+bash scripts/verify_qved_setup.sh
+
+# 3. Start finetuning (one command)
+bash scripts/quickstart_finetune.sh
+
 # --------------------------------------------------
 # 3️⃣ Install FlashAttention for faster training
 # --------------------------------------------------
@@ -90,7 +98,7 @@ pip install ninja packaging wheel
 # python setup.py install
 
 pip uninstall -y torch torchvision torchaudio
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 python -c "import transformers; print(f'Transformers: {transformers.__version__}')"
 python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.version.cuda}')"
@@ -126,7 +134,18 @@ except ImportError:
     print('❌ Flash Attention not installed')
 "
 
-conda install -c nvidia cuda-toolkit=11.8 -y
+# conda install -c nvidia cuda-toolkit=12.1 -y
+
+bash scripts/quickstart_finetune.sh
+
+pip uninstall mamba-ssm causal-conv1d
+
+pip cache purge
+
+pip install mamba-ssm causal-conv1d --no-cache-dir --no-build-isolation
+
+apt-get update
+apt-get install texlive texlive-latex-extra texlive-fonts-recommended dvipng cm-super
 
 echo "✅ Setup complete!"
 echo "🚀 Mobile-VideoGPT environment is ready."
