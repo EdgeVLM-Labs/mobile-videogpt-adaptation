@@ -6,13 +6,13 @@
 
 echo "🔧 Creating workspace..."
 
-cd /workspace
+cd ..
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
 bash miniconda.sh -b -p $HOME/miniconda
 export PATH="$HOME/miniconda/bin:$PATH"
-# conda init bash
-# source ~/.bashrc
-source $HOME/miniconda/etc/profile.d/conda.sh
+conda init bash
+source ~/.bashrc
+# source $HOME/miniconda/etc/profile.d/conda.sh
 
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
@@ -33,6 +33,9 @@ echo "📦 Cloning repositories..."
 # 1️⃣ Install base dependencies
 # --------------------------------------------------
 echo "🧱 Installing base Python packages..."
+
+cd mobile-videogpt-adaptation/
+
 pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu118
 
 pip install transformers==4.41.0
@@ -50,8 +53,11 @@ cd VideoMamba
 
 pip install torch==2.1.2 torchvision==0.16.2 torchaudio --index-url https://download.pytorch.org/whl/cu118
 
+pip install bitsandbytes==0.41.1
+
 echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc
-# source ~/.bashrc
+source ~/.bashrc
+
 which nvcc
 
 conda activate mobile_videogpt
