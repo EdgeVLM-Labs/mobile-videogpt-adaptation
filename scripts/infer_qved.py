@@ -106,7 +106,7 @@ def main():
     parser.add_argument(
         "--video_path",
         type=str,
-        default="sample_videos/00017227.mp4",
+        default="sample_videos/00000340.mp4",
         help="Path to the input video file"
     )
     parser.add_argument(

@@ -43,14 +43,14 @@ if [ -n "$LATEST_CKPT" ]; then
     echo "To use the finetuned model:"
     echo "  python scripts/infer_qved.py \\"
     echo "    --model_path $LATEST_CKPT \\"
-    echo "    --video_path sample_videos/00017227,mp4"
+    echo "    --video_path sample_videos/00000340.mp4"
 else
     echo "Note: LoRA adapters saved in results/qved_finetune_mobilevideogpt_0.5B/"
     echo ""
     echo "To use the finetuned model:"
     echo "  python scripts/infer_qved.py \\"
     echo "    --model_path results/qved_finetune_mobilevideogpt_0.5B \\"
-    echo "    --video_path sample_videos/00017227.mp4"
+    echo "    --video_path sample_videos/00000340.mp4"
 fi
 echo ""
 echo "Adjustable parameters in scripts/infer_qved.py:"
