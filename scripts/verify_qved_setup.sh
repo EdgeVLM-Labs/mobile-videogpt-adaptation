@@ -110,10 +110,21 @@ fi
 
 # Check conda environment
 echo -e "\n[5] Checking conda environment..."
-if conda env list | grep -q "mobile_videogpt"; then
-    echo "✓ Conda environment 'mobile_videogpt' exists"
+if command -v conda &> /dev/null; then
+    if conda env list | grep -q "mobile_videogpt"; then
+        echo "✓ Conda environment 'mobile_videogpt' exists"
+    else
+        echo "✗ Conda environment 'mobile_videogpt' NOT found"
+    fi
+elif command -v python &> /dev/null; then
+    python_path=$(which python)
+    if [[ $python_path == *"mobile_videogpt"* ]]; then
+        echo "✓ Python environment 'mobile_videogpt' is active"
+    else
+        echo "⚠ Conda not found, but Python is available at: $python_path"
+    fi
 else
-    echo "✗ Conda environment 'mobile_videogpt' NOT found"
+    echo "✗ Neither conda nor python found"
 fi
 
 # Check GPU availability
