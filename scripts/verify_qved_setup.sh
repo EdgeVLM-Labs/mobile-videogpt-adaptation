@@ -27,7 +27,24 @@ fi
 
 # Check video files
 echo -e "\n[2] Checking video files..."
-exercise_dirs=("knee_circles" "opposite_arm_and_leg_lifts_on_knees" "pushups_on_knees" "squat_jump" "squats" "tricep_stretch")
+
+exercise_dirs=(
+  "alternating_single_leg_glutes_bridge"
+  "cat-cow_pose"
+  "elbow_plank"
+  "glute_hamstring_walkout"
+  "glutes_bridge"
+  "heel_lift"
+  "high_plank"
+  "lunges_leg_out_in_front"
+  "opposite_arm_and_leg_lifts_on_knees"
+  "pushups"
+  "side_plank"
+  "squats"
+  "toe_touch"
+  "tricep_stretch"
+)
+
 for dir in "${exercise_dirs[@]}"; do
     if [ -d "dataset/$dir" ]; then
         num_videos=$(ls -1 dataset/$dir/*.mp4 2>/dev/null | wc -l)
