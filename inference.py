@@ -3,13 +3,9 @@ import os
 import warnings
 import logging
 
-# Suppress warnings at environment level
 os.environ['PYTHONWARNINGS'] = 'ignore'
-
-# Set warning filters at the very beginning
 warnings.filterwarnings("ignore")
 
-# Set logging levels to reduce verbosity
 logging.getLogger('mmengine').setLevel(logging.CRITICAL)
 logging.getLogger('transformers').setLevel(logging.CRITICAL)
 logging.getLogger('transformers.modeling_utils').setLevel(logging.CRITICAL)
@@ -19,10 +15,8 @@ from pathlib import Path
 from PIL import Image
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
-# Ensure Mobile-VideoGPT module is accessible
 sys.path.append("Mobile-VideoGPT")
 
-# Mobile-VideoGPT Imports
 from mobilevideogpt.utils import preprocess_input
 
 def load_model(pretrained_path: str, device: str = "cuda"):
@@ -67,8 +61,7 @@ def run_inference(model, tokenizer, video_path: str, prompt: str):
 def main():
     pretrained_path = "Amshaker/Mobile-VideoGPT-0.5B"
     video_path = "sample_videos/00000340.mp4"
-    # prompt = "Can you describe what is happening in the video in detail?"
-    prompt = "Identify the exercise the user is doing, then correct if any incorrect way the user is performing the exercise and provide suggestions for improvement."
+    prompt = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
     model, tokenizer = load_model(pretrained_path)
     output = run_inference(model, tokenizer, video_path, prompt)
     print("🤖 Mobile-ViideoGPT Output: ", output)

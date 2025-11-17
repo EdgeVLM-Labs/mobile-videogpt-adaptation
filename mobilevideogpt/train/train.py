@@ -60,7 +60,7 @@ class ModelArguments:
     mm_projector_type: Optional[str] = field(default='mlp2x_gelu')
     image_mm_projector_type: Optional[str] = field(default='mlp2x_gelu')
     mm_use_box_start_end: bool = field(default=False)
-    num_select_k_frames_in_chunk: Optional[int] = field(default=None) 
+    num_select_k_frames_in_chunk: Optional[int] = field(default=None)
     topk: Optional[bool] =  field(default=True)
 
 
@@ -169,14 +169,36 @@ def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
 def find_all_linear_names(model):
     cls = torch.nn.Linear
     lora_module_names = set()
+    multimodal_keywords = ['mm_projector', 'vision_tower', 'image_vision_tower']
+
     for name, module in model.named_modules():
         if isinstance(module, cls):
-            names = name.split('.')
-            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
+            # Skip vision tower and projector layers
+            if any(mm_keyword in name for mm_keyword in multimodal_keywords):
+                continue
+            # Get the full path name for the linear layer
+            lora_module_names.add(name)
 
     if 'lm_head' in lora_module_names:  # needed for 16-bit
         lora_module_names.remove('lm_head')
-    return list(lora_module_names)
+
+    # If we have full path names, we need to convert to target patterns
+    # Extract just the linear layer names (e.g., 'q_proj', 'k_proj', 'v_proj', etc.)
+    target_modules = set()
+    for name in lora_module_names:
+        # Get the last component which should be the actual layer name
+        parts = name.split('.')
+        target_modules.add(parts[-1])
+
+    # Remove lm_head if present
+    target_modules.discard('lm_head')
+
+    # For Qwen2, typical LoRA targets are attention and MLP projections
+    # If target_modules is empty or has issues, use standard Qwen2 targets
+    if not target_modules:
+        target_modules = {'q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'}
+
+    return list(target_modules)
 
 
 def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
@@ -594,15 +616,15 @@ def preprocess_qwen(sources, tokenizer: transformers.PreTrainedTokenizer, has_im
     # When there is actually an image, we add the image tokens as a special token
     if has_image:
         tokenizer.add_tokens(["<image>"], special_tokens=True)
-    
+
     #print("tokenizer.additional_special_tokens_ids are ",tokenizer.additional_special_tokens_ids)
     #print("tokenizer.additional_special_tokens_ids are ",tokenizer.additional_special_tokens)
     #im_start = tokenizer.additional_special_tokens.index('<|im_start|>')
     #im_end = tokenizer.additional_special_tokens.index('<|im_end|>')
     #image_token_index = tokenizer.additional_special_tokens.index('<image>')
-    
+
     #im_start, im_end, image_token_index = tokenizer.additional_special_tokens_ids
-    
+
     special_tokens_idx = tokenizer.additional_special_tokens_ids
 
     image_token_index = special_tokens_idx[-1]
@@ -643,7 +665,7 @@ def preprocess_qwen(sources, tokenizer: transformers.PreTrainedTokenizer, has_im
                 content = conv["value"]
 
             role =  roles.get(role, role)
-            
+
             conv = [{"role" : role, "content" : content}]
             encode_id = tokenizer.apply_chat_template(conv)
             input_id += encode_id
@@ -651,9 +673,9 @@ def preprocess_qwen(sources, tokenizer: transformers.PreTrainedTokenizer, has_im
                 target += [IGNORE_INDEX] * len(encode_id)
             else:
                 target += encode_id
-        
 
-                    
+
+
         assert len(input_id) == len(target), f"{len(input_id)} != {len(target)}"
         for idx, encode_id in enumerate(input_id):
             if encode_id in unmask_tokens_idx:
@@ -896,13 +918,13 @@ class DataCollatorForSupervisedDataset(object):
         labels = labels[:, :self.tokenizer.model_max_length]
         attention_mask = input_ids.ne(self.tokenizer.pad_token_id)  # pyre-fixme
         image_position=14
-        
+
         #print("input_ids[0] is: ", input_ids[0])
         #print("length of input_ids[0] is: ", len(input_ids[0]))
         #print("length of labels[0]: ", len(labels[0]))
         #print("length of attention_mask[0]: ", len(attention_mask[0]))
         # insert dummy image
-        
+
         for i in range(len(input_ids)):
 
             #print("length of input_ids[i] is: ", len(input_ids[i]))
@@ -932,12 +954,12 @@ class DataCollatorForSupervisedDataset(object):
                 ]
                 cur_attention_mask_tmp[image_position] = False
                 attention_mask[i] = cur_attention_mask_tmp
-        
+
         batch = dict(
             input_ids=input_ids,
             labels=labels,
 	    attention_mask=attention_mask)
-        
+
         #print("instances is: ", instances)
         if 'image' in instances[0]:  # Alternatively if 'context_image' in instances[0]
             images = [instance['image'] for instance in instances]
@@ -1068,11 +1090,21 @@ def train():
             model_args.vision_tower = f"{model_args.vision_tower}/videomamba_m16_25M_f8_res224.pth"
     print(" model_args.model_name_or_path: ",  model_args.model_name_or_path)
 
-    if "Qwen2" in model_args.model_name_or_path:
+    # Check if model is Qwen-based (handles both base Qwen2 models and Mobile-VideoGPT releases)
+    if "Qwen2" in model_args.model_name_or_path or "Mobile-VideoGPT" in model_args.model_name_or_path:
+        # Determine dtype based on training args
+        if training_args.bf16:
+            torch_dtype = torch.bfloat16
+        elif training_args.fp16:
+            torch_dtype = torch.float16
+        else:
+            torch_dtype = torch.float32
+
         model = MobileVideoGPTQwenForCausalLM.from_pretrained(
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
             attn_implementation="flash_attention_2",
+            torch_dtype=torch_dtype,
             num_select_k_frames_in_chunk=model_args.num_select_k_frames_in_chunk,
             topk = model_args.topk,
             **bnb_model_from_pretrained_args
@@ -1200,7 +1232,7 @@ def train():
     sum_parameters_at_one_level(model, "base_model.model.model")
     print(f"Total parameters: {total_params}")  # Fixme: Sometimes it shows wrong total params, not sure why
     print(f"Trainable parameters: {trainable_params}")
-    
+
     if training_args.bits in [4, 8]:
         from peft.tuners.lora import LoraLayer
         for name, module in model.named_modules():

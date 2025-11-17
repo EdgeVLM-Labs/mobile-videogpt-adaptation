@@ -15,6 +15,7 @@
 #### **<sup>1</sup> Mohamed bin Zayed University of Artificial Intelligence**, <sup>2</sup>Monash University
 
 ---
+
 [![Paper](https://img.shields.io/badge/arXiv-Paper-blue.svg)](https://arxiv.org/abs/2503.21782)
 [![YouTube](https://badges.aleen42.com/src/youtube.svg)](https://youtu.be/6Ueqq_D_mR0)
 [![Models](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue)](https://huggingface.co/collections/Amshaker/mobile-videogpt-fast-and-accurate-video-understanding-langu-67dc745074f8dd68d93b6b92)
@@ -22,11 +23,12 @@
 
 ---
 
-
 ## :rocket: News
+
 - **02-7-2025**: Deployed Mobile-VideoGPT-0.5B and LLaVa-One-Vision-0.5B on Jetson Orin Nano.
-📈 Mobile-VideoGPT achieved 7.3 tokens/sec, more than 2× faster than LLaVa-One-Vision (3.4 tokens/sec). Mobile-VideoGPT is optimized for efficient on-device video understanding.   :fire::fire:
+  📈 Mobile-VideoGPT achieved 7.3 tokens/sec, more than 2× faster than LLaVa-One-Vision (3.4 tokens/sec). Mobile-VideoGPT is optimized for efficient on-device video understanding. :fire::fire:
 - **28-3-2025**: Mobile-VideoGPT paper, model checkpoints, training and evaluation codes are released. :fire::fire:
+
 ---
 
 ## Mobile-VideoGPT Overview:
@@ -38,15 +40,17 @@ we propose Mobile-VideoGPT, an efficient multimodal framework designed to operat
 </p>
 
 ---
+
 ## Evaluation Summary: Performance on 6 Benchmarks and Inference Throughput (Tokens per Second) on Jetson Orin Nano and RTX A6000
 
 <p align="center">
   <img src="docs/images/Intro_figure_3.png" alt="Throughput" width="800">
 </p>
 
-## 🛠️ Installation 
+## 🛠️ Installation
 
 We recommend setting up a conda environment for the project:
+
 ```shell
 conda create --name=mobile_videogpt python=3.11
 conda activate mobile_videogpt
@@ -61,14 +65,18 @@ pip install -r requirements.txt
 
 export PYTHONPATH="./:$PYTHONPATH"
 ```
+
 Install [VideoMamba](https://github.com/OpenGVLab/VideoMamba). VideoMamba is the efficient video encoder in our architecture. Clone and install it using the following commands:
+
 ```shell
 git clone https://github.com/OpenGVLab/VideoMamba
 cd VideoMamba
 pip install -e causal-conv1d
 pip install -e mamba
 ```
+
 Additionally, install [FlashAttention](https://github.com/HazyResearch/flash-attention) for training,
+
 ```shell
 pip install ninja
 
@@ -76,6 +84,7 @@ git clone https://github.com/HazyResearch/flash-attention.git
 cd flash-attention
 python setup.py install
 ```
+
 ---
 
 ## 🔥 Running Inference
@@ -93,7 +102,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from mobilevideogpt.utils import preprocess_input
 
 # Model and tokenizer paths
-pretrained_path = "Amshaker/Mobile-VideoGPT-1.5B" 
+pretrained_path = "Amshaker/Mobile-VideoGPT-1.5B"
 video_path = "sample_videos/v_JspVuT6rsLA.mp4"
 prompt = "Can you describe what is happening in the video in detail?"
 
@@ -131,20 +140,27 @@ if outputs.endswith(stop_str):
 
 print("🤖 Mobile-VideoGPT Output:", outputs)
 ```
+
 ✅ Expected Output:
+
 ```
 🤖 Mobile-ViideoGPT Output:  In the video, a young boy is playing the violin in front of an adult who is playing the piano. The boy appears to be focused on his performance and is wearing a blue shirt with white stripes down the sleeves. He plays the violin with great concentration and skill, moving his fingers along the strings with precision. Meanwhile, the adult pianist sits behind him and plays the piano alongside him. Both musicians are dressed casually, suggesting that they may be practicing or performing for friends or family. The setting seems to be a cozy room with wooden flooring, giving it a warm and inviting atmosphere. Overall, this video showcases two talented musicians sharing a moment of musical collaboration, creating beautiful music together.
 ```
+
 ## Quantitative Evaluation 📊
+
 We provide instructions on how to reproduce Mobile-VideoGPT-0.5B and Mobile-VideoGPT-1.5B results on MVBench, PerceptionTest, NextQA, MLVU, EgoSchema, and ActNet-QA. Please follow the instructions at [eval/README.md](eval/README.md).
 
 ### Benchmark Evaluation :bar_chart:
+
 <p align="center">
   <img src="docs/images/overall_comparison.png" alt="All_benchmarks" width="1000">
 </p>
 
 ---
+
 ### Detailed Evaluation on MVBench :movie_camera:
+
 <p align="center">
   <img src="docs/images/mvbench_comparison.png" alt="MVBench_quantitative">
 </p>
@@ -152,10 +168,21 @@ We provide instructions on how to reproduce Mobile-VideoGPT-0.5B and Mobile-Vide
 ---
 
 ## Training :train:
+
 We provide unified scripts for pretraining and finetuning of Mobile-VideoGPT. Please follow the instructions at [scripts/README.md](scripts/README.md).
 
+### QVED Fine-Tuning (Stage-3 Only)
+
+To fine-tune Stage-3 on QVED dataset:
+
+1. `python tools/qved_from_fine_labels.py`
+2. `bash scripts/finetune_qved.sh`
+3. `python scripts/infer_qved.py`
+
 ---
+
 ## Qualitative Examples:
+
 Qualitative comparison between the proposed Mobile Video-GPT-0.5B, LLaVA-OneVision-0.5B, and LLaVa-Mini-8B. The output highlights both video comprehension quality and speed performance in terms of latency and throughput (tokens per second):
 
 <p align="center">
@@ -177,6 +204,7 @@ Our codebase is built upon [Video-GPT+](https://github.com/mbzuai-oryx/Video-Cha
 ## Citations 📜:
 
 If you're using Mobile-VideoGPT in your research or applications, please cite using this BibTeX:
+
 ```bibtex
 @article{Shaker2025MobileVideoGPT,
     title={Mobile-VideoGPT: Fast and Accurate Video Understanding Language Model},
@@ -188,6 +216,7 @@ If you're using Mobile-VideoGPT in your research or applications, please cite us
 ```
 
 ## License :scroll:
+
 <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc-sa/4.0/80x15.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/">Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License</a>.
 
 Looking forward to your feedback, contributions, and stars! :star2:
@@ -195,5 +224,6 @@ Looking forward to your feedback, contributions, and stars! :star2:
 If you have any questions, please create an issue on this repository or contact me at abdelrahman.youssief@mbzuai.ac.ae.
 
 ---
+
 [<img src="docs/images/IVAL_logo.png" width="200" height="100">](https://www.ival-mbzuai.com)
 [<img src="docs/images/MBZUAI_logo.png" width="360" height="85">](https://mbzuai.ac.ae)

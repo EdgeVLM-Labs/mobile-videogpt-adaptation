@@ -68,23 +68,28 @@ class MetaModel:
             self.vision_tower = vision_tower
             self.image_vision_tower = image_vision_tower
 
+        # Load pretrained adapters if provided, else use adapters from base model
         if pretrain_mm_mlp_adapter is not None:
-            print(f"Initializing projector from {pretrain_mm_mlp_adapter}")
+            print(f"Initializing video projector from {pretrain_mm_mlp_adapter}")
             mm_projector_weights = torch.load(pretrain_mm_mlp_adapter, map_location='cpu')
 
             def get_w(weights, keyword):
                 return {k.split(keyword + '.')[1]: v for k, v in weights.items() if keyword in k}
 
             self.mm_projector.load_state_dict(get_w(mm_projector_weights, 'mm_projector'))
+        else:
+            print("Using video projector from base model checkpoint")
 
         if pretrain_image_mm_mlp_adapter is not None:
-            print(f"Initializing projector from {pretrain_image_mm_mlp_adapter}")
+            print(f"Initializing image projector from {pretrain_image_mm_mlp_adapter}")
             mm_projector_weights = torch.load(pretrain_image_mm_mlp_adapter, map_location='cpu')
 
             def get_w(weights, keyword):
                 return {k.split(keyword + '.')[1]: v for k, v in weights.items() if keyword in k}
 
             self.image_mm_projector.load_state_dict(get_w(mm_projector_weights, 'mm_projector'))
+        else:
+            print("Using image projector from base model checkpoint")
 
 
 def apply_adaptive_avg_pooling(x, shape=(12, 12)):
@@ -134,7 +139,7 @@ class MobileVideoGPTMetaForCausalLM(ABC):
         dtype = current_video.dtype
         B, T, L, D = current_video.shape  # Batch size, number of frames, tokens per frame, token dimension
         tokens = current_video.view(B, T * L, D)  # Shape: (B, T*L, D)
-        
+
         # Compute attention logits
         attn_logits = torch.matmul(tokens, tokens.transpose(-1, -2)) / math.sqrt(D)
         attn_weights = F.softmax(attn_logits, dim=-1)  # Shape: (B, T*L, T*L)
@@ -142,23 +147,23 @@ class MobileVideoGPTMetaForCausalLM(ABC):
         # Create a mapping from tokens to their respective frames
         frame_indices = torch.arange(T, device=device, dtype=torch.long).repeat_interleave(L)  # Shape: (T * L,)
         frame_indices = frame_indices.unsqueeze(0).expand(B, -1)  # Shape: (B, T * L)
-        
+
         # Create a frame mask to identify which tokens belong to which frames
         frame_masks = F.one_hot(frame_indices, num_classes=T).to(device=device, dtype=dtype)  # Shape: (B, T * L, T)
-        
+
         # Compute attention received by each token from tokens in each frame
         attention_received_per_token = torch.matmul(attn_weights, frame_masks)  # Shape: (B, T * L, T)
-        
+
         # Sum over all tokens to get total attention received by each frame
         total_attention_received_per_frame = attention_received_per_token.sum(dim=1)  # Shape: (B, T)
-        
+
         # Select the top K frames based on the total attention received
         if self.topK==False:
             topk_scores, topk_indices = torch.topk(total_attention_received_per_frame, k=num_topK, dim=-1,largest=False) # smallest topk
         else:
             topk_scores, topk_indices = torch.topk(total_attention_received_per_frame, k=num_topK, dim=-1)
         sorted_indices, _ = topk_indices.sort(dim=1)
-        
+
 
         return sorted_indices,current_video
 
@@ -169,7 +174,7 @@ class MobileVideoGPTMetaForCausalLM(ABC):
         num_chunks = frames.shape[1] // CHUNK_SIZE
         L= 49 # pooled length for video features (7,7)
         D = 576  # Feature dimension of VideoMamba
-        
+
         num_imgs=context_images.shape[1]
         topK=self.num_select_k_frames_in_chunk
         video_features = torch.zeros(batch_size, num_chunks, topK * L, D, device=frames.device, dtype=frames.dtype)
@@ -179,7 +184,7 @@ class MobileVideoGPTMetaForCausalLM(ABC):
             cur_context_images=context_image_features[i]
             chunks = cur_context_images.chunk(num_chunks, dim=0)
             video_chunks = cur_video.chunk(num_chunks, dim=0)
-            
+
             chunk_batch = torch.stack(chunks, dim=0)
             video_batch =  torch.stack(video_chunks, dim=0)
 
@@ -187,28 +192,28 @@ class MobileVideoGPTMetaForCausalLM(ABC):
 
             seleted_indices,pooled_image_features = self.select_frame_in_chunk(chunk_features,batch_size)
             batch_indices = torch.arange(num_chunks).unsqueeze(1).repeat(1, topK).to(seleted_indices.device)  # Shape (B, K)
-            
+
             select_video = video_batch[batch_indices, seleted_indices]
 
             select_video = rearrange(select_video,'p t c h w -> (p t) c h w')
 
             select_video_feature = self.get_model().get_vision_tower()(select_video.unsqueeze(0))[0][:, 1:]  # (num_chunks, 8*L, D)
             select_video_feature = rearrange(select_video_feature, 'c (t l) d -> (c t) l d', t=8)
-            
+
             pooled_video_features = apply_adaptive_avg_pooling(select_video_feature, shape=(7, 7))
-            
+
             pooled_video_features = rearrange(pooled_video_features, '(p t) l d -> p t l d', p=num_chunks) # （P,T,L,D)
-            
+
             video_features[i] = rearrange(pooled_video_features,'p c l d -> p (c l) d')
 
-        video_features = rearrange(video_features, 'b p (c l) d -> (b p) (c l) d', c=topK)# c=CHUNK_SIZE) 
+        video_features = rearrange(video_features, 'b p (c l) d -> (b p) (c l) d', c=topK)# c=CHUNK_SIZE)
 
         return video_features, context_image_features
 
     def project(self, video_features, context_features=None, input_type="image"):
         if input_type == "video":
             video_features = self.get_model().mm_projector(video_features)
-            context_image_features = self.get_model().image_mm_projector(context_features)            
+            context_image_features = self.get_model().image_mm_projector(context_features)
             context_image_features = rearrange(context_image_features, '(b t) l d -> b (t l) d',
                                                b=video_features.shape[0])
             merged_features = []
@@ -236,25 +241,25 @@ class MobileVideoGPTMetaForCausalLM(ABC):
             raise NotImplementedError("Either image_encoder or video_encoder should not be None.")
 
         return context_features
-    
+
     def filter_tensors(self,input_ids, attention_mask, labels, K):
         B, L = input_ids.shape
         filtered_input_ids_list = []
         filtered_attention_mask_list = []
         filtered_labels_list = []
-        
+
         for batch_idx in range(B):
             # Find the positions of -200 in input_ids
             neg_200_positions = (input_ids[batch_idx] == -200).nonzero(as_tuple=True)[0]
-            
+
             if len(neg_200_positions) > 0:
                 # Get the start and end index of contiguous -200 positions
                 start_index = neg_200_positions[0].item()
                 end_index = neg_200_positions[-1].item() + 1  # Add 1 to make it inclusive
-                
+
                 # Determine the number of -200 to keep, which is K
                 new_end_index = start_index + K  # We keep the first K items
-                
+
                 # Create new filtered tensors by concatenating parts before and after the truncated -200 range
                 new_input_ids = torch.cat([
                     input_ids[batch_idx, :new_end_index],  # Keep values up to new_end_index
@@ -275,7 +280,7 @@ class MobileVideoGPTMetaForCausalLM(ABC):
                     ])
                 else:
                     new_labels = None
-                
+
             else:
                 # If no -200 found, keep the original values
                 new_input_ids = input_ids[batch_idx]
@@ -386,7 +391,7 @@ class MobileVideoGPTMetaForCausalLM(ABC):
                             print(f"self.num_select_k_frames_in_chunk = {self.num_select_k_frames_in_chunk}")
                         cur_image_features = self.project(cur_image_features, context_features[batch_idx],
                                                           input_type="video")
-                                                  
+
                         t, l, n = cur_image_features.size()
                         cur_image_features = cur_image_features.contiguous().view(t * l, n)
                     else:

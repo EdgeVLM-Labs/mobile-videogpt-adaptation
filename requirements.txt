@@ -30,3 +30,7 @@ hf_transfer
 pytablewriter
 openai==1.54.0
 numpy<2.0
+huggingface_hub
+opencv-python
+deepspeed
+peft==0.10.0
