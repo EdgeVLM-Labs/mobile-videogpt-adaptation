@@ -105,7 +105,8 @@ def run_inference(model, tokenizer, video_processor, image_processor,
     with torch.inference_mode():
         output_ids = model.generate(
             input_ids,
-            images=[video_frames, context_frames],
+            images=video_frames.half().cuda(),
+            context_images=context_frames.half().cuda(),
             do_sample=False,
             temperature=0.0,
             max_new_tokens=512,
