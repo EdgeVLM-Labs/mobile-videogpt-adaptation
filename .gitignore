@@ -148,3 +148,4 @@ VideoMamba/
 dataset/
 fine_grained_labels.json
 plots/
+results/
