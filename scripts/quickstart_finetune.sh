@@ -5,6 +5,12 @@
 
 set -e  # Exit on error
 
+# Setup logging
+mkdir -p results
+LOG_FILE="results/finetune_$(date +%Y%m%d_%H%M%S).log"
+echo "Logging all output to: $LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 echo "========================================="
 echo "QVED Finetuning - Quick Start"
 echo "========================================="
@@ -15,7 +21,8 @@ bash scripts/verify_qved_setup.sh
 
 # Step 2: Confirm to proceed
 echo -e "\n========================================="
-read -p "Setup verified! Start finetuning? (y/N): " -n 1 -r
+echo -n "Setup verified! Start finetuning? (y/N): "
+read -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo "Cancelled."
@@ -29,6 +36,21 @@ echo "========================================="
 
 # Run finetuning
 bash scripts/finetune_qved.sh
+
+# Generate training plots
+echo ""
+echo "Generating training plots..."
+python utils/plot_training_stats.py \
+  --log_file "$LOG_FILE" \
+  --model_name "qved_finetune_mobilevideogpt_0.5B"
+
+if [ $? -eq 0 ]; then
+    echo "✓ Training plots generated successfully!"
+    echo "  Location: plots/qved_finetune_mobilevideogpt_0.5B/"
+else
+    echo "⚠ Warning: Failed to generate plots. You can generate them later with:"
+    echo "  python utils/plot_training_stats.py --log_file $LOG_FILE"
+fi
 
 echo -e "\n========================================="
 echo "[Step 3/3] Finetuning complete!"
