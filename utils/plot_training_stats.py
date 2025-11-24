@@ -45,28 +45,43 @@ def parse_training_log(log_file: str) -> Dict[str, List[float]]:
         log_file: Path to the training log file
 
     Returns:
-        Dictionary containing lists of metrics: epoch, loss, grad_norm, learning_rate
+        Dictionary containing lists of metrics: epoch, loss, grad_norm, learning_rate, eval_loss, eval_epoch
     """
     metrics = {
         'epoch': [],
         'loss': [],
         'grad_norm': [],
-        'learning_rate': []
+        'learning_rate': [],
+        'eval_loss': [],
+        'eval_epoch': []
     }
 
-    # Pattern to match log lines with metrics
+    # Pattern to match training log lines with metrics
     # Example: {'loss': 0.2278, 'grad_norm': 0.379, 'learning_rate': 6.929e-08, 'epoch': 9.71}
-    pattern = r"\{'loss': ([\d.]+), 'grad_norm': ([\d.]+), 'learning_rate': ([\de.\-+]+), 'epoch': ([\d.]+)\}"
+    train_pattern = r"\{'loss': ([\d.]+), 'grad_norm': ([\d.]+), 'learning_rate': ([\de.\-+]+), 'epoch': ([\d.]+)\}"
+
+    # Pattern to match eval log lines
+    # Example: {'eval_loss': 0.5123, 'eval_runtime': 12.34, ..., 'epoch': 2.5}
+    eval_pattern = r"\{'eval_loss': ([\d.]+).*?'epoch': ([\d.]+)\}"
 
     with open(log_file, 'r') as f:
         for line in f:
-            match = re.search(pattern, line)
-            if match:
-                loss, grad_norm, lr, epoch = match.groups()
+            # Try training pattern first
+            train_match = re.search(train_pattern, line)
+            if train_match:
+                loss, grad_norm, lr, epoch = train_match.groups()
                 metrics['loss'].append(float(loss))
                 metrics['grad_norm'].append(float(grad_norm))
                 metrics['learning_rate'].append(float(lr))
                 metrics['epoch'].append(float(epoch))
+                continue
+
+            # Try eval pattern
+            eval_match = re.search(eval_pattern, line)
+            if eval_match:
+                eval_loss, epoch = eval_match.groups()
+                metrics['eval_loss'].append(float(eval_loss))
+                metrics['eval_epoch'].append(float(epoch))
 
     return metrics
 
@@ -95,25 +110,34 @@ def parse_training_summary(log_file: str) -> Dict[str, float]:
     return summary
 
 
-def plot_loss(epochs: List[float], loss: List[float], output_path: str):
-    """Plot training loss over epochs."""
+def plot_loss(epochs: List[float], loss: List[float], output_path: str,
+              eval_epochs: List[float] = None, eval_loss: List[float] = None):
+    """Plot training and validation loss over epochs."""
     fig, ax = plt.subplots(figsize=(8, 6))
 
-    ax.plot(epochs, loss, linewidth=2, color='#2E86AB', marker='o', markersize=3, alpha=0.8)
+    # Plot training loss
+    ax.plot(epochs, loss, linewidth=2, color='#2E86AB', marker='o', markersize=3,
+            alpha=0.8, label='Training Loss')
+
+    # Plot validation loss if available
+    if eval_epochs and eval_loss and len(eval_loss) > 0:
+        ax.plot(eval_epochs, eval_loss, linewidth=2, color='#E63946', marker='s',
+                markersize=4, alpha=0.8, label='Validation Loss')
+
     ax.set_xlabel(r'\textbf{Epoch}')
-    ax.set_ylabel(r'\textbf{Training Loss}')
-    ax.set_title(r'\textbf{Training Loss over Epochs}')
+    ax.set_ylabel(r'\textbf{Loss}')
+    ax.set_title(r'\textbf{Training and Validation Loss over Epochs}')
     ax.grid(True, alpha=0.3, linestyle='--')
 
-    # Add moving average
+    # Add moving average for training loss
     if len(loss) > 10:
         window = min(20, len(loss) // 5)
         ma = np.convolve(loss, np.ones(window)/window, mode='valid')
         ma_epochs = epochs[window-1:]
         ax.plot(ma_epochs, ma, linewidth=2, color='#A23B72', linestyle='--',
-                label=f'Moving Avg (window={window})', alpha=0.7)
-        ax.legend()
+                label=f'Train MA (w={window})', alpha=0.7)
 
+    ax.legend()
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
@@ -306,14 +330,19 @@ def main():
     # Generate plots
     print("\nGenerating plots...")
     epochs = metrics['epoch']
+    eval_epochs = metrics.get('eval_epoch', [])
+    eval_loss = metrics.get('eval_loss', [])
 
-    plot_loss(epochs, metrics['loss'], str(output_dir / "loss.pdf"))
+    if eval_loss:
+        print(f"  Found {len(eval_loss)} validation checkpoints")
+
+    plot_loss(epochs, metrics['loss'], str(output_dir / "loss.pdf"), eval_epochs, eval_loss)
     plot_gradient_norm(epochs, metrics['grad_norm'], str(output_dir / "gradient_norm.pdf"))
     plot_learning_rate(epochs, metrics['learning_rate'], str(output_dir / "learning_rate.pdf"))
     plot_combined(epochs, metrics, str(output_dir / "combined_metrics.pdf"))
 
     # Save PNG versions as well
-    plot_loss(epochs, metrics['loss'], str(output_dir / "loss.png"))
+    plot_loss(epochs, metrics['loss'], str(output_dir / "loss.png"), eval_epochs, eval_loss)
     plot_gradient_norm(epochs, metrics['grad_norm'], str(output_dir / "gradient_norm.png"))
     plot_learning_rate(epochs, metrics['learning_rate'], str(output_dir / "learning_rate.png"))
     plot_combined(epochs, metrics, str(output_dir / "combined_metrics.png"))
