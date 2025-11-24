@@ -92,7 +92,7 @@ deepspeed mobilevideogpt/train/train.py \
   --lr_scheduler_type "cosine" \
   --logging_steps 1 \
   --model_max_length $MAXLEN \
-  --dataloader_num_workers 4 \
+  --dataloader_num_workers 1 \
   --lazy_preprocess True \
   --report_to none \
   --num_select_k_frames_in_chunk 4 \
