@@ -93,8 +93,12 @@ def run_inference(model, tokenizer, video_processor, image_processor,
 
     # Move frames to device
     if video_frames is not None:
+        if isinstance(video_frames, list):
+            video_frames = torch.stack(video_frames)
         video_frames = video_frames.to(device, dtype=torch.bfloat16)
     if context_frames is not None:
+        if isinstance(context_frames, list):
+            context_frames = torch.stack(context_frames)
         context_frames = context_frames.to(device, dtype=torch.bfloat16)
 
     # Generate
