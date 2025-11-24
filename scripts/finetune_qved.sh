@@ -62,7 +62,8 @@ deepspeed mobilevideogpt/train/train.py \
   --mm_projector_lr $MM_PROJ_LR \
   --model_name_or_path "$BASE_LLM_PATH" \
   --version qwen2_instruct \
-  --dataset_use QVED \
+  --dataset_use QVED_TRAIN \
+  --dataset_val QVED_VAL \
   --vision_tower "$VISION_TOWER" \
   --image_vision_tower "$IMAGE_VISION_TOWER" \
   --mm_projector_type "$PROJECTOR_TYPE" \
@@ -80,7 +81,8 @@ deepspeed mobilevideogpt/train/train.py \
   --per_device_train_batch_size $BATCH \
   --per_device_eval_batch_size 4 \
   --gradient_accumulation_steps $GACC \
-  --eval_strategy "no" \
+  --eval_strategy "steps" \
+  --eval_steps 50 \
   --save_strategy "steps" \
   --save_steps 50 \
   --save_total_limit 2 \

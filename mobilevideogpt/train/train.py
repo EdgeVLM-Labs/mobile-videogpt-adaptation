@@ -72,6 +72,7 @@ class DataArguments:
     image_grid_pinpoints: Optional[str] = field(default=None)
 
     dataset_use: str = field(default="FINETUNING")
+    dataset_val: Optional[str] = field(default=None)  # Optional validation dataset
 
 
 @dataclass
@@ -997,9 +998,19 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
                                 data_args) -> Dict:
     """Make dataset and collator for supervised fine-tuning."""
     train_dataset = LazySupervisedDataset(tokenizer=tokenizer, data_args=data_args)
+
+    # Load validation dataset if specified
+    eval_dataset = None
+    if data_args.dataset_val is not None:
+        # Create a copy of data_args with dataset_use pointing to validation set
+        eval_data_args = copy.deepcopy(data_args)
+        eval_data_args.dataset_use = data_args.dataset_val
+        eval_dataset = LazySupervisedDataset(tokenizer=tokenizer, data_args=eval_data_args)
+        rank0_print(f"Loaded validation dataset: {data_args.dataset_val} with {len(eval_dataset)} samples")
+
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset,
-                eval_dataset=None,
+                eval_dataset=eval_dataset,
                 data_collator=data_collator)
 
 def count_parameters(module):

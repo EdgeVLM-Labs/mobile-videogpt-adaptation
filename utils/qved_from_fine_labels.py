@@ -1,5 +1,6 @@
 import json
 import os
+import random
 from pathlib import Path
 from collections import defaultdict
 
@@ -7,8 +8,16 @@ from collections import defaultdict
 BASE_DIR = Path("dataset")
 FINE_LABELS_JSON = BASE_DIR / "ground_truth.json"
 MANIFEST_JSON = BASE_DIR / "manifest.json"
-OUTPUT_JSON = BASE_DIR / "qved_train.json"
+OUTPUT_TRAIN_JSON = BASE_DIR / "qved_train.json"
+OUTPUT_VAL_JSON = BASE_DIR / "qved_val.json"
+OUTPUT_TEST_JSON = BASE_DIR / "qved_test.json"
 USER_PROMPT_TEMPLATE = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
+
+# Dataset split ratios (adjustable)
+TRAIN_RATIO = 0.60
+VAL_RATIO = 0.20
+TEST_RATIO = 0.20
+RANDOM_SEED = 42  # For reproducibility
 
 def main():
     # Load manifest to map video filenames to full paths
@@ -72,16 +81,58 @@ def main():
                 {"from": "human", "value": user_prompt},
                 {"from": "gpt", "value": assistant_answer}
             ],
-            "split": "train"
+            "split": "train"  # Will be updated during split
         })
 
-    # Write output JSON
-    OUTPUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-    with open(OUTPUT_JSON, 'w') as f:
-        json.dump(output_data, f, indent=2)
+    # Shuffle data for random split
+    random.seed(RANDOM_SEED)
+    random.shuffle(output_data)
 
-    print(f"Converted {len(output_data)} videos from {len(set(filename_to_exercise.values()))} exercise classes")
-    print(f"Output saved to: {OUTPUT_JSON}")
+    # Calculate split indices
+    total_count = len(output_data)
+    train_end = int(total_count * TRAIN_RATIO)
+    val_end = train_end + int(total_count * VAL_RATIO)
+
+    # Split the data
+    train_data = output_data[:train_end]
+    val_data = output_data[train_end:val_end]
+    test_data = output_data[val_end:]
+
+    # Update split labels
+    for item in train_data:
+        item["split"] = "train"
+    for item in val_data:
+        item["split"] = "val"
+    for item in test_data:
+        item["split"] = "test"
+
+    # Write output JSONs
+    BASE_DIR.mkdir(parents=True, exist_ok=True)
+
+    with open(OUTPUT_TRAIN_JSON, 'w') as f:
+        json.dump(train_data, f, indent=2)
+
+    with open(OUTPUT_VAL_JSON, 'w') as f:
+        json.dump(val_data, f, indent=2)
+
+    with open(OUTPUT_TEST_JSON, 'w') as f:
+        json.dump(test_data, f, indent=2)
+
+    print(f"\n{'='*60}")
+    print(f"Dataset Split Summary")
+    print(f"{'='*60}")
+    print(f"Total videos: {total_count}")
+    print(f"Exercise classes: {len(set(filename_to_exercise.values()))}")
+    print(f"\nSplit Distribution:")
+    print(f"  Train: {len(train_data)} samples ({len(train_data)/total_count*100:.1f}%)")
+    print(f"  Val:   {len(val_data)} samples ({len(val_data)/total_count*100:.1f}%)")
+    print(f"  Test:  {len(test_data)} samples ({len(test_data)/total_count*100:.1f}%)")
+    print(f"\nOutput files:")
+    print(f"  Train: {OUTPUT_TRAIN_JSON}")
+    print(f"  Val:   {OUTPUT_VAL_JSON}")
+    print(f"  Test:  {OUTPUT_TEST_JSON}")
+    print(f"{'='*60}")
 
 if __name__ == "__main__":
     main()
+

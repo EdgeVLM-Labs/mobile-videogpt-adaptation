@@ -11,5 +11,8 @@ if os.path.exists(QVED_TRAIN["annotation_path"]):
 DataConfig = {
     "PRETRAINING": [CC3M_595K, COCO_CAP, COCO_REG, COCO_REC],
     "MobileGPT": _mobilegpt_datasets,
-    "QVED": [QVED_TRAIN],  # QVED-only dataset config
+    "QVED_TRAIN": [QVED_TRAIN],  # QVED training set only
+    "QVED_VAL": [QVED_VAL],      # QVED validation set only
+    "QVED_TEST": [QVED_TEST],    # QVED test set only
+    "QVED": [QVED_TRAIN],        # Backward compatibility - defaults to train
 }
