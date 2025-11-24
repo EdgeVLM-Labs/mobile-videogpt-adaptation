@@ -26,7 +26,7 @@ mkdir -p "$OUTPUT_DIR_PATH"
 # Training hyperparameters optimized for small dataset
 EPOCHS=3                     # Reduced epochs
 LR=2e-4                      # Increased learning rate
-MM_PROJ_LR=2e-4              # Even lower for projection layers
+MM_PROJ_LR=2e-5              # Even lower for projection layers
 LORA_R=64                    # LoRA rank
 LORA_ALPHA=128               # LoRA alpha
 BATCH=4                      # Smaller batch for stability
