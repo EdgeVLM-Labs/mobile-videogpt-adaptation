@@ -6,8 +6,8 @@ This script runs inference on videos from the QVED test set using a finetuned mo
 It loads videos from qved_test.json and generates predictions.
 
 Usage:
-    python scripts/test_inference.py --model_path results/qved_finetune_mobilevideogpt_0.5B/checkpoint-150
-    python scripts/test_inference.py --model_path results/qved_finetune_mobilevideogpt_0.5B --output results.json
+    python scripts/test_inference.py --model_path results/qved_finetune_mobilevideogpt_0.5B/checkpoint-70
+    python scripts/test_inference.py --model_path results/qved_finetune_mobilevideogpt_0.5B --output test_predictions.json
 """
 
 import sys
@@ -117,11 +117,11 @@ def main():
                         help="Path to test set JSON")
     parser.add_argument("--data_path", type=str, default="dataset",
                         help="Base path for video files")
-    parser.add_argument("--output", type=str, default="test_predictions.json",
-                        help="Output file for predictions")
+    parser.add_argument("--output", type=str, default=None,
+                        help="Output file for predictions (default: saves to model directory)")
     parser.add_argument("--device", type=str, default="cuda",
                         help="Device to use (cuda/cpu)")
-    parser.add_argument("--max_new_tokens", type=int, default=512,
+    parser.add_argument("--max_new_tokens", type=int, default=64,
                         help="Maximum number of new tokens to generate")
     parser.add_argument("--base_model", type=str, default="Amshaker/Mobile-VideoGPT-0.5B",
                         help="Base model to use when loading LoRA adapters")
@@ -129,6 +129,16 @@ def main():
                         help="Limit number of samples to process (for testing)")
 
     args = parser.parse_args()
+
+    # Set default output path to model directory if not provided
+    if args.output is None:
+        # Extract base directory (remove checkpoint-XX if present)
+        if "checkpoint-" in args.model_path:
+            base_dir = str(Path(args.model_path).parent)
+        else:
+            base_dir = args.model_path
+        args.output = str(Path(base_dir) / "test_predictions.json")
+        print(f"Output will be saved to: {args.output}")
 
     # Load model
     print(f"📦 Loading model from: {args.model_path}")

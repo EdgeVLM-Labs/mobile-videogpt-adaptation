@@ -262,12 +262,18 @@ def main():
     parser = argparse.ArgumentParser(description="Generate test evaluation report with similarity scores")
     parser.add_argument("--predictions", type=str, required=True,
                         help="Path to predictions JSON from test_inference.py")
-    parser.add_argument("--output", type=str, default="test_evaluation_report.xlsx",
-                        help="Output Excel file path")
+    parser.add_argument("--output", type=str, default=None,
+                        help="Output Excel file path (default: same directory as predictions)")
     parser.add_argument("--no-bert", action="store_true",
                         help="Skip BERT similarity (faster, uses only TF-IDF)")
 
     args = parser.parse_args()
+
+    # Set default output path to same directory as predictions if not provided
+    if args.output is None:
+        pred_path = Path(args.predictions)
+        args.output = str(pred_path.parent / "test_evaluation_report.xlsx")
+        print(f"Output will be saved to: {args.output}")
 
     # Load predictions
     print(f"Loading predictions from: {args.predictions}")
