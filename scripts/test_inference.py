@@ -10,116 +10,103 @@ Usage:
     python scripts/test_inference.py --model_path results/qved_finetune_mobilevideogpt_0.5B --output results.json
 """
 
-import json
+import sys
+import os
+import warnings
+import logging
 import argparse
+import json
+
+os.environ['PYTHONWARNINGS'] = 'ignore'
+
+warnings.filterwarnings("ignore")
+
+logging.getLogger('mmengine').setLevel(logging.CRITICAL)
+logging.getLogger('transformers').setLevel(logging.CRITICAL)
+logging.getLogger('transformers.modeling_utils').setLevel(logging.CRITICAL)
+
 import torch
 from pathlib import Path
 from tqdm import tqdm
-from mobilevideogpt.model import MobileVideoGPTQwenForCausalLM
-from mobilevideogpt.mm_utils import tokenizer_image_token
-from mobilevideogpt.conversation import conv_templates
-from mobilevideogpt.constants import *
-from eval.video_encoding import _get_rawvideo_dec
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from peft import PeftModel
+
+sys.path.append(".")
+
+from mobilevideogpt.utils import preprocess_input
 
 
-def load_model(model_path: str, device: str = "cuda"):
-    """Load the finetuned model and tokenizer."""
-    print(f"Loading model from: {model_path}")
+def load_model(pretrained_path: str, device: str = "cuda", base_model: str = "Amshaker/Mobile-VideoGPT-0.5B"):
+    """Loads the pre-trained model and tokenizer.
 
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_path,
-        use_fast=False,
-        trust_remote_code=True
-    )
+    Args:
+        pretrained_path: Path to finetuned model (can be checkpoint or base dir with LoRA adapters)
+        device: Device to load model on
+        base_model: Base model to use when loading LoRA adapters
+    """
+    # Check if this is a LoRA checkpoint or full model
+    is_lora_checkpoint = False
+    adapter_path = pretrained_path
 
-    # Load model
-    model = MobileVideoGPTQwenForCausalLM.from_pretrained(
-        model_path,
-        torch_dtype=torch.bfloat16,
-        device_map=device,
-        trust_remote_code=True
-    )
-    model.eval()
+    # If it's a checkpoint-* directory, it contains LoRA adapters
+    if "checkpoint-" in pretrained_path:
+        is_lora_checkpoint = True
+    # If it's the base finetuning dir, check for adapter files
+    elif os.path.exists(os.path.join(pretrained_path, "adapter_config.json")):
+        is_lora_checkpoint = True
 
-    # Load vision towers
-    vision_tower = model.get_vision_tower()
-    vision_tower.load_model(model.config.mm_vision_tower)
-    video_processor = vision_tower.image_processor
+    if is_lora_checkpoint:
+        print(f"Loading LoRA adapters from: {adapter_path}")
+        print(f"Base model: {base_model}")
 
-    image_vision_tower = model.get_image_vision_tower()
-    image_vision_tower.load_model()
-    image_processor = image_vision_tower.image_processor
+        # Load base model first
+        config = AutoConfig.from_pretrained(base_model)
+        tokenizer = AutoTokenizer.from_pretrained(base_model, use_fast=False)
+        model = AutoModelForCausalLM.from_pretrained(
+            base_model,
+            config=config,
+            torch_dtype=torch.float16
+        )
 
-    print("✓ Model loaded successfully")
-    return model, tokenizer, video_processor, image_processor
-
-
-def run_inference(model, tokenizer, video_processor, image_processor,
-                  video_path: str, prompt: str, device: str = "cuda"):
-    """Run inference on a single video."""
-
-    # Process video frames
-    video_frames, context_frames, slice_len = _get_rawvideo_dec(
-        video_path,
-        image_processor,
-        video_processor,
-        max_frames=NUM_FRAMES,
-        image_resolution=224,
-        num_video_frames=NUM_FRAMES,
-        num_context_images=NUM_CONTEXT_IMAGES,
-    )
-
-    # Prepare prompt
-    qs = prompt
-    if model.config.mm_use_im_start_end:
-        qs = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN + "\n" + qs
+        # Load LoRA adapters
+        model = PeftModel.from_pretrained(model, adapter_path)
+        model = model.merge_and_unload()  # Merge LoRA weights into base model
     else:
-        qs = DEFAULT_IMAGE_TOKEN * slice_len + "\n" + qs
+        # Load full model directly
+        config = AutoConfig.from_pretrained(pretrained_path)
+        tokenizer = AutoTokenizer.from_pretrained(pretrained_path, use_fast=False)
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_path,
+            config=config,
+            torch_dtype=torch.float16
+        )
 
-    conv = conv_templates["qwen2_instruct"].copy()
-    conv.append_message(conv.roles[0], qs)
-    conv.append_message(conv.roles[1], None)
-    prompt_text = conv.get_prompt()
+    model.to(device)
+    return model, tokenizer
 
-    # Tokenize
-    input_ids = tokenizer_image_token(
-        prompt_text,
-        tokenizer,
-        IMAGE_TOKEN_INDEX,
-        return_tensors='pt'
-    ).unsqueeze(0).to(device)
 
-    # Move frames to device
-    if video_frames is not None:
-        if isinstance(video_frames, list):
-            video_frames = torch.stack(video_frames)
-        video_frames = video_frames.to(device, dtype=torch.bfloat16)
-    if context_frames is not None:
-        if isinstance(context_frames, list):
-            context_frames = torch.stack(context_frames)
-        context_frames = context_frames.to(device, dtype=torch.bfloat16)
+def run_inference(model, tokenizer, video_path: str, prompt: str, device: str = "cuda", max_new_tokens: int = 512):
+    """Runs inference on the given video file."""
+    input_ids, video_frames, context_frames, stop_str = preprocess_input(
+        model, tokenizer, video_path, prompt
+    )
 
-    # Generate
     with torch.inference_mode():
         output_ids = model.generate(
             input_ids,
-            images=video_frames.half().cuda(),
-            context_images=context_frames.half().cuda(),
-            do_sample=False,
-            temperature=0.0,
-            max_new_tokens=512,
+            images=torch.stack(video_frames, dim=0).half().to(device),
+            context_images=torch.stack(context_frames, dim=0).half().to(device),
+            do_sample=False,  # Use greedy decoding
+            num_beams=1,
+            max_new_tokens=max_new_tokens,
             use_cache=True,
         )
 
-    # Decode output
-    response = tokenizer.batch_decode(
-        output_ids,
-        skip_special_tokens=True
-    )[0].strip()
+    outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+    if outputs.endswith(stop_str):
+        outputs = outputs[:-len(stop_str)].strip()
 
-    return response
+    return outputs
 
 
 def main():
@@ -134,19 +121,25 @@ def main():
                         help="Output file for predictions")
     parser.add_argument("--device", type=str, default="cuda",
                         help="Device to use (cuda/cpu)")
+    parser.add_argument("--max_new_tokens", type=int, default=512,
+                        help="Maximum number of new tokens to generate")
+    parser.add_argument("--base_model", type=str, default="Amshaker/Mobile-VideoGPT-0.5B",
+                        help="Base model to use when loading LoRA adapters")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit number of samples to process (for testing)")
 
     args = parser.parse_args()
 
     # Load model
-    model, tokenizer, video_processor, image_processor = load_model(
+    print(f"📦 Loading model from: {args.model_path}")
+    model, tokenizer = load_model(
         args.model_path,
-        args.device
+        device=args.device,
+        base_model=args.base_model
     )
 
     # Load test data
-    print(f"\nLoading test data from: {args.test_json}")
+    print(f"\n📋 Loading test data from: {args.test_json}")
     with open(args.test_json, 'r') as f:
         test_data = json.load(f)
 
@@ -158,7 +151,7 @@ def main():
 
     # Run inference
     results = []
-    print("\nRunning inference...")
+    print("\n🎬 Running inference...")
 
     for item in tqdm(test_data, desc="Processing videos"):
         video_rel_path = item['video']
@@ -172,8 +165,9 @@ def main():
         try:
             # Run inference
             prediction = run_inference(
-                model, tokenizer, video_processor, image_processor,
-                video_path, prompt, args.device
+                model, tokenizer,
+                video_path, prompt,
+                args.device, args.max_new_tokens
             )
 
             results.append({
@@ -207,7 +201,7 @@ def main():
     failed = len(results) - successful
 
     print(f"\n{'='*60}")
-    print("Inference Complete!")
+    print("✅ Inference Complete!")
     print(f"{'='*60}")
     print(f"Total: {len(results)}")
     print(f"Successful: {successful}")
