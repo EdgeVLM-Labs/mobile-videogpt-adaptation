@@ -34,6 +34,7 @@ from PIL import Image
 import random
 import numpy as np
 from mobilevideogpt.model.dataloader import _get_rawvideo_dec
+import wandb
 
 local_rank = None
 
@@ -1285,7 +1286,6 @@ def train():
     # Upload hyperparameters.json to WandB if it exists
     if local_rank == 0 or local_rank == -1:
         try:
-            import wandb
             if wandb.run is not None:
                 config_file = os.path.join(training_args.output_dir, "hyperparameters.json")
                 if os.path.exists(config_file):
