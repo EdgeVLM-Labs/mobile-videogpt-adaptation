@@ -114,7 +114,7 @@ deepspeed mobilevideogpt/train/train.py \
   --lr_scheduler_type "cosine" \
   --logging_steps 1 \
   --model_max_length $MAXLEN \
-  --dataloader_num_workers 1 \
+  --dataloader_num_workers 0 \
   --lazy_preprocess True \
   --report_to wandb \
   --run_name $WANDB_NAME \
