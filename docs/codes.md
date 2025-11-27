@@ -1,6 +1,12 @@
 # Helper codes
 
-#### 1) It loops through your videos and launches a tiny Python process for each one. If a video causes a crash (segfault), this script will catch it.
+#### 1) List total number of video files in dataset
+
+```bash
+cd dataset && for d in */; do echo "$d" $(find "$d" -name "*.mp4" | wc -l); done
+```
+
+#### 2) It loops through your videos and launches a tiny Python process for each one. If a video causes a crash (segfault), this script will catch it.
 
 ```bash
 echo "Starting corruption check using Python/Decord..."
@@ -31,3 +37,4 @@ except Exception:
 done
 echo "Check complete."
 ```
+

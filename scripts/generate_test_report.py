@@ -19,20 +19,17 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
+import evaluate
 from sentence_transformers import SentenceTransformer
 
 
-def compute_cosine_similarity_tfidf(text1: str, text2: str) -> float:
-    """Compute cosine similarity using TF-IDF vectors."""
-    if not text1 or not text2:
+def compute_meteor_score(reference: str, hypothesis: str, metric) -> float:
+    """Compute METEOR score."""
+    if not reference or not hypothesis or not metric:
         return 0.0
 
-    vectorizer = TfidfVectorizer()
     try:
-        tfidf_matrix = vectorizer.fit_transform([text1, text2])
-        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-        return float(similarity)
+        return metric.compute(predictions=[hypothesis], references=[reference])['meteor']
     except:
         return 0.0
 
@@ -89,12 +86,12 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         "Video Path",
         "Ground Truth",
         "Model Prediction",
-        "TF-IDF Similarity",
     ]
 
     if use_bert:
         headers.append("BERT Similarity")
 
+    headers.append("METEOR Score")
     headers.extend(["Status", "Error"])
 
     # Write headers
@@ -111,12 +108,14 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     ws.column_dimensions['B'].width = 40  # Video Path
     ws.column_dimensions['C'].width = 50  # Ground Truth
     ws.column_dimensions['D'].width = 50  # Prediction
-    ws.column_dimensions['E'].width = 18  # TF-IDF Similarity
+
     if use_bert:
-        ws.column_dimensions['F'].width = 18  # BERT Similarity
+        ws.column_dimensions['E'].width = 18  # BERT Similarity
+        ws.column_dimensions['F'].width = 18  # METEOR Score
         ws.column_dimensions['G'].width = 12  # Status
         ws.column_dimensions['H'].width = 40  # Error
     else:
+        ws.column_dimensions['E'].width = 18  # METEOR Score
         ws.column_dimensions['F'].width = 12  # Status
         ws.column_dimensions['G'].width = 40  # Error
 
@@ -126,8 +125,16 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     # Process results
     print(f"\nProcessing {len(results)} results...")
 
-    tfidf_scores = []
+    # Load METEOR metric
+    meteor_metric = None
+    try:
+        meteor_metric = evaluate.load('meteor')
+        print("✓ METEOR metric loaded")
+    except Exception as e:
+        print(f"⚠ Failed to load METEOR metric: {e}")
+
     bert_scores = []
+    meteor_scores = []
 
     for idx, result in enumerate(results, start=1):
         row = idx + 1
@@ -139,13 +146,13 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         error = result.get('error', '')
 
         # Compute similarities
-        tfidf_sim = compute_cosine_similarity_tfidf(ground_truth, prediction)
-        tfidf_scores.append(tfidf_sim)
-
         bert_sim = None
         if use_bert and bert_model:
             bert_sim = compute_cosine_similarity_bert(ground_truth, prediction, bert_model)
             bert_scores.append(bert_sim)
+
+        meteor_sim = compute_meteor_score(ground_truth, prediction, meteor_metric)
+        meteor_scores.append(meteor_sim)
 
         # Write data
         col = 1
@@ -157,12 +164,13 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         col += 1
         ws.cell(row=row, column=col).value = prediction
         col += 1
-        ws.cell(row=row, column=col).value = round(tfidf_sim, 4)
-        col += 1
 
         if use_bert and bert_sim is not None:
             ws.cell(row=row, column=col).value = round(bert_sim, 4)
             col += 1
+
+        ws.cell(row=row, column=col).value = round(meteor_sim, 4)
+        col += 1
 
         ws.cell(row=row, column=col).value = status
         col += 1
@@ -175,8 +183,12 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             cell.border = border
 
             # Color code similarity scores
-            if c == 5:  # TF-IDF column
-                score = tfidf_sim
+            # Determine column indices for coloring
+            bert_col = 5 if use_bert else -1
+            meteor_col = 6 if use_bert else 5
+
+            if use_bert and c == bert_col:  # BERT column
+                score = bert_sim if bert_sim is not None else 0
                 if score >= 0.7:
                     cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
                 elif score >= 0.4:
@@ -184,11 +196,11 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
                 else:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
-            if use_bert and c == 6:  # BERT column
-                score = bert_sim if bert_sim is not None else 0
-                if score >= 0.7:
+            if c == meteor_col:  # METEOR column
+                score = meteor_sim
+                if score >= 0.5: # METEOR scores are often lower than cosine sim
                     cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-                elif score >= 0.4:
+                elif score >= 0.2:
                     cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
                 else:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
@@ -202,23 +214,27 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         ["Successful", sum(1 for r in results if r.get('status') == 'success')],
         ["Failed", sum(1 for r in results if r.get('status') == 'error')],
         ["", ""],
-        ["TF-IDF Similarity", ""],
-        ["Mean", round(np.mean(tfidf_scores), 4) if tfidf_scores else 0],
-        ["Median", round(np.median(tfidf_scores), 4) if tfidf_scores else 0],
-        ["Std Dev", round(np.std(tfidf_scores), 4) if tfidf_scores else 0],
-        ["Min", round(np.min(tfidf_scores), 4) if tfidf_scores else 0],
-        ["Max", round(np.max(tfidf_scores), 4) if tfidf_scores else 0],
     ]
 
     if use_bert and bert_scores:
         summary_data.extend([
-            ["", ""],
             ["BERT Similarity", ""],
             ["Mean", round(np.mean(bert_scores), 4)],
             ["Median", round(np.median(bert_scores), 4)],
             ["Std Dev", round(np.std(bert_scores), 4)],
             ["Min", round(np.min(bert_scores), 4)],
             ["Max", round(np.max(bert_scores), 4)],
+            ["", ""],
+        ])
+
+    if meteor_scores:
+        summary_data.extend([
+            ["METEOR Score", ""],
+            ["Mean", round(np.mean(meteor_scores), 4)],
+            ["Median", round(np.median(meteor_scores), 4)],
+            ["Std Dev", round(np.std(meteor_scores), 4)],
+            ["Min", round(np.min(meteor_scores), 4)],
+            ["Max", round(np.max(meteor_scores), 4)],
         ])
 
     for row_idx, row_data in enumerate(summary_data, start=1):
@@ -244,16 +260,18 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     print(f"Total samples: {len(results)}")
     print(f"Successful: {sum(1 for r in results if r.get('status') == 'success')}")
     print(f"Failed: {sum(1 for r in results if r.get('status') == 'error')}")
-    print(f"\nTF-IDF Similarity:")
-    print(f"  Mean: {np.mean(tfidf_scores):.4f}")
-    print(f"  Median: {np.median(tfidf_scores):.4f}")
-    print(f"  Std Dev: {np.std(tfidf_scores):.4f}")
 
     if use_bert and bert_scores:
         print(f"\nBERT Similarity:")
         print(f"  Mean: {np.mean(bert_scores):.4f}")
         print(f"  Median: {np.median(bert_scores):.4f}")
         print(f"  Std Dev: {np.std(bert_scores):.4f}")
+
+    if meteor_scores:
+        print(f"\nMETEOR Score:")
+        print(f"  Mean: {np.mean(meteor_scores):.4f}")
+        print(f"  Median: {np.median(meteor_scores):.4f}")
+        print(f"  Std Dev: {np.std(meteor_scores):.4f}")
 
     print(f"{'='*60}")
 

@@ -31,7 +31,7 @@ mkdir -p "$OUTPUT_DIR_PATH"
 # Training hyperparameters optimized for small dataset
 EPOCHS=3                     # Reduced epochs
 LR=2e-4                      # Increased learning rate
-MM_PROJ_LR=2e-5              # Even lower for projection layers
+MM_PROJ_LR=2e-4              # Even lower for projection layers
 LORA_R=64                    # LoRA rank
 LORA_ALPHA=128               # LoRA alpha
 BATCH=4                      # Smaller batch for stability
@@ -104,9 +104,9 @@ deepspeed mobilevideogpt/train/train.py \
   --per_device_eval_batch_size 4 \
   --gradient_accumulation_steps $GACC \
   --eval_strategy "steps" \
-  --eval_steps 10 \
+  --eval_steps 50 \
   --save_strategy "steps" \
-  --save_steps 10 \
+  --save_steps 50 \
   --save_total_limit 2 \
   --learning_rate $LR \
   --weight_decay 0. \
