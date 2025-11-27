@@ -11,6 +11,11 @@ export DATASET_DIR="$(pwd)/playground/data"
 # Suppress DeepSpeed hostfile warning for single-GPU training
 export PDSH_RCMD_TYPE=ssh
 
+# WandB Configuration
+export WANDB_PROJECT="mobile-videogpt"
+export WANDB_ENTITY="fyp-21"
+export WANDB_NAME="qved-finetune-$(date +%Y%m%d_%H%M%S)"
+
 # Model paths - using pre-trained Mobile-VideoGPT-0.5B checkpoint
 BASE_LLM_PATH="Amshaker/Mobile-VideoGPT-0.5B"
 VISION_TOWER="OpenGVLab/VideoMamba"
@@ -42,6 +47,27 @@ echo "Epochs: $EPOCHS"
 echo "Learning Rate: $LR"
 echo "Batch Size: $BATCH x $GACC accumulation steps = effective batch of $((BATCH * GACC))"
 echo "========================================="
+
+# Save hyperparameters to a config file
+CONFIG_FILE="$OUTPUT_DIR_PATH/hyperparameters.json"
+cat <<EOF > "$CONFIG_FILE"
+{
+  "base_model": "$BASE_LLM_PATH",
+  "dataset": "QVED",
+  "epochs": $EPOCHS,
+  "learning_rate": $LR,
+  "mm_projector_lr": $MM_PROJ_LR,
+  "lora_r": $LORA_R,
+  "lora_alpha": $LORA_ALPHA,
+  "batch_size": $BATCH,
+  "gradient_accumulation_steps": $GACC,
+  "max_length": $MAXLEN,
+  "wandb_project": "$WANDB_PROJECT",
+  "wandb_entity": "$WANDB_ENTITY",
+  "wandb_run_name": "$WANDB_NAME"
+}
+EOF
+echo "Hyperparameters saved to $CONFIG_FILE"
 
 # Stage 3: Fine-tuning on QVED dataset
 # The Mobile-VideoGPT-0.5B checkpoint already includes trained projectors,
@@ -90,7 +116,8 @@ deepspeed mobilevideogpt/train/train.py \
   --model_max_length $MAXLEN \
   --dataloader_num_workers 1 \
   --lazy_preprocess True \
-  --report_to none \
+  --report_to wandb \
+  --run_name $WANDB_NAME \
   --num_select_k_frames_in_chunk 4 \
   --topk True
 

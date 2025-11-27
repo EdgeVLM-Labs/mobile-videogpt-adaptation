@@ -82,10 +82,10 @@ pip install mamba_ssm
 cd ..
 
 # 1. Verify setup
-bash scripts/verify_qved_setup.sh
+# bash scripts/verify_qved_setup.sh
 
 # 3. Start finetuning (one command)
-bash scripts/quickstart_finetune.sh
+# bash scripts/quickstart_finetune.sh
 
 # --------------------------------------------------
 # 3️⃣ Install FlashAttention for faster training
@@ -136,7 +136,7 @@ except ImportError:
 
 # conda install -c nvidia cuda-toolkit=12.1 -y
 
-bash scripts/quickstart_finetune.sh
+# bash scripts/quickstart_finetune.sh
 
 pip uninstall mamba-ssm causal-conv1d
 
@@ -151,3 +151,7 @@ apt-get install texlive texlive-latex-extra texlive-fonts-recommended dvipng cm-
 
 echo "✅ Setup complete!"
 echo "🚀 Mobile-VideoGPT environment is ready."
+
+# Initialize WandB
+echo "🔑 Logging into WandB..."
+wandb login

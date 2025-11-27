@@ -1282,6 +1282,18 @@ def train():
     else:
         safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
 
+    # Upload hyperparameters.json to WandB if it exists
+    if local_rank == 0 or local_rank == -1:
+        try:
+            import wandb
+            if wandb.run is not None:
+                config_file = os.path.join(training_args.output_dir, "hyperparameters.json")
+                if os.path.exists(config_file):
+                    wandb.save(config_file)
+                    print(f"Uploaded {config_file} to WandB")
+        except ImportError:
+            pass
+
 
 if __name__ == "__main__":
     train()
