@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from huggingface_hub import list_repo_files, hf_hub_download
 import shutil
+import time
 
 REPO_ID = "EdgeVLM-Labs/QVED-Test-Dataset"
 LOCAL_DIR = Path("dataset")  # local download directory
@@ -56,19 +57,26 @@ def sample_and_download(by_class, repo_id, local_dir, max_per_class):
             filename = os.path.basename(rel_path)  # e.g., "00018209.mp4"
             target_path = class_dir / filename
 
-            try:
-                cached_path = hf_hub_download(
-                    repo_id=repo_id,
-                    filename=rel_path,
-                    repo_type="dataset",
-                )
+            while True:
+                try:
+                    cached_path = hf_hub_download(
+                        repo_id=repo_id,
+                        filename=rel_path,
+                        repo_type="dataset",
+                    )
 
-                shutil.copy2(cached_path, target_path)
+                    shutil.copy2(cached_path, target_path)
 
-                manifest[str(target_path)] = cls
-                total_downloaded += 1
-            except Exception as e:
-                print(f"⚠️ Failed to download {rel_path}: {e}")
+                    manifest[str(target_path)] = cls
+                    total_downloaded += 1
+                    break
+                except Exception as e:
+                    if "429" in str(e) or "Too Many Requests" in str(e):
+                        print(f"⚠️ Rate limit hit (429). Waiting 60 seconds before retrying {rel_path}...")
+                        time.sleep(60)
+                    else:
+                        print(f"⚠️ Failed to download {rel_path}: {e}")
+                        break
 
     print(f"\n✅ Download complete: {total_downloaded} videos.")
     return manifest

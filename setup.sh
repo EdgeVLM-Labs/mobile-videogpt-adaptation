@@ -156,3 +156,5 @@ echo "🚀 Mobile-VideoGPT environment is ready."
 # Initialize WandB
 echo "🔑 Logging into WandB..."
 wandb login
+
+source ~/.bashrc
