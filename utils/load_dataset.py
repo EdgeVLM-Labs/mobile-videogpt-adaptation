@@ -72,8 +72,8 @@ def sample_and_download(by_class, repo_id, local_dir, max_per_class):
                     break
                 except Exception as e:
                     if "429" in str(e) or "Too Many Requests" in str(e):
-                        print(f"⚠️ Rate limit hit (429). Waiting 60 seconds before retrying {rel_path}...")
-                        time.sleep(60)
+                        print(f"⚠️ Rate limit hit (429). Waiting 4 minutes before retrying {rel_path}...")
+                        time.sleep(240)
                     else:
                         print(f"⚠️ Failed to download {rel_path}: {e}")
                         break
