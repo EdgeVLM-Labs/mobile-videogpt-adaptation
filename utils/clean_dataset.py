@@ -33,7 +33,7 @@ MOTION_DIFF_THRESHOLD = 18
 MOTION_MIN_PIXEL_CHANGE_RATIO = 0.01
 MOTION_MIN_ACTIVE_FRAME_PCT = 0.3
 
-MOTION_FLAGS_FILE = Path("exercise_motion_overview.json")
+MOTION_FLAGS_FILE = Path("utils/exercise_motion_overview.json")
 if MOTION_FLAGS_FILE.exists():
     with open(MOTION_FLAGS_FILE, "r") as f:
         MOTION_FLAGS = json.load(f)
@@ -117,7 +117,7 @@ def analyze_video_quality(video_path: Path, num_frames: int, frame_stride: int, 
     if samples_collected == 0:
         issues.append("corrupted_file")
 
-    motion_detected = False 
+    motion_detected = False
     motion_active_frame_pct = float("nan")
     motion_mean_change_ratio = float("nan")
     motion_max_change_ratio = float("nan")
@@ -153,7 +153,7 @@ def evaluate_video_acceptance(metrics: dict, issues: list, stats: dict):
     motion_flag = metrics.get("motion_flag", False)
 
     reasons = []
-    accepted = True  
+    accepted = True
 
     if ("corrupted_file" in issues) or np.isnan(brightness) or np.isnan(sharpness):
         stats["corrupted_files"] += 1
@@ -250,7 +250,7 @@ def generate_cleaning_report(overall_exercise_stats, totals, destination_root: P
     print(tabulate(df, headers="keys", tablefmt="simple", showindex=False))
 
     if destination_root is not None:
-        report_dir = destination_root 
+        report_dir = destination_root
         ensure_directory_exists(report_dir)
 
         csv_path = report_dir / "cleaning_report.csv"
@@ -262,6 +262,41 @@ def generate_cleaning_report(overall_exercise_stats, totals, destination_root: P
             df_details = pd.DataFrame(VIDEO_LOG)
             df_details.to_csv(details_path, index=False)
             print(f"[INFO] Detailed file analysis saved to: {details_path}")
+
+
+def prompt_replace_dataset(source_root: Path, destination_root: Path) -> None:
+    """Ask user whether to replace the original dataset with the cleaned dataset."""
+    print("\n" + "=" * 50)
+    print("Replace original dataset with cleaned dataset?")
+    print("=" * 50)
+    print(f"  Original dataset:  {source_root}")
+    print(f"  Cleaned dataset:   {destination_root}")
+    print("")
+    print("  y = Remove original 'dataset' folder and rename 'cleaned_dataset' to 'dataset'")
+    print("  n = Keep both folders (cleaned dataset saved separately)")
+    print("")
+
+    while True:
+        response = input("Replace original dataset? (y/N): ").strip().lower()
+        if response in ("", "n", "no"):
+            print("\n[INFO] Keeping both folders.")
+            print(f"  Original dataset preserved at: {source_root}")
+            print(f"  Cleaned dataset available at:  {destination_root}")
+            break
+        elif response in ("y", "yes"):
+            try:
+                print(f"\n[INFO] Removing original dataset: {source_root}")
+                shutil.rmtree(source_root)
+                print(f"[INFO] Renaming {destination_root} -> {source_root}")
+                destination_root.rename(source_root)
+                print(f"\n✓ Dataset replaced successfully!")
+                print(f"  Cleaned dataset now at: {source_root}")
+            except Exception as e:
+                print(f"\n[ERROR] Failed to replace dataset: {e}")
+                print(f"  Cleaned dataset still available at: {destination_root}")
+            break
+        else:
+            print("  Please enter 'y' or 'n'")
 
 
 def print_exercise_stats(stats: dict) -> None:
@@ -350,10 +385,14 @@ def clean_dataset(source_root: Path, destination_root: Path):
 
     generate_cleaning_report(overall_exercise_stats, totals, CLEANED_DATASET_PATH)
 
+    # Return source and destination for the replace prompt
+    return source_root, destination_root
+
 
 if __name__ == "__main__":
     if not DATASET_PATH.exists():
         print(f"[ERROR] Dataset path not found:\n  {DATASET_PATH}")
     else:
-        clean_dataset(DATASET_PATH, CLEANED_DATASET_PATH)
+        source, dest = clean_dataset(DATASET_PATH, CLEANED_DATASET_PATH)
         print("\n[SUCCESS] Dataset cleaning completed.")
+        prompt_replace_dataset(source, dest)
