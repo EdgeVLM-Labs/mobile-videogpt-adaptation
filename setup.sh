@@ -157,4 +157,8 @@ echo "🚀 Mobile-VideoGPT environment is ready."
 echo "🔑 Logging into WandB..."
 wandb login
 
+# Initialize HuggingFace Hub
+echo "🤗 Logging into HuggingFace Hub..."
+hf auth login
+
 source ~/.bashrc
