@@ -11,6 +11,7 @@ echo "========================================="
 
 # Default values
 MODEL_PATH=""
+HF_REPO=""
 TEST_JSON="dataset/qved_test.json"
 DATA_PATH="dataset"
 OUTPUT_DIR=""
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --model_path)
             MODEL_PATH="$2"
+            shift 2
+            ;;
+        --hf_repo)
+            HF_REPO="$2"
             shift 2
             ;;
         --test_json)
@@ -60,15 +65,16 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Usage: bash scripts/run_inference.sh --model_path <path> [options]"
+            echo "Usage: bash scripts/run_inference.sh [--model_path <path> | --hf_repo <repo>] [options]"
             echo ""
-            echo "Required:"
-            echo "  --model_path      Path to finetuned model checkpoint"
+            echo "Model Source (one required):"
+            echo "  --model_path      Path to local finetuned model checkpoint"
+            echo "  --hf_repo         HuggingFace repository URL/ID (e.g., EdgeVLM-Labs/qved-finetune-20241128)"
             echo ""
             echo "Optional:"
             echo "  --test_json       Path to test set JSON (default: dataset/qved_test.json)"
             echo "  --data_path       Base path for video files (default: dataset)"
-            echo "  --output_dir      Output directory for results (default: model directory)"
+            echo "  --output_dir      Output directory for results (default: model directory or results/hf_inference)"
             echo "  --device          Device to use: cuda/cpu (default: cuda)"
             echo "  --max_new_tokens  Max tokens to generate (default: 64)"
             echo "  --base_model      Base model for LoRA adapters (default: Amshaker/Mobile-VideoGPT-0.5B)"
@@ -76,7 +82,13 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-bert         Skip BERT similarity (faster evaluation)"
             echo ""
             echo "Examples:"
+            echo "  # Using local checkpoint:"
             echo "  bash scripts/run_inference.sh --model_path results/qved_finetune_mobilevideogpt_0.5B/checkpoint-70"
+            echo ""
+            echo "  # Using HuggingFace model:"
+            echo "  bash scripts/run_inference.sh --hf_repo EdgeVLM-Labs/qved-finetune-20241128"
+            echo ""
+            echo "  # With options:"
             echo "  bash scripts/run_inference.sh --model_path results/qved_finetune_mobilevideogpt_0.5B --limit 10"
             exit 0
             ;;
@@ -88,16 +100,37 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate required arguments
-if [ -z "$MODEL_PATH" ]; then
-    echo "❌ Error: --model_path is required"
+# Validate: either model_path or hf_repo must be provided
+if [ -z "$MODEL_PATH" ] && [ -z "$HF_REPO" ]; then
+    echo "❌ Error: Either --model_path or --hf_repo is required"
     echo "Use --help for usage information"
     exit 1
 fi
 
-if [ ! -e "$MODEL_PATH" ]; then
-    echo "❌ Error: Model path not found: $MODEL_PATH"
-    exit 1
+# If HF repo is provided, use it as model path
+if [ -n "$HF_REPO" ]; then
+    # Extract repo ID from URL if full URL is provided
+    # e.g., https://huggingface.co/EdgeVLM-Labs/qved-finetune -> EdgeVLM-Labs/qved-finetune
+    if [[ "$HF_REPO" == *"huggingface.co/"* ]]; then
+        HF_REPO=$(echo "$HF_REPO" | sed 's|.*huggingface.co/||' | sed 's|/$||')
+    fi
+
+    echo "🤗 Using HuggingFace model: $HF_REPO"
+    MODEL_PATH="$HF_REPO"
+
+    # Set default output directory for HF models
+    if [ -z "$OUTPUT_DIR" ]; then
+        # Create output dir based on repo name
+        REPO_NAME=$(echo "$HF_REPO" | sed 's|/|_|g')
+        OUTPUT_DIR="results/hf_inference_${REPO_NAME}"
+        mkdir -p "$OUTPUT_DIR"
+    fi
+else
+    # Validate local model path exists
+    if [ ! -e "$MODEL_PATH" ]; then
+        echo "❌ Error: Model path not found: $MODEL_PATH"
+        exit 1
+    fi
 fi
 
 if [ ! -f "$TEST_JSON" ]; then
@@ -105,7 +138,7 @@ if [ ! -f "$TEST_JSON" ]; then
     exit 1
 fi
 
-# Set output directory
+# Set output directory if not already set
 if [ -z "$OUTPUT_DIR" ]; then
     # Extract base directory (remove checkpoint-XX if present)
     if [[ "$MODEL_PATH" == *"checkpoint-"* ]]; then
@@ -114,6 +147,9 @@ if [ -z "$OUTPUT_DIR" ]; then
         OUTPUT_DIR="$MODEL_PATH"
     fi
 fi
+
+# Create output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR" 2>/dev/null || true
 
 PREDICTIONS_FILE="${OUTPUT_DIR}/test_predictions.json"
 REPORT_FILE="${OUTPUT_DIR}/test_evaluation_report.xlsx"
