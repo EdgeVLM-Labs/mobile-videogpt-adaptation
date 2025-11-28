@@ -18,9 +18,23 @@ from typing import List, Dict
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.chart import BarChart, Reference
 from sklearn.metrics.pairwise import cosine_similarity
 import evaluate
 from sentence_transformers import SentenceTransformer
+
+
+# =============================================================================
+# CONFIGURABLE THRESHOLDS
+# =============================================================================
+# BERT Similarity thresholds (0-1 scale, higher is better)
+BERT_GREEN_THRESHOLD = 0.7   # >= this value is green (good)
+BERT_YELLOW_THRESHOLD = 0.4  # >= this value is yellow (moderate), below is red
+
+# METEOR Score thresholds (0-1 scale, higher is better)
+METEOR_GREEN_THRESHOLD = 0.5   # >= this value is green (good)
+METEOR_YELLOW_THRESHOLD = 0.2  # >= this value is yellow (moderate), below is red
+# =============================================================================
 
 
 def compute_meteor_score(reference: str, hypothesis: str, metric) -> float:
@@ -189,18 +203,18 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
 
             if use_bert and c == bert_col:  # BERT column
                 score = bert_sim if bert_sim is not None else 0
-                if score >= 0.7:
+                if score >= BERT_GREEN_THRESHOLD:
                     cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-                elif score >= 0.4:
+                elif score >= BERT_YELLOW_THRESHOLD:
                     cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
                 else:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
             if c == meteor_col:  # METEOR column
                 score = meteor_sim
-                if score >= 0.5: # METEOR scores are often lower than cosine sim
+                if score >= METEOR_GREEN_THRESHOLD:
                     cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-                elif score >= 0.2:
+                elif score >= METEOR_YELLOW_THRESHOLD:
                     cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
                 else:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
@@ -216,7 +230,15 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         ["", ""],
     ]
 
+    # Track chart data positions
+    bert_chart_start_row = None
+    meteor_chart_start_row = None
+
     if use_bert and bert_scores:
+        bert_green = sum(1 for s in bert_scores if s >= BERT_GREEN_THRESHOLD)
+        bert_yellow = sum(1 for s in bert_scores if BERT_YELLOW_THRESHOLD <= s < BERT_GREEN_THRESHOLD)
+        bert_red = sum(1 for s in bert_scores if s < BERT_YELLOW_THRESHOLD)
+        bert_chart_start_row = len(summary_data) + 7  # Row where Green count will be
         summary_data.extend([
             ["BERT Similarity", ""],
             ["Mean", round(np.mean(bert_scores), 4)],
@@ -224,10 +246,17 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             ["Std Dev", round(np.std(bert_scores), 4)],
             ["Min", round(np.min(bert_scores), 4)],
             ["Max", round(np.max(bert_scores), 4)],
+            [f"Green (≥{BERT_GREEN_THRESHOLD})", bert_green],
+            [f"Yellow ({BERT_YELLOW_THRESHOLD}-{BERT_GREEN_THRESHOLD})", bert_yellow],
+            [f"Red (<{BERT_YELLOW_THRESHOLD})", bert_red],
             ["", ""],
         ])
 
     if meteor_scores:
+        meteor_green = sum(1 for s in meteor_scores if s >= METEOR_GREEN_THRESHOLD)
+        meteor_yellow = sum(1 for s in meteor_scores if METEOR_YELLOW_THRESHOLD <= s < METEOR_GREEN_THRESHOLD)
+        meteor_red = sum(1 for s in meteor_scores if s < METEOR_YELLOW_THRESHOLD)
+        meteor_chart_start_row = len(summary_data) + 7  # Row where Green count will be
         summary_data.extend([
             ["METEOR Score", ""],
             ["Mean", round(np.mean(meteor_scores), 4)],
@@ -235,6 +264,9 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             ["Std Dev", round(np.std(meteor_scores), 4)],
             ["Min", round(np.min(meteor_scores), 4)],
             ["Max", round(np.max(meteor_scores), 4)],
+            [f"Green (≥{METEOR_GREEN_THRESHOLD})", meteor_green],
+            [f"Yellow ({METEOR_YELLOW_THRESHOLD}-{METEOR_GREEN_THRESHOLD})", meteor_yellow],
+            [f"Red (<{METEOR_YELLOW_THRESHOLD})", meteor_red],
         ])
 
     for row_idx, row_data in enumerate(summary_data, start=1):
@@ -248,6 +280,100 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
 
     summary_ws.column_dimensions['A'].width = 20
     summary_ws.column_dimensions['B'].width = 15
+
+    # Add charts for score distribution
+    if use_bert and bert_scores and bert_chart_start_row:
+        # BERT Similarity Chart
+        bert_chart = BarChart()
+        bert_chart.type = "col"
+        bert_chart.style = 10
+        bert_chart.title = "BERT Similarity Distribution"
+        bert_chart.y_axis.title = "Count"
+        bert_chart.x_axis.title = "Category"
+
+        # Data reference (values)
+        bert_data = Reference(summary_ws, min_col=2, min_row=bert_chart_start_row,
+                              max_row=bert_chart_start_row + 2)
+        # Categories reference (labels)
+        bert_cats = Reference(summary_ws, min_col=1, min_row=bert_chart_start_row,
+                              max_row=bert_chart_start_row + 2)
+
+        bert_chart.add_data(bert_data, titles_from_data=False)
+        bert_chart.set_categories(bert_cats)
+        bert_chart.shape = 4
+        bert_chart.width = 12
+        bert_chart.height = 8
+
+        # Color the bars: green, yellow, red
+        from openpyxl.chart.series import DataPoint
+        from openpyxl.drawing.fill import PatternFillProperties, ColorChoice
+        from openpyxl.chart.shapes import GraphicalProperties
+
+        series = bert_chart.series[0]
+        # Green bar
+        pt_green = DataPoint(idx=0)
+        pt_green.graphicalProperties = GraphicalProperties()
+        pt_green.graphicalProperties.solidFill = "00B050"
+        series.data_points.append(pt_green)
+        # Yellow bar
+        pt_yellow = DataPoint(idx=1)
+        pt_yellow.graphicalProperties = GraphicalProperties()
+        pt_yellow.graphicalProperties.solidFill = "FFC000"
+        series.data_points.append(pt_yellow)
+        # Red bar
+        pt_red = DataPoint(idx=2)
+        pt_red.graphicalProperties = GraphicalProperties()
+        pt_red.graphicalProperties.solidFill = "FF0000"
+        series.data_points.append(pt_red)
+
+        summary_ws.add_chart(bert_chart, "D2")
+
+    if meteor_scores and meteor_chart_start_row:
+        # METEOR Score Chart
+        meteor_chart = BarChart()
+        meteor_chart.type = "col"
+        meteor_chart.style = 10
+        meteor_chart.title = "METEOR Score Distribution"
+        meteor_chart.y_axis.title = "Count"
+        meteor_chart.x_axis.title = "Category"
+
+        # Data reference (values)
+        meteor_data = Reference(summary_ws, min_col=2, min_row=meteor_chart_start_row,
+                                max_row=meteor_chart_start_row + 2)
+        # Categories reference (labels)
+        meteor_cats = Reference(summary_ws, min_col=1, min_row=meteor_chart_start_row,
+                                max_row=meteor_chart_start_row + 2)
+
+        meteor_chart.add_data(meteor_data, titles_from_data=False)
+        meteor_chart.set_categories(meteor_cats)
+        meteor_chart.shape = 4
+        meteor_chart.width = 12
+        meteor_chart.height = 8
+
+        # Color the bars: green, yellow, red
+        from openpyxl.chart.series import DataPoint
+        from openpyxl.chart.shapes import GraphicalProperties
+
+        series = meteor_chart.series[0]
+        # Green bar
+        pt_green = DataPoint(idx=0)
+        pt_green.graphicalProperties = GraphicalProperties()
+        pt_green.graphicalProperties.solidFill = "00B050"
+        series.data_points.append(pt_green)
+        # Yellow bar
+        pt_yellow = DataPoint(idx=1)
+        pt_yellow.graphicalProperties = GraphicalProperties()
+        pt_yellow.graphicalProperties.solidFill = "FFC000"
+        series.data_points.append(pt_yellow)
+        # Red bar
+        pt_red = DataPoint(idx=2)
+        pt_red.graphicalProperties = GraphicalProperties()
+        pt_red.graphicalProperties.solidFill = "FF0000"
+        series.data_points.append(pt_red)
+
+        # Position second chart below the first
+        chart_position = "D17" if use_bert else "D2"
+        summary_ws.add_chart(meteor_chart, chart_position)
 
     # Save workbook
     wb.save(output_path)
