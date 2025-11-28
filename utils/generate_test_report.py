@@ -25,7 +25,7 @@ from sentence_transformers import SentenceTransformer
 
 def compute_meteor_score(reference: str, hypothesis: str, metric) -> float:
     """Compute METEOR score."""
-    if not reference or not hypothesis or not metric:
+    if not reference or not hypothesis or metric is None:
         return 0.0
 
     try:

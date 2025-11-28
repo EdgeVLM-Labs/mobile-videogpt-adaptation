@@ -24,6 +24,7 @@ loguru
 datasets
 sacrebleu
 evaluate
+nltk
 sqlitedict
 tenacity
 hf_transfer
