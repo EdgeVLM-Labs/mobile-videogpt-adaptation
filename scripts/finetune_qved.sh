@@ -34,8 +34,8 @@ LR=2e-4                      # Increased learning rate
 MM_PROJ_LR=2e-4              # Even lower for projection layers
 LORA_R=64                    # LoRA rank
 LORA_ALPHA=128               # LoRA alpha
-BATCH=4                      # Smaller batch for stability
-GACC=16                      # Gradient accumulation to simulate batch=64
+BATCH=16                      # Smaller batch for stability
+GACC=4                      # Gradient accumulation to simulate batch=64
 MAXLEN=2048                  # Max sequence length
 
 echo "========================================="
@@ -114,7 +114,7 @@ deepspeed mobilevideogpt/train/train.py \
   --lr_scheduler_type "cosine" \
   --logging_steps 1 \
   --model_max_length $MAXLEN \
-  --dataloader_num_workers 0 \
+  --dataloader_num_workers 4 \
   --lazy_preprocess True \
   --report_to wandb \
   --run_name $WANDB_NAME \
