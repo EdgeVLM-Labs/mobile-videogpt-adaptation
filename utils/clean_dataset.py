@@ -285,6 +285,22 @@ def prompt_replace_dataset(source_root: Path, destination_root: Path) -> None:
             break
         elif response in ("y", "yes"):
             try:
+                # Preserve important JSON files before removing original dataset
+                manifest_file = source_root / "manifest.json"
+                fine_labels_file = source_root / "fine_grained_labels.json"
+                ground_truth_file = source_root / "ground_truth.json"
+
+                # Copy JSON files to cleaned dataset before swap
+                if manifest_file.exists():
+                    shutil.copy2(manifest_file, destination_root / "manifest.json")
+                    print(f"[INFO] Preserved: manifest.json")
+                if fine_labels_file.exists():
+                    shutil.copy2(fine_labels_file, destination_root / "fine_grained_labels.json")
+                    print(f"[INFO] Preserved: fine_grained_labels.json")
+                if ground_truth_file.exists():
+                    shutil.copy2(ground_truth_file, destination_root / "ground_truth.json")
+                    print(f"[INFO] Preserved: ground_truth.json")
+
                 print(f"\n[INFO] Removing original dataset: {source_root}")
                 shutil.rmtree(source_root)
                 print(f"[INFO] Renaming {destination_root} -> {source_root}")
