@@ -85,7 +85,7 @@ class Block(nn.Module):
                 eps=self.norm.eps,
             )
         if use_checkpoint:
-            hidden_states = checkpoint.checkpoint(self.mixer, hidden_states, inference_params)
+            hidden_states = checkpoint.checkpoint(self.mixer, hidden_states, inference_params, use_reentrant=False)
         else:
             hidden_states = self.mixer(hidden_states, inference_params=inference_params)
         return hidden_states, residual
