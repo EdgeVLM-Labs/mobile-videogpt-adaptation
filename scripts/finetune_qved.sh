@@ -29,13 +29,22 @@ OUTPUT_DIR_PATH="results/qved_finetune_mobilevideogpt_0.5B"
 mkdir -p "$OUTPUT_DIR_PATH"
 
 # Training hyperparameters optimized for small dataset
+# EPOCHS=3                     # Reduced epochs
+# LR=2e-4                      # Increased learning rate
+# MM_PROJ_LR=2e-4              # Even lower for projection layers
+# LORA_R=64                    # LoRA rank
+# LORA_ALPHA=128               # LoRA alpha
+# BATCH=16                      # Smaller batch for stability
+# GACC=4                      # Gradient accumulation to simulate batch=64
+# MAXLEN=2048                  # Max sequence length
+
 EPOCHS=3                     # Reduced epochs
 LR=2e-4                      # Increased learning rate
-MM_PROJ_LR=2e-4              # Even lower for projection layers
+MM_PROJ_LR=1e-4              # Even lower for projection layers
 LORA_R=64                    # LoRA rank
 LORA_ALPHA=128               # LoRA alpha
-BATCH=16                      # Smaller batch for stability
-GACC=4                      # Gradient accumulation to simulate batch=64
+BATCH=8                      # Per device batch size
+GACC=8                       # Gradient accumulation to simulate batch=64
 MAXLEN=2048                  # Max sequence length
 
 echo "========================================="
@@ -104,17 +113,17 @@ deepspeed mobilevideogpt/train/train.py \
   --per_device_eval_batch_size 4 \
   --gradient_accumulation_steps $GACC \
   --eval_strategy "steps" \
-  --eval_steps 50 \
+  --eval_steps 70 \
   --save_strategy "steps" \
-  --save_steps 50 \
-  --save_total_limit 2 \
+  --save_steps 70 \
+  --save_total_limit 3 \
   --learning_rate $LR \
   --weight_decay 0. \
   --warmup_ratio 0.05 \
   --lr_scheduler_type "cosine" \
   --logging_steps 1 \
   --model_max_length $MAXLEN \
-  --dataloader_num_workers 4 \
+  --dataloader_num_workers 2 \
   --lazy_preprocess True \
   --report_to wandb \
   --run_name $WANDB_NAME \
