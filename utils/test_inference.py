@@ -6,8 +6,8 @@ This script runs inference on videos from the QVED test set using a finetuned mo
 It loads videos from qved_test.json and generates predictions.
 
 Usage:
-    python scripts/test_inference.py --model_path results/qved_finetune_mobilevideogpt_0.5B/checkpoint-70
-    python scripts/test_inference.py --model_path results/qved_finetune_mobilevideogpt_0.5B --output test_predictions.json
+    python utils/test_inference.py --model_path results/qved_finetune_mobilevideogpt_0.5B/checkpoint-70
+    python utils/test_inference.py --model_path results/qved_finetune_mobilevideogpt_0.5B --output test_predictions.json
 """
 
 import sys
@@ -31,7 +31,8 @@ from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from peft import PeftModel
 
-sys.path.append(".")
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from mobilevideogpt.utils import preprocess_input
 

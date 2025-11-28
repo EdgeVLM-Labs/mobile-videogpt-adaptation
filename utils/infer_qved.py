@@ -1,3 +1,14 @@
+#!/usr/bin/env python3
+"""
+QVED Finetuned Model Inference
+
+This script runs inference on a single video using a finetuned Mobile-VideoGPT model.
+
+Usage:
+    python utils/infer_qved.py --model_path results/qved_finetune_mobilevideogpt_0.5B --video_path sample_videos/00000340.mp4
+    python utils/infer_qved.py --model_path Amshaker/Mobile-VideoGPT-0.5B --video_path sample_videos/00000340.mp4 --prompt "Describe this video"
+"""
+
 import sys
 import os
 import warnings
@@ -17,7 +28,8 @@ from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from peft import PeftModel
 
-sys.path.append(".")
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from mobilevideogpt.utils import preprocess_input
 
@@ -140,7 +152,7 @@ def main():
         print(f"❌ Error: Video file not found: {args.video_path}")
         sys.exit(1)
 
-    if not args.model_path.startswith("Amshaker/") and not os.path.exists(args.model_path):
+    if not args.model_path.startswith("Amshaker/") and not args.model_path.startswith("EdgeVLM-Labs/") and not os.path.exists(args.model_path):
         print(f"❌ Error: Model path not found: {args.model_path}")
         sys.exit(1)
 

@@ -6,8 +6,8 @@ This script processes test inference results and generates an Excel report
 with cosine similarity scores between predictions and ground truth.
 
 Usage:
-    python scripts/generate_test_report.py --predictions test_predictions.json
-    python scripts/generate_test_report.py --predictions test_predictions.json --output test_report.xlsx
+    python utils/generate_test_report.py --predictions test_predictions.json
+    python utils/generate_test_report.py --predictions test_predictions.json --output test_report.xlsx
 """
 
 import json
