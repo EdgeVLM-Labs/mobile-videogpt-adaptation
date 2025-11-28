@@ -20,6 +20,17 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 from matplotlib.backends.backend_pdf import PdfPages
 
+# Import dataset configuration constants
+try:
+    from utils.load_dataset import MAX_PER_CLASS
+except ImportError:
+    MAX_PER_CLASS = 5  # Default fallback
+
+# Dataset split ratios (matching qved_from_fine_labels.py)
+TRAIN_RATIO = 0.60
+VAL_RATIO = 0.20
+TEST_RATIO = 0.20
+
 # Configure matplotlib to use LaTeX for text rendering
 plt.rcParams.update({
     "text.usetex": True,
@@ -286,14 +297,90 @@ def plot_eval_metrics(eval_epochs: List[float], eval_loss: List[float], output_p
     plt.close()
 
 
+def get_dataset_info() -> Dict[str, int]:
+    """
+    Get dataset information from JSON files.
+
+    Returns:
+        Dictionary with train_count, val_count, test_count, total_videos, num_classes
+    """
+    import json
+    from pathlib import Path
+
+    dataset_info = {
+        'max_per_class': MAX_PER_CLASS,
+        'train_count': 0,
+        'val_count': 0,
+        'test_count': 0,
+        'total_videos': 0,
+        'num_classes': 0,
+        'train_ratio': TRAIN_RATIO,
+        'val_ratio': VAL_RATIO,
+        'test_ratio': TEST_RATIO,
+    }
+
+    dataset_dir = Path("dataset")
+
+    # Try to read train/val/test JSON files
+    try:
+        train_json = dataset_dir / "qved_train.json"
+        if train_json.exists():
+            with open(train_json, 'r') as f:
+                dataset_info['train_count'] = len(json.load(f))
+    except Exception:
+        pass
+
+    try:
+        val_json = dataset_dir / "qved_val.json"
+        if val_json.exists():
+            with open(val_json, 'r') as f:
+                dataset_info['val_count'] = len(json.load(f))
+    except Exception:
+        pass
+
+    try:
+        test_json = dataset_dir / "qved_test.json"
+        if test_json.exists():
+            with open(test_json, 'r') as f:
+                dataset_info['test_count'] = len(json.load(f))
+    except Exception:
+        pass
+
+    # Try to get number of exercise classes from manifest
+    try:
+        manifest_json = dataset_dir / "manifest.json"
+        if manifest_json.exists():
+            with open(manifest_json, 'r') as f:
+                manifest = json.load(f)
+                dataset_info['total_videos'] = len(manifest)
+                dataset_info['num_classes'] = len(set(manifest.values()))
+    except Exception:
+        pass
+
+    return dataset_info
+
+
 def get_summary_text(metrics: Dict[str, List[float]], summary: Dict[str, float]) -> str:
     lines = []
     lines.append("=" * 60)
     lines.append("Training Statistics Summary")
     lines.append("=" * 60 + "\n")
 
+    # Dataset Information
+    dataset_info = get_dataset_info()
+    lines.append("Dataset Configuration:")
+    lines.append(f"  Videos per Exercise Class: {dataset_info['max_per_class']}")
+    lines.append(f"  Number of Exercise Classes: {dataset_info['num_classes']}")
+    lines.append(f"  Total Videos Downloaded: {dataset_info['total_videos']}\n")
+
+    lines.append("Dataset Split:")
+    lines.append(f"  Train: {dataset_info['train_count']} samples ({dataset_info['train_ratio']*100:.0f}%)")
+    lines.append(f"  Val:   {dataset_info['val_count']} samples ({dataset_info['val_ratio']*100:.0f}%)")
+    lines.append(f"  Test:  {dataset_info['test_count']} samples ({dataset_info['test_ratio']*100:.0f}%)\n")
+
+    # Training Summary (Final Metrics)
     if summary:
-        lines.append("Final Training Metrics:")
+        lines.append("Training Summary:")
         lines.append(f"  Total Runtime: {summary.get('train_runtime', 0):.2f} seconds ({summary.get('train_runtime', 0)/60:.2f} minutes)")
         lines.append(f"  Samples/Second: {summary.get('train_samples_per_second', 0):.3f}")
         lines.append(f"  Steps/Second: {summary.get('train_steps_per_second', 0):.3f}")
