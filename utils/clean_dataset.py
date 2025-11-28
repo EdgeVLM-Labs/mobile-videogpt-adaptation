@@ -41,6 +41,7 @@ else:
     raise FileNotFoundError(f"Motion flags file not found: {MOTION_FLAGS_FILE}")
 
 VIDEO_LOG = []
+REJECTED_VIDEOS = {}
 
 
 def ensure_directory_exists(directory: Path) -> None:
@@ -264,6 +265,21 @@ def generate_cleaning_report(overall_exercise_stats, totals, destination_root: P
             print(f"[INFO] Detailed file analysis saved to: {details_path}")
 
 
+def save_rejected_videos_json(destination_root: Path):
+    """Save rejected video paths organized by exercise to a JSON file."""
+    if not REJECTED_VIDEOS:
+        print("\n[INFO] No rejected videos to save.")
+        return
+    
+    ensure_directory_exists(destination_root)
+    json_path = destination_root / "rejected_videos.json"
+    
+    with open(json_path, "w") as f:
+        json.dump(REJECTED_VIDEOS, f, indent=2)
+    
+    print(f"[INFO] Rejected videos JSON saved to: {json_path}")
+
+
 def prompt_replace_dataset(source_root: Path, destination_root: Path) -> None:
     """Ask user whether to replace the original dataset with the cleaned dataset."""
     print("\n" + "=" * 50)
@@ -389,6 +405,10 @@ def clean_dataset(source_root: Path, destination_root: Path):
                     exercise_stats["accepted_videos"] += 1
                 else:
                     exercise_stats["rejected_videos"] += 1
+                    # Track rejected videos by exercise
+                    if folder_name not in REJECTED_VIDEOS:
+                        REJECTED_VIDEOS[folder_name] = []
+                    REJECTED_VIDEOS[folder_name].append(str(video_path))
                 pbar.update(1)
 
         if any_video:
@@ -400,6 +420,7 @@ def clean_dataset(source_root: Path, destination_root: Path):
                     totals[key] += exercise_stats[key]
 
     generate_cleaning_report(overall_exercise_stats, totals, CLEANED_DATASET_PATH)
+    save_rejected_videos_json(CLEANED_DATASET_PATH)
 
     # Return source and destination for the replace prompt
     return source_root, destination_root
