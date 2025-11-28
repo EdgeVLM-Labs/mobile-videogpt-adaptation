@@ -19,6 +19,8 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.chart import BarChart, Reference
+from openpyxl.chart.label import DataLabelList
+from openpyxl.chart.legend import Legend
 from sklearn.metrics.pairwise import cosine_similarity
 import evaluate
 from sentence_transformers import SentenceTransformer
@@ -281,7 +283,6 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     summary_ws.column_dimensions['A'].width = 20
     summary_ws.column_dimensions['B'].width = 15
 
-    # Add charts for score distribution
     if use_bert and bert_scores and bert_chart_start_row:
         # BERT Similarity Chart
         bert_chart = BarChart()
@@ -290,6 +291,16 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         bert_chart.title = "BERT Similarity Distribution"
         bert_chart.y_axis.title = "Count"
         bert_chart.x_axis.title = "Category"
+
+        # Show primary axes
+        bert_chart.x_axis.delete = False
+        bert_chart.y_axis.delete = False
+        bert_chart.x_axis.majorTickMark = "out"
+        bert_chart.y_axis.majorTickMark = "out"
+
+        # Legend position below x-axis
+        bert_chart.legend = Legend()
+        bert_chart.legend.position = "b"
 
         # Data reference (values)
         bert_data = Reference(summary_ws, min_col=2, min_row=bert_chart_start_row,
@@ -336,6 +347,16 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         meteor_chart.title = "METEOR Score Distribution"
         meteor_chart.y_axis.title = "Count"
         meteor_chart.x_axis.title = "Category"
+
+        # Show primary axes
+        meteor_chart.x_axis.delete = False
+        meteor_chart.y_axis.delete = False
+        meteor_chart.x_axis.majorTickMark = "out"
+        meteor_chart.y_axis.majorTickMark = "out"
+
+        # Legend position below x-axis
+        meteor_chart.legend = Legend()
+        meteor_chart.legend.position = "b"
 
         # Data reference (values)
         meteor_data = Reference(summary_ws, min_col=2, min_row=meteor_chart_start_row,
