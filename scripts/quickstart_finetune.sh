@@ -75,7 +75,7 @@ echo -n "Upload finetuned model to HuggingFace? (y/N): "
 read -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    HF_REPO_NAME="qved-finetune-${TIMESTAMP}"
+    HF_REPO_NAME="mobile-videogpt-finetune-${TIMESTAMP}"
     echo "Uploading to EdgeVLM-Labs/${HF_REPO_NAME}..."
     python utils/hf_upload.py \
         --model_path "$MODEL_PATH" \
