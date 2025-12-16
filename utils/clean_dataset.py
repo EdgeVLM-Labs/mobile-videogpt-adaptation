@@ -325,6 +325,19 @@ def filter_json_files_for_accepted_videos(destination_root: Path):
 
         print(f"[INFO] Filtered ground_truth.json: {len(filtered_ground_truth)}/{len(original_ground_truth)} entries retained")
 
+
+def prompt_replace_dataset(source_root: Path, destination_root: Path) -> None:
+    """Ask user whether to replace the original dataset with the cleaned dataset."""
+    print("\n" + "=" * 50)
+    print("Replace original dataset with cleaned dataset?")
+    print("=" * 50)
+    print(f"  Original dataset:  {source_root}")
+    print(f"  Cleaned dataset:   {destination_root}")
+    print("")
+    print("  y = Remove original 'dataset' folder and rename 'cleaned_dataset' to 'dataset'")
+    print("  n = Keep both folders (cleaned dataset saved separately)")
+    print("")
+
     while True:
         response = input("Replace original dataset? (y/N): ").strip().lower()
         if response in ("", "n", "no"):
