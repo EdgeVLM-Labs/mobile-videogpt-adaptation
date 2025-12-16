@@ -56,23 +56,13 @@ fi
 echo -e "${GREEN}✓ Ground truth filtering completed${NC}"
 echo ""
 
-# Step 4: Generate QVED splits
-echo -e "${RED}Step 4: Generating QVED Train/Val/Test Splits${NC}"
-echo -e "${BLUE}Running: python utils/qved_from_fine_labels.py${NC}"
-python utils/qved_from_fine_labels.py
-
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Error: QVED split generation failed${NC}"
-    exit 1
-fi
-
-echo -e "${GREEN}✓ QVED splits generated${NC}"
-echo ""
-
-# Step 5: Ask about dataset cleaning
-echo -e "${RED}Step 5: Dataset Cleaning (Optional)${NC}"
+# Step 4: Ask about dataset cleaning (BEFORE generating splits)
+echo -e "${RED}Step 4: Dataset Cleaning (Optional)${NC}"
 echo "Dataset cleaning will analyze video quality (resolution, brightness, sharpness, motion)"
 echo "and filter out low-quality videos."
+echo ""
+echo "⚠️  Important: Cleaning happens BEFORE generating train/val/test splits"
+echo "   so splits will only include videos that pass quality checks."
 echo ""
 echo -n "Do you want to clean the dataset? (y/N): "
 read -r CLEAN_RESPONSE
@@ -93,6 +83,20 @@ if [[ "$CLEAN_RESPONSE" == "y" || "$CLEAN_RESPONSE" == "yes" ]]; then
 else
     echo -e "${RED}⊘ Skipping dataset cleaning${NC}"
 fi
+
+echo ""
+
+# Step 5: Generate QVED splits (AFTER cleaning)
+echo -e "${RED}Step 5: Generating QVED Train/Val/Test Splits${NC}"
+echo -e "${BLUE}Running: python utils/qved_from_fine_labels.py${NC}"
+python utils/qved_from_fine_labels.py
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Error: QVED split generation failed${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ QVED splits generated${NC}"
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
