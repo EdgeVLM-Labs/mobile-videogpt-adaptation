@@ -280,17 +280,50 @@ def save_rejected_videos_json(destination_root: Path):
     print(f"[INFO] Rejected videos JSON saved to: {json_path}")
 
 
-def prompt_replace_dataset(source_root: Path, destination_root: Path) -> None:
-    """Ask user whether to replace the original dataset with the cleaned dataset."""
-    print("\n" + "=" * 50)
-    print("Replace original dataset with cleaned dataset?")
-    print("=" * 50)
-    print(f"  Original dataset:  {source_root}")
-    print(f"  Cleaned dataset:   {destination_root}")
-    print("")
-    print("  y = Remove original 'dataset' folder and rename 'cleaned_dataset' to 'dataset'")
-    print("  n = Keep both folders (cleaned dataset saved separately)")
-    print("")
+def filter_json_files_for_accepted_videos(destination_root: Path):
+    """Filter manifest.json and ground_truth.json to only include videos that were actually copied."""
+    # Get list of accepted video files from cleaned dataset
+    accepted_videos = set()
+    for root, _, files in os.walk(destination_root):
+        for file in files:
+            if file.lower().endswith((".mp4", ".avi", ".mov")):
+                accepted_videos.add(file)
+
+    # Filter manifest.json
+    manifest_file = destination_root / "manifest.json"
+    if manifest_file.exists():
+        with open(manifest_file, "r") as f:
+            original_manifest = json.load(f)
+
+        # Filter to only include accepted videos
+        filtered_manifest = {}
+        for video_path, exercise in original_manifest.items():
+            video_filename = Path(video_path).name
+            if video_filename in accepted_videos:
+                filtered_manifest[video_path] = exercise
+
+        with open(manifest_file, "w") as f:
+            json.dump(filtered_manifest, f, indent=2)
+
+        print(f"[INFO] Filtered manifest.json: {len(filtered_manifest)}/{len(original_manifest)} videos retained")
+
+    # Filter ground_truth.json
+    ground_truth_file = destination_root / "ground_truth.json"
+    if ground_truth_file.exists():
+        with open(ground_truth_file, "r") as f:
+            original_ground_truth = json.load(f)
+
+        # Filter to only include accepted videos
+        filtered_ground_truth = []
+        for entry in original_ground_truth:
+            video_filename = Path(entry.get("video_path", "")).name
+            if video_filename in accepted_videos:
+                filtered_ground_truth.append(entry)
+
+        with open(ground_truth_file, "w") as f:
+            json.dump(filtered_ground_truth, f, indent=2)
+
+        print(f"[INFO] Filtered ground_truth.json: {len(filtered_ground_truth)}/{len(original_ground_truth)} entries retained")
 
     while True:
         response = input("Replace original dataset? (y/N): ").strip().lower()
@@ -328,6 +361,10 @@ def prompt_replace_dataset(source_root: Path, destination_root: Path) -> None:
                 if qved_test_file.exists():
                     shutil.copy2(qved_test_file, destination_root / "qved_test.json")
                     print(f"[INFO] Preserved: qved_test.json")
+
+                # Filter JSON files to only include accepted videos
+                print(f"\n[INFO] Filtering JSON files to match cleaned dataset...")
+                filter_json_files_for_accepted_videos(destination_root)
 
                 print(f"\n[INFO] Removing original dataset: {source_root}")
                 shutil.rmtree(source_root)
