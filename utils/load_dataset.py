@@ -9,6 +9,7 @@ Features:
 import os
 import random
 import json
+import sys
 from pathlib import Path
 from huggingface_hub import list_repo_files, hf_hub_download
 import shutil
@@ -117,9 +118,17 @@ def save_manifest(manifest, local_dir):
 
 def main():
 
+    max_per_class = MAX_PER_CLASS
+    if len(sys.argv) > 1:
+        try:
+            max_per_class = int(sys.argv[1])
+            print(f"📊 Using MAX_PER_CLASS = {max_per_class} (from command line)")
+        except ValueError:
+            print(f"⚠️ Invalid argument. Using default MAX_PER_CLASS = {MAX_PER_CLASS}")
+
     LOCAL_DIR.mkdir(parents=True, exist_ok=True)
     by_class, all_files = collect_videos(REPO_ID)
-    manifest = sample_and_download(by_class, REPO_ID, LOCAL_DIR, MAX_PER_CLASS)
+    manifest = sample_and_download(by_class, REPO_ID, LOCAL_DIR, max_per_class)
     save_manifest(manifest, LOCAL_DIR)
     download_ground_truth(REPO_ID, LOCAL_DIR, all_files)
     print("🏁 Dataset download completed.")

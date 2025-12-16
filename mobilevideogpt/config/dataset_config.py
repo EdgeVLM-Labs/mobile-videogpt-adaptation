@@ -110,7 +110,7 @@ ST_PERCEPTIONTEST_30_60_S ={
 # QVED dataset (train/val/test splits)
 QVED_TRAIN = {
     "annotation_path": "dataset/qved_train.json",
-    "data_path": "dataset",  # videos referenced relative to this
+    "data_path": "dataset",
 }
 
 QVED_VAL = {

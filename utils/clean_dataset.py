@@ -270,13 +270,13 @@ def save_rejected_videos_json(destination_root: Path):
     if not REJECTED_VIDEOS:
         print("\n[INFO] No rejected videos to save.")
         return
-    
+
     ensure_directory_exists(destination_root)
     json_path = destination_root / "rejected_videos.json"
-    
+
     with open(json_path, "w") as f:
         json.dump(REJECTED_VIDEOS, f, indent=2)
-    
+
     print(f"[INFO] Rejected videos JSON saved to: {json_path}")
 
 
@@ -305,6 +305,9 @@ def prompt_replace_dataset(source_root: Path, destination_root: Path) -> None:
                 manifest_file = source_root / "manifest.json"
                 fine_labels_file = source_root / "fine_grained_labels.json"
                 ground_truth_file = source_root / "ground_truth.json"
+                qved_train_file = source_root / "qved_train.json"
+                qved_val_file = source_root / "qved_val.json"
+                qved_test_file = source_root / "qved_test.json"
 
                 # Copy JSON files to cleaned dataset before swap
                 if manifest_file.exists():
@@ -316,6 +319,15 @@ def prompt_replace_dataset(source_root: Path, destination_root: Path) -> None:
                 if ground_truth_file.exists():
                     shutil.copy2(ground_truth_file, destination_root / "ground_truth.json")
                     print(f"[INFO] Preserved: ground_truth.json")
+                if qved_train_file.exists():
+                    shutil.copy2(qved_train_file, destination_root / "qved_train.json")
+                    print(f"[INFO] Preserved: qved_train.json")
+                if qved_val_file.exists():
+                    shutil.copy2(qved_val_file, destination_root / "qved_val.json")
+                    print(f"[INFO] Preserved: qved_val.json")
+                if qved_test_file.exists():
+                    shutil.copy2(qved_test_file, destination_root / "qved_test.json")
+                    print(f"[INFO] Preserved: qved_test.json")
 
                 print(f"\n[INFO] Removing original dataset: {source_root}")
                 shutil.rmtree(source_root)
