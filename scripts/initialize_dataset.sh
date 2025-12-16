@@ -8,7 +8,6 @@ set -e  # Exit on error
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
@@ -18,7 +17,7 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # Step 1: Ask for number of videos per exercise
-echo -e "${YELLOW}Step 1: Dataset Download Configuration${NC}"
+echo -e "${RED}Step 1: Dataset Download Configuration${NC}"
 echo -n "Enter number of videos to download per exercise class: "
 read -r VIDEO_COUNT
 
@@ -32,7 +31,7 @@ echo -e "${GREEN}✓ Will download ${VIDEO_COUNT} videos per exercise class${NC}
 echo ""
 
 # Step 2: Download dataset
-echo -e "${YELLOW}Step 2: Downloading Dataset from HuggingFace${NC}"
+echo -e "${RED}Step 2: Downloading Dataset from HuggingFace${NC}"
 echo -e "${BLUE}Running: python utils/load_dataset.py ${VIDEO_COUNT}${NC}"
 python utils/load_dataset.py "$VIDEO_COUNT"
 
@@ -45,7 +44,7 @@ echo -e "${GREEN}✓ Dataset download completed${NC}"
 echo ""
 
 # Step 3: Filter ground truth
-echo -e "${YELLOW}Step 3: Filtering Ground Truth Labels${NC}"
+echo -e "${RED}Step 3: Filtering Ground Truth Labels${NC}"
 echo -e "${BLUE}Running: python utils/filter_ground_truth.py${NC}"
 python utils/filter_ground_truth.py
 
@@ -58,7 +57,7 @@ echo -e "${GREEN}✓ Ground truth filtering completed${NC}"
 echo ""
 
 # Step 4: Generate QVED splits
-echo -e "${YELLOW}Step 4: Generating QVED Train/Val/Test Splits${NC}"
+echo -e "${RED}Step 4: Generating QVED Train/Val/Test Splits${NC}"
 echo -e "${BLUE}Running: python utils/qved_from_fine_labels.py${NC}"
 python utils/qved_from_fine_labels.py
 
@@ -71,7 +70,7 @@ echo -e "${GREEN}✓ QVED splits generated${NC}"
 echo ""
 
 # Step 5: Ask about dataset cleaning
-echo -e "${YELLOW}Step 5: Dataset Cleaning (Optional)${NC}"
+echo -e "${RED}Step 5: Dataset Cleaning (Optional)${NC}"
 echo "Dataset cleaning will analyze video quality (resolution, brightness, sharpness, motion)"
 echo "and filter out low-quality videos."
 echo ""
@@ -92,7 +91,7 @@ if [[ "$CLEAN_RESPONSE" == "y" || "$CLEAN_RESPONSE" == "yes" ]]; then
 
     echo -e "${GREEN}✓ Dataset cleaning completed${NC}"
 else
-    echo -e "${YELLOW}⊘ Skipping dataset cleaning${NC}"
+    echo -e "${RED}⊘ Skipping dataset cleaning${NC}"
 fi
 
 echo ""
