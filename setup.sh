@@ -13,8 +13,8 @@ wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O mi
 bash miniconda.sh -b -p $HOME/miniconda
 export PATH="$HOME/miniconda/bin:$PATH"
 conda init bash
-source ~/.bashrc
-# source $HOME/miniconda/etc/profile.d/conda.sh
+# source ~/.bashrc
+source $HOME/miniconda/etc/profile.d/conda.sh
 
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
@@ -57,7 +57,8 @@ cd VideoMamba
 # pip install bitsandbytes==0.41.1
 
 echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc
-source ~/.bashrc
+# source ~/.bashrc
+export PATH=/usr/local/cuda/bin:$PATH
 
 which nvcc
 
@@ -82,10 +83,10 @@ pip install mamba_ssm
 cd ..
 
 # 1. Verify setup
-bash scripts/verify_qved_setup.sh
+# bash scripts/verify_qved_setup.sh
 
 # 3. Start finetuning (one command)
-bash scripts/quickstart_finetune.sh
+# bash scripts/quickstart_finetune.sh
 
 # --------------------------------------------------
 # 3️⃣ Install FlashAttention for faster training
@@ -136,7 +137,7 @@ except ImportError:
 
 # conda install -c nvidia cuda-toolkit=12.1 -y
 
-bash scripts/quickstart_finetune.sh
+# bash scripts/quickstart_finetune.sh
 
 pip uninstall mamba-ssm causal-conv1d
 
@@ -144,8 +145,28 @@ pip cache purge
 
 pip install mamba-ssm causal-conv1d --no-cache-dir --no-build-isolation
 
+git clone https://github.com/okankop/vidaug
+cd vidaug
+python setup.py sdist && pip install dist/vidaug-0.1.tar.gz
+
+cd ..
+
+pip install openpyxl scikit-learn sentence-transformers rouge_score scikit-image
+
+pip install git+https://github.com/okankop/vidaug
+
 apt-get update
 apt-get install texlive texlive-latex-extra texlive-fonts-recommended dvipng cm-super
 
 echo "✅ Setup complete!"
 echo "🚀 Mobile-VideoGPT environment is ready."
+
+# Initialize WandB
+echo "🔑 Logging into WandB..."
+wandb login
+
+# Initialize HuggingFace Hub
+echo "🤗 Logging into HuggingFace Hub..."
+hf auth login
+
+source ~/.bashrc

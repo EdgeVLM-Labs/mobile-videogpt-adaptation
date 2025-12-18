@@ -11,6 +11,11 @@ export DATASET_DIR="$(pwd)/playground/data"
 # Suppress DeepSpeed hostfile warning for single-GPU training
 export PDSH_RCMD_TYPE=ssh
 
+# WandB Configuration
+export WANDB_PROJECT="mobile-videogpt"
+export WANDB_ENTITY="fyp-21"
+export WANDB_NAME="qved-finetune-$(date +%Y%m%d_%H%M%S)"
+
 # Model paths - using pre-trained Mobile-VideoGPT-0.5B checkpoint
 BASE_LLM_PATH="Amshaker/Mobile-VideoGPT-0.5B"
 VISION_TOWER="OpenGVLab/VideoMamba"
@@ -23,17 +28,23 @@ OUTPUT_DIR_PATH="results/qved_finetune_mobilevideogpt_0.5B"
 # Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR_PATH"
 
-# Log file for training output
-LOG_FILE="$OUTPUT_DIR_PATH/training_$(date +%Y%m%d_%H%M%S).log"
-
 # Training hyperparameters optimized for small dataset
-EPOCHS=10                    # More epochs for small dataset
-LR=1e-4                      # Conservative learning rate
-MM_PROJ_LR=2e-5              # Even lower for projection layers
+# EPOCHS=3                     # Reduced epochs
+# LR=2e-4                      # Increased learning rate
+# MM_PROJ_LR=2e-4              # Even lower for projection layers
+# LORA_R=64                    # LoRA rank
+# LORA_ALPHA=128               # LoRA alpha
+# BATCH=16                      # Smaller batch for stability
+# GACC=4                      # Gradient accumulation to simulate batch=64
+# MAXLEN=2048                  # Max sequence length
+
+EPOCHS=3                     # Reduced epochs
+LR=2e-4                      # Increased learning rate
+MM_PROJ_LR=1e-4              # Even lower for projection layers
 LORA_R=64                    # LoRA rank
 LORA_ALPHA=128               # LoRA alpha
-BATCH=4                      # Smaller batch for stability
-GACC=4                       # Gradient accumulation to simulate batch=16
+BATCH=8                      # Per device batch size
+GACC=8                       # Gradient accumulation to simulate batch=64
 MAXLEN=2048                  # Max sequence length
 
 echo "========================================="
@@ -41,11 +52,31 @@ echo "QVED Dataset Finetuning Configuration"
 echo "========================================="
 echo "Base Model: $BASE_LLM_PATH"
 echo "Output Dir: $OUTPUT_DIR_PATH"
-echo "Log File: $LOG_FILE"
 echo "Epochs: $EPOCHS"
 echo "Learning Rate: $LR"
 echo "Batch Size: $BATCH x $GACC accumulation steps = effective batch of $((BATCH * GACC))"
 echo "========================================="
+
+# Save hyperparameters to a config file
+CONFIG_FILE="$OUTPUT_DIR_PATH/hyperparameters.json"
+cat <<EOF > "$CONFIG_FILE"
+{
+  "base_model": "$BASE_LLM_PATH",
+  "dataset": "QVED",
+  "epochs": $EPOCHS,
+  "learning_rate": $LR,
+  "mm_projector_lr": $MM_PROJ_LR,
+  "lora_r": $LORA_R,
+  "lora_alpha": $LORA_ALPHA,
+  "batch_size": $BATCH,
+  "gradient_accumulation_steps": $GACC,
+  "max_length": $MAXLEN,
+  "wandb_project": "$WANDB_PROJECT",
+  "wandb_entity": "$WANDB_ENTITY",
+  "wandb_run_name": "$WANDB_NAME"
+}
+EOF
+echo "Hyperparameters saved to $CONFIG_FILE"
 
 # Stage 3: Fine-tuning on QVED dataset
 # The Mobile-VideoGPT-0.5B checkpoint already includes trained projectors,
@@ -62,7 +93,8 @@ deepspeed mobilevideogpt/train/train.py \
   --mm_projector_lr $MM_PROJ_LR \
   --model_name_or_path "$BASE_LLM_PATH" \
   --version qwen2_instruct \
-  --dataset_use QVED \
+  --dataset_use QVED_TRAIN \
+  --dataset_val QVED_VAL \
   --vision_tower "$VISION_TOWER" \
   --image_vision_tower "$IMAGE_VISION_TOWER" \
   --mm_projector_type "$PROJECTOR_TYPE" \
@@ -80,40 +112,25 @@ deepspeed mobilevideogpt/train/train.py \
   --per_device_train_batch_size $BATCH \
   --per_device_eval_batch_size 4 \
   --gradient_accumulation_steps $GACC \
-  --eval_strategy "no" \
+  --eval_strategy "steps" \
+  --eval_steps 70 \
   --save_strategy "steps" \
-  --save_steps 50 \
-  --save_total_limit 2 \
+  --save_steps 70 \
+  --save_total_limit 3 \
   --learning_rate $LR \
   --weight_decay 0. \
-  --warmup_ratio 0.03 \
+  --warmup_ratio 0.05 \
   --lr_scheduler_type "cosine" \
   --logging_steps 1 \
   --model_max_length $MAXLEN \
-  --dataloader_num_workers 4 \
+  --dataloader_num_workers 2 \
   --lazy_preprocess True \
-  --report_to none \
+  --report_to wandb \
+  --run_name $WANDB_NAME \
   --num_select_k_frames_in_chunk 4 \
-  --topk True 2>&1 | tee "$LOG_FILE"
+  --topk True
 
 echo "========================================="
 echo "Finetuning completed!"
 echo "Model saved to: $OUTPUT_DIR_PATH"
-echo "Log saved to: $LOG_FILE"
-echo "========================================="
-
-# Generate training plots
-echo ""
-echo "Generating training plots..."
-python utils/plot_training_stats.py \
-  --log_file "$LOG_FILE" \
-  --model_name "qved_finetune_mobilevideogpt_0.5B"
-
-if [ $? -eq 0 ]; then
-    echo "✓ Training plots generated successfully!"
-    echo "  Location: plots/qved_finetune_mobilevideogpt_0.5B/"
-else
-    echo "⚠ Warning: Failed to generate plots. You can generate them later with:"
-    echo "  python utils/plot_training_stats.py --log_file $LOG_FILE"
-fi
 echo "========================================="

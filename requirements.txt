@@ -24,6 +24,7 @@ loguru
 datasets
 sacrebleu
 evaluate
+nltk
 sqlitedict
 tenacity
 hf_transfer
@@ -34,3 +35,4 @@ huggingface_hub
 opencv-python
 deepspeed
 peft==0.10.0
+wandb

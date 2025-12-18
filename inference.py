@@ -64,7 +64,7 @@ def main():
     prompt = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
     model, tokenizer = load_model(pretrained_path)
     output = run_inference(model, tokenizer, video_path, prompt)
-    print("🤖 Mobile-ViideoGPT Output: ", output)
+    print("🤖 Mobile-VideoGPT Output: ", output)
 
 
 if __name__ == "__main__":

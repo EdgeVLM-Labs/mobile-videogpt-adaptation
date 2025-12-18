@@ -145,6 +145,12 @@ checkpoints/
 images
 flash-attention/
 VideoMamba/
+vidaug/
 dataset/
 fine_grained_labels.json
 plots/
+results/
+exercise_based_counts_full.json
+client_secret.json
+utils/credentials.json
+test_set_counts_full.json

@@ -9,9 +9,11 @@ Features:
 import os
 import random
 import json
+import sys
 from pathlib import Path
 from huggingface_hub import list_repo_files, hf_hub_download
 import shutil
+import time
 
 REPO_ID = "EdgeVLM-Labs/QVED-Test-Dataset"
 LOCAL_DIR = Path("dataset")  # local download directory
@@ -56,19 +58,26 @@ def sample_and_download(by_class, repo_id, local_dir, max_per_class):
             filename = os.path.basename(rel_path)  # e.g., "00018209.mp4"
             target_path = class_dir / filename
 
-            try:
-                cached_path = hf_hub_download(
-                    repo_id=repo_id,
-                    filename=rel_path,
-                    repo_type="dataset",
-                )
+            while True:
+                try:
+                    cached_path = hf_hub_download(
+                        repo_id=repo_id,
+                        filename=rel_path,
+                        repo_type="dataset",
+                    )
 
-                shutil.copy2(cached_path, target_path)
+                    shutil.copy2(cached_path, target_path)
 
-                manifest[str(target_path)] = cls
-                total_downloaded += 1
-            except Exception as e:
-                print(f"⚠️ Failed to download {rel_path}: {e}")
+                    manifest[str(target_path)] = cls
+                    total_downloaded += 1
+                    break
+                except Exception as e:
+                    if "429" in str(e) or "Too Many Requests" in str(e):
+                        print(f"⚠️ Rate limit hit (429). Waiting ~ 3 minutes before retrying {rel_path}...")
+                        time.sleep(200)
+                    else:
+                        print(f"⚠️ Failed to download {rel_path}: {e}")
+                        break
 
     print(f"\n✅ Download complete: {total_downloaded} videos.")
     return manifest
@@ -109,9 +118,17 @@ def save_manifest(manifest, local_dir):
 
 def main():
 
+    max_per_class = MAX_PER_CLASS
+    if len(sys.argv) > 1:
+        try:
+            max_per_class = int(sys.argv[1])
+            print(f"📊 Using MAX_PER_CLASS = {max_per_class} (from command line)")
+        except ValueError:
+            print(f"⚠️ Invalid argument. Using default MAX_PER_CLASS = {MAX_PER_CLASS}")
+
     LOCAL_DIR.mkdir(parents=True, exist_ok=True)
     by_class, all_files = collect_videos(REPO_ID)
-    manifest = sample_and_download(by_class, REPO_ID, LOCAL_DIR, MAX_PER_CLASS)
+    manifest = sample_and_download(by_class, REPO_ID, LOCAL_DIR, max_per_class)
     save_manifest(manifest, LOCAL_DIR)
     download_ground_truth(REPO_ID, LOCAL_DIR, all_files)
     print("🏁 Dataset download completed.")

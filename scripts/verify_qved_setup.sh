@@ -13,6 +13,20 @@ else
     echo "✗ dataset/qved_train.json NOT found"
 fi
 
+if [ -f "dataset/qved_val.json" ]; then
+    num_samples=$(python -c "import json; print(len(json.load(open('dataset/qved_val.json'))))" 2>/dev/null || echo "?")
+    echo "✓ dataset/qved_val.json found ($num_samples samples)"
+else
+    echo "✗ dataset/qved_val.json NOT found"
+fi
+
+if [ -f "dataset/qved_test.json" ]; then
+    num_samples=$(python -c "import json; print(len(json.load(open('dataset/qved_test.json'))))" 2>/dev/null || echo "?")
+    echo "✓ dataset/qved_test.json found ($num_samples samples)"
+else
+    echo "✗ dataset/qved_test.json NOT found"
+fi
+
 if [ -f "dataset/manifest.json" ]; then
     echo "✓ dataset/manifest.json found"
 else
@@ -54,28 +68,12 @@ for dir in "${exercise_dirs[@]}"; do
     fi
 done
 
-# Check if paths in qved_train.json match actual files
-echo -e "\n[3] Verifying video paths in qved_train.json..."
-missing_count=0
-total_count=0
+# Check if paths in dataset split files match actual files
+echo -e "\n[3] Verifying video paths in dataset splits..."
 
-# Use Python to extract video paths (fallback if jq not available)
-python -c "
-import json
-with open('dataset/qved_train.json') as f:
-    data = json.load(f)
-    for item in data:
-        print(item['video'])
-" 2>/dev/null | while IFS= read -r video_path; do
-    total_count=$((total_count + 1))
-    if [ ! -f "dataset/$video_path" ]; then
-        echo "✗ Missing: dataset/$video_path"
-        missing_count=$((missing_count + 1))
-    fi
-done
-
-# Get actual counts using Python
-result=$(python -c "
+# Check training set
+if [ -f "dataset/qved_train.json" ]; then
+    result=$(python -c "
 import json
 import os
 with open('dataset/qved_train.json') as f:
@@ -85,13 +83,58 @@ with open('dataset/qved_train.json') as f:
     print(f'{total},{missing}')
 " 2>/dev/null)
 
-total_count=$(echo $result | cut -d',' -f1)
-missing_count=$(echo $result | cut -d',' -f2)
+    total_count=$(echo $result | cut -d',' -f1)
+    missing_count=$(echo $result | cut -d',' -f2)
 
-if [ "$missing_count" -eq 0 ]; then
-    echo "✓ All $total_count video paths are valid"
-else
-    echo "✗ $missing_count out of $total_count videos are missing"
+    if [ "$missing_count" -eq 0 ]; then
+        echo "✓ Training set: All $total_count video paths are valid"
+    else
+        echo "✗ Training set: $missing_count out of $total_count videos are missing"
+    fi
+fi
+
+# Check validation set
+if [ -f "dataset/qved_val.json" ]; then
+    result=$(python -c "
+import json
+import os
+with open('dataset/qved_val.json') as f:
+    data = json.load(f)
+    total = len(data)
+    missing = sum(1 for item in data if not os.path.exists(os.path.join('dataset', item['video'])))
+    print(f'{total},{missing}')
+" 2>/dev/null)
+
+    total_count=$(echo $result | cut -d',' -f1)
+    missing_count=$(echo $result | cut -d',' -f2)
+
+    if [ "$missing_count" -eq 0 ]; then
+        echo "✓ Validation set: All $total_count video paths are valid"
+    else
+        echo "✗ Validation set: $missing_count out of $total_count videos are missing"
+    fi
+fi
+
+# Check test set
+if [ -f "dataset/qved_test.json" ]; then
+    result=$(python -c "
+import json
+import os
+with open('dataset/qved_test.json') as f:
+    data = json.load(f)
+    total = len(data)
+    missing = sum(1 for item in data if not os.path.exists(os.path.join('dataset', item['video'])))
+    print(f'{total},{missing}')
+" 2>/dev/null)
+
+    total_count=$(echo $result | cut -d',' -f1)
+    missing_count=$(echo $result | cut -d',' -f2)
+
+    if [ "$missing_count" -eq 0 ]; then
+        echo "✓ Test set: All $total_count video paths are valid"
+    else
+        echo "✗ Test set: $missing_count out of $total_count videos are missing"
+    fi
 fi
 
 # Check required scripts
