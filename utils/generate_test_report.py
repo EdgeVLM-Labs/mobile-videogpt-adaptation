@@ -540,6 +540,68 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         chart_position = "D17" if use_bert else "D2"
         summary_ws.add_chart(meteor_chart, chart_position)
 
+    if rouge_scores and rouge_chart_start_row:
+        # ROUGE-L Score Chart
+        rouge_chart = BarChart()
+        rouge_chart.type = "col"
+        rouge_chart.style = 10
+        rouge_chart.title = "ROUGE-L Score Distribution"
+        rouge_chart.y_axis.title = "Count"
+        rouge_chart.x_axis.title = "Category"
+
+        # Show primary axes
+        rouge_chart.x_axis.delete = False
+        rouge_chart.y_axis.delete = False
+        rouge_chart.x_axis.majorTickMark = "out"
+        rouge_chart.y_axis.majorTickMark = "out"
+
+        # Legend position below x-axis
+        rouge_chart.legend = Legend()
+        rouge_chart.legend.position = "b"
+
+        # Data reference (values)
+        rouge_data = Reference(summary_ws, min_col=2, min_row=rouge_chart_start_row,
+                                max_row=rouge_chart_start_row + 2)
+        # Categories reference (labels)
+        rouge_cats = Reference(summary_ws, min_col=1, min_row=rouge_chart_start_row,
+                                max_row=rouge_chart_start_row + 2)
+
+        rouge_chart.add_data(rouge_data, titles_from_data=False)
+        rouge_chart.set_categories(rouge_cats)
+        rouge_chart.shape = 4
+        rouge_chart.width = 12
+        rouge_chart.height = 8
+
+        # Color the bars: green, yellow, red
+        from openpyxl.chart.series import DataPoint
+        from openpyxl.chart.shapes import GraphicalProperties
+
+        series = rouge_chart.series[0]
+        # Green bar
+        pt_green = DataPoint(idx=0)
+        pt_green.graphicalProperties = GraphicalProperties()
+        pt_green.graphicalProperties.solidFill = "00B050"
+        series.data_points.append(pt_green)
+        # Yellow bar
+        pt_yellow = DataPoint(idx=1)
+        pt_yellow.graphicalProperties = GraphicalProperties()
+        pt_yellow.graphicalProperties.solidFill = "FFC000"
+        series.data_points.append(pt_yellow)
+        # Red bar
+        pt_red = DataPoint(idx=2)
+        pt_red.graphicalProperties = GraphicalProperties()
+        pt_red.graphicalProperties.solidFill = "FF0000"
+        series.data_points.append(pt_red)
+
+        # Position third chart
+        if use_bert and meteor_scores:
+            chart_position = "D32"  # Below METEOR chart
+        elif meteor_scores:
+            chart_position = "D17"  # Below METEOR chart
+        else:
+            chart_position = "D2"   # First chart
+        summary_ws.add_chart(rouge_chart, chart_position)
+
     # Save workbook
     wb.save(output_path)
     print(f"✓ Excel report saved to: {output_path}")

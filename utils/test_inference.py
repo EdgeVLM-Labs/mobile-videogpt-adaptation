@@ -26,6 +26,7 @@ logging.getLogger('transformers').setLevel(logging.CRITICAL)
 logging.getLogger('transformers.modeling_utils').setLevel(logging.CRITICAL)
 
 import torch
+import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
@@ -87,12 +88,20 @@ def load_model(pretrained_path: str, device: str = "cuda", base_model: str = "Am
 
 
 def run_inference(model, tokenizer, video_path: str, prompt: str, device: str = "cuda", max_new_tokens: int = 512):
-    """Runs inference on the given video file."""
+    """Runs inference on the given video file and returns prediction with throughput metrics."""
+    import time
+
     input_ids, video_frames, context_frames, stop_str = preprocess_input(
         model, tokenizer, video_path, prompt
     )
 
+    # Get input token count
+    input_token_count = input_ids.shape[1]
+
     with torch.inference_mode():
+        # Time the generation
+        start_time = time.time()
+
         output_ids = model.generate(
             input_ids,
             images=torch.stack(video_frames, dim=0).half().to(device),
@@ -100,14 +109,41 @@ def run_inference(model, tokenizer, video_path: str, prompt: str, device: str = 
             do_sample=False,  # Use greedy decoding
             num_beams=1,
             max_new_tokens=max_new_tokens,
-            use_cache=True,
+            use_cache=True,  # KV cache enabled
         )
+
+        # End timing
+        end_time = time.time()
+        generation_time = end_time - start_time
+
+    # Calculate metrics
+    output_token_count = output_ids.shape[1]
+    generated_token_count = output_token_count - input_token_count  # Only new tokens
+    tokens_per_second = generated_token_count / generation_time if generation_time > 0 else 0
 
     outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
     if outputs.endswith(stop_str):
         outputs = outputs[:-len(stop_str)].strip()
 
-    return outputs
+    return outputs, {
+        'generated_tokens': generated_token_count,
+        'generation_time': generation_time,
+        'tokens_per_second': tokens_per_second
+    }
+
+
+def warmup_gpu(model, tokenizer, warmup_videos: list, device: str = "cuda", max_new_tokens: int = 512):
+    """Warm up GPU with sample videos before actual inference."""
+    print("\n🔥 Warming up GPU...")
+    for video_path in warmup_videos[:3]:  # Use up to 3 videos for warmup
+        if not os.path.exists(video_path):
+            continue
+        try:
+            prompt = "Please evaluate this exercise form."
+            _ = run_inference(model, tokenizer, video_path, prompt, device, max_new_tokens)
+        except Exception as e:
+            print(f"  ⚠ Warmup warning for {video_path}: {e}")
+    print("✓ GPU warmup complete")
 
 
 def main():
@@ -160,8 +196,16 @@ def main():
 
     print(f"Total test samples: {len(test_data)}")
 
+    # GPU warmup with sample videos
+    warmup_dir = Path("sample_videos")
+    if warmup_dir.exists() and args.device == "cuda":
+        warmup_videos = [str(f) for f in warmup_dir.glob("*.mp4")]
+        if warmup_videos:
+            warmup_gpu(model, tokenizer, warmup_videos, args.device, args.max_new_tokens)
+
     # Run inference
     results = []
+    throughput_stats = []
     print("\n🎬 Running inference...")
 
     for item in tqdm(test_data, desc="Processing videos"):
@@ -175,17 +219,22 @@ def main():
 
         try:
             # Run inference
-            prediction = run_inference(
+            prediction, metrics = run_inference(
                 model, tokenizer,
                 video_path, prompt,
                 args.device, args.max_new_tokens
             )
+
+            throughput_stats.append(metrics['tokens_per_second'])
 
             results.append({
                 "video_path": video_rel_path,
                 "prompt": prompt,
                 "ground_truth": ground_truth,
                 "prediction": prediction,
+                "generated_tokens": metrics['generated_tokens'],
+                "generation_time": round(metrics['generation_time'], 4),
+                "tokens_per_second": round(metrics['tokens_per_second'], 2),
                 "status": "success"
             })
 
@@ -211,12 +260,27 @@ def main():
     successful = sum(1 for r in results if r['status'] == 'success')
     failed = len(results) - successful
 
+    # Calculate throughput statistics
+    if throughput_stats:
+        avg_throughput = np.mean(throughput_stats)
+        median_throughput = np.median(throughput_stats)
+        min_throughput = np.min(throughput_stats)
+        max_throughput = np.max(throughput_stats)
+
     print(f"\n{'='*60}")
     print("✅ Inference Complete!")
     print(f"{'='*60}")
     print(f"Total: {len(results)}")
     print(f"Successful: {successful}")
     print(f"Failed: {failed}")
+
+    if throughput_stats:
+        print(f"\n📊 Throughput Statistics (Tokens/Second):")
+        print(f"  Mean:   {avg_throughput:.2f}")
+        print(f"  Median: {median_throughput:.2f}")
+        print(f"  Min:    {min_throughput:.2f}")
+        print(f"  Max:    {max_throughput:.2f}")
+
     print(f"\nResults saved to: {output_path}")
     print(f"{'='*60}")
 
