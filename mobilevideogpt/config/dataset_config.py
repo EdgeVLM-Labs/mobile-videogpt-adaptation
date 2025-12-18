@@ -106,3 +106,19 @@ ST_PERCEPTIONTEST_30_60_S ={
     "annotation_path":  f"{DATASET_DIR}/annotations/30_60_s_perceptiontest_mc_qa_processed_single_videos.json",
     "data_path": f"{DATASET_DIR}/instruction_tuning/LLaVA-Video-178K/30_60_s_perceptiontest"
 }
+
+# QVED dataset (train/val/test splits)
+QVED_TRAIN = {
+    "annotation_path": "dataset/qved_train.json",
+    "data_path": "dataset",
+}
+
+QVED_VAL = {
+    "annotation_path": "dataset/qved_val.json",
+    "data_path": "dataset",
+}
+
+QVED_TEST = {
+    "annotation_path": "dataset/qved_test.json",
+    "data_path": "dataset",
+}

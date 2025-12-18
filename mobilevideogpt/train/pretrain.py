@@ -169,14 +169,36 @@ def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
 def find_all_linear_names(model):
     cls = torch.nn.Linear
     lora_module_names = set()
+    multimodal_keywords = ['mm_projector', 'vision_tower', 'image_vision_tower']
+
     for name, module in model.named_modules():
         if isinstance(module, cls):
-            names = name.split('.')
-            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
+            # Skip vision tower and projector layers
+            if any(mm_keyword in name for mm_keyword in multimodal_keywords):
+                continue
+            # Get the full path name for the linear layer
+            lora_module_names.add(name)
 
     if 'lm_head' in lora_module_names:  # needed for 16-bit
         lora_module_names.remove('lm_head')
-    return list(lora_module_names)
+
+    # If we have full path names, we need to convert to target patterns
+    # Extract just the linear layer names (e.g., 'q_proj', 'k_proj', 'v_proj', etc.)
+    target_modules = set()
+    for name in lora_module_names:
+        # Get the last component which should be the actual layer name
+        parts = name.split('.')
+        target_modules.add(parts[-1])
+
+    # Remove lm_head if present
+    target_modules.discard('lm_head')
+
+    # For Qwen2, typical LoRA targets are attention and MLP projections
+    # If target_modules is empty or has issues, use standard Qwen2 targets
+    if not target_modules:
+        target_modules = {'q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'}
+
+    return list(target_modules)
 
 
 def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
@@ -588,12 +610,12 @@ def preprocess_qwen(sources, tokenizer: transformers.PreTrainedTokenizer, has_im
     # Qwen 2.0
     #im_start, im_end, image_token_index = tokenizer.additional_special_tokens_ids
     #unmask_tokens_idx =  [198, im_start, im_end]
-                    
+
     # Qwen 2.5
     special_tokens_idx = tokenizer.additional_special_tokens_ids
     image_token_index = special_tokens_idx[-1]
     unmask_tokens_idx =  special_tokens_idx
-    
+
     nl_tokens = tokenizer("\n").input_ids
 
     # Reset Qwen chat templates so that it won't include system message every time we apply
@@ -627,7 +649,7 @@ def preprocess_qwen(sources, tokenizer: transformers.PreTrainedTokenizer, has_im
                 content = conv["value"]
 
             role =  roles.get(role, role)
-            
+
             conv = [{"role" : role, "content" : content}]
             encode_id = tokenizer.apply_chat_template(conv)
             input_id += encode_id
@@ -635,9 +657,9 @@ def preprocess_qwen(sources, tokenizer: transformers.PreTrainedTokenizer, has_im
                 target += [IGNORE_INDEX] * len(encode_id)
             else:
                 target += encode_id
-        
 
-                    
+
+
         assert len(input_id) == len(target), f"{len(input_id)} != {len(target)}"
         for idx, encode_id in enumerate(input_id):
             if encode_id in unmask_tokens_idx:
@@ -789,7 +811,7 @@ class LazySupervisedDataset(Dataset):
             #print(f"Number of elements before filtering: {len(annotations)}")
             #annotations = [element for element in annotations if "image" in element]
             #print(f"Number of elements after filtering: {len(annotations)}")
-            
+
             #for element in annotations:
             #    print("element is ", element)
             for ann in annotations:
@@ -936,7 +958,7 @@ class DataCollatorForSupervisedDataset(object):
                 ]
                 cur_attention_mask_tmp[image_position] = False
                 attention_mask[i] = cur_attention_mask_tmp
-        
+
         batch = dict(
             input_ids=input_ids,
             labels=labels,
@@ -1021,19 +1043,28 @@ def train():
         else:
             model_args.vision_tower = f"{model_args.vision_tower}/videomamba_m16_25M_f8_res224.pth"
     print(" model_args.model_name_or_path: ",  model_args.model_name_or_path)
-    
+
     if "Qwen2" in model_args.model_name_or_path:
+        # Determine dtype based on training args
+        if training_args.bf16:
+            torch_dtype = torch.bfloat16
+        elif training_args.fp16:
+            torch_dtype = torch.float16
+        else:
+            torch_dtype = torch.float32
+
         model = MobileVideoGPTQwenForCausalLM.from_pretrained(
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
             attn_implementation="flash_attention_2",
+            torch_dtype=torch_dtype,
             num_select_k_frames_in_chunk=model_args.num_select_k_frames_in_chunk,
             topk = model_args.topk,
             **bnb_model_from_pretrained_args
         )
     else:
         raise NotImplementedError(f"The model {model_args.model_name_or_path} is not implemented.")
-    
+
 
     model.config.use_cache = False
 

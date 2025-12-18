@@ -1,13 +1,22 @@
 import sys
+import os
+import warnings
+import logging
+
+os.environ['PYTHONWARNINGS'] = 'ignore'
+warnings.filterwarnings("ignore")
+
+logging.getLogger('mmengine').setLevel(logging.CRITICAL)
+logging.getLogger('transformers').setLevel(logging.CRITICAL)
+logging.getLogger('transformers.modeling_utils').setLevel(logging.CRITICAL)
+
 import torch
 from pathlib import Path
 from PIL import Image
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
-# Ensure Mobile-VideoGPT module is accessible
 sys.path.append("Mobile-VideoGPT")
 
-# Mobile-VideoGPT Imports
 from mobilevideogpt.utils import preprocess_input
 
 def load_model(pretrained_path: str, device: str = "cuda"):
@@ -35,27 +44,27 @@ def run_inference(model, tokenizer, video_path: str, prompt: str):
             images=torch.stack(video_frames, dim=0).half().cuda(),
             context_images=torch.stack(context_frames, dim=0).half().cuda(),
             do_sample=False,  # Use greedy decoding
-            temperature=0,
-            top_p=1,
+            # temperature=0,
+            # top_p=1,
             num_beams=1,
             max_new_tokens=1024,
             use_cache=True,
         )
-    
+
     outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
     if outputs.endswith(stop_str):
         outputs = outputs[:-len(stop_str)].strip()
-    
+
     return outputs
 
 
 def main():
-    pretrained_path = "Mobile-VideoGPT-1.5B"
-    video_path = "sample_videos/v_JspVuT6rsLA.mp4"
-    prompt = "Can you describe what is happening in the video in detail?"
+    pretrained_path = "Amshaker/Mobile-VideoGPT-0.5B"
+    video_path = "sample_videos/00000340.mp4"
+    prompt = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
     model, tokenizer = load_model(pretrained_path)
     output = run_inference(model, tokenizer, video_path, prompt)
-    print("🤖 Mobile-ViideoGPT Output: ", output)
+    print("🤖 Mobile-VideoGPT Output: ", output)
 
 
 if __name__ == "__main__":
