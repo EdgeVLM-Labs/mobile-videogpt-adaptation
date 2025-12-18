@@ -145,7 +145,7 @@ pip cache purge
 
 pip install mamba-ssm causal-conv1d --no-cache-dir --no-build-isolation
 
-pip install openpyxl scikit-learn sentence-transformers
+pip install openpyxl scikit-learn sentence-transformers rouge_score
 
 apt-get update
 apt-get install texlive texlive-latex-extra texlive-fonts-recommended dvipng cm-super

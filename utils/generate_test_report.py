@@ -26,9 +26,10 @@ import evaluate
 from sentence_transformers import SentenceTransformer
 
 
-# =============================================================================
-# CONFIGURABLE THRESHOLDS
-# =============================================================================
+# ROUGE-L Score thresholds (0-1 scale, higher is better)
+ROUGE_GREEN_THRESHOLD = 0.5   # >= this value is green (good)
+ROUGE_YELLOW_THRESHOLD = 0.2  # >= this value is yellow (moderate), below is red
+
 # BERT Similarity thresholds (0-1 scale, higher is better)
 BERT_GREEN_THRESHOLD = 0.7   # >= this value is green (good)
 BERT_YELLOW_THRESHOLD = 0.4  # >= this value is yellow (moderate), below is red
@@ -36,7 +37,6 @@ BERT_YELLOW_THRESHOLD = 0.4  # >= this value is yellow (moderate), below is red
 # METEOR Score thresholds (0-1 scale, higher is better)
 METEOR_GREEN_THRESHOLD = 0.5   # >= this value is green (good)
 METEOR_YELLOW_THRESHOLD = 0.2  # >= this value is yellow (moderate), below is red
-# =============================================================================
 
 
 def compute_meteor_score(reference: str, hypothesis: str, metric) -> float:
@@ -48,6 +48,76 @@ def compute_meteor_score(reference: str, hypothesis: str, metric) -> float:
         return metric.compute(predictions=[hypothesis], references=[reference])['meteor']
     except:
         return 0.0
+
+
+
+def compute_rouge_score(reference: str, hypothesis: str, metric) -> float:
+    """Compute ROUGE-L score."""
+    if not reference or not hypothesis or metric is None:
+        return 0.0
+
+    try:
+        result = metric.compute(predictions=[hypothesis], references=[reference])
+        return result['rougeL']
+    except:
+        return 0.0
+
+
+def extract_exercise_name(text: str) -> str:
+    """Extract exercise name from text (before the dash)."""
+    if not text:
+        return ""
+
+    # Find first dash and get text before it
+    if '-' in text:
+        return text.split('-')[0].strip().lower()
+    return text.strip().lower()
+
+
+def check_exercise_match(ground_truth: str, prediction: str) -> bool:
+    """Check if exercise names match between ground truth and prediction."""
+    gt_exercise = extract_exercise_name(ground_truth)
+    pred_exercise = extract_exercise_name(prediction)
+
+    if not gt_exercise or not pred_exercise:
+        return False
+
+    return gt_exercise == pred_exercise
+
+
+
+def compute_rouge_score(reference: str, hypothesis: str, metric) -> float:
+    """Compute ROUGE-L score."""
+    if not reference or not hypothesis or metric is None:
+        return 0.0
+
+    try:
+        result = metric.compute(predictions=[hypothesis], references=[reference])
+        return result['rougeL']
+    except:
+        return 0.0
+
+
+def extract_exercise_name(text: str) -> str:
+    """Extract exercise name from text (before the dash)."""
+    if not text:
+        return ""
+
+    # Find first dash and get text before it
+    if '-' in text:
+        return text.split('-')[0].strip().lower()
+    return text.strip().lower()
+
+
+def check_exercise_match(ground_truth: str, prediction: str) -> bool:
+    """Check if exercise names match between ground truth and prediction."""
+    gt_exercise = extract_exercise_name(ground_truth)
+    pred_exercise = extract_exercise_name(prediction)
+
+    if not gt_exercise or not pred_exercise:
+        return False
+
+    return gt_exercise == pred_exercise
 
 
 def compute_cosine_similarity_bert(text1: str, text2: str, model) -> float:
@@ -107,8 +177,7 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     if use_bert:
         headers.append("BERT Similarity")
 
-    headers.append("METEOR Score")
-    headers.extend(["Status", "Error"])
+    headers.extend(["METEOR Score", "ROUGE-L Score", "Exercise Identified", "Status", "Error"])
 
     # Write headers
     for col, header in enumerate(headers, start=1):
@@ -128,12 +197,16 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     if use_bert:
         ws.column_dimensions['E'].width = 18  # BERT Similarity
         ws.column_dimensions['F'].width = 18  # METEOR Score
-        ws.column_dimensions['G'].width = 12  # Status
-        ws.column_dimensions['H'].width = 40  # Error
+        ws.column_dimensions['G'].width = 18  # ROUGE-L Score
+        ws.column_dimensions['H'].width = 18  # Exercise Identified
+        ws.column_dimensions['I'].width = 12  # Status
+        ws.column_dimensions['J'].width = 40  # Error
     else:
         ws.column_dimensions['E'].width = 18  # METEOR Score
-        ws.column_dimensions['F'].width = 12  # Status
-        ws.column_dimensions['G'].width = 40  # Error
+        ws.column_dimensions['F'].width = 18  # ROUGE-L Score
+        ws.column_dimensions['G'].width = 18  # Exercise Identified
+        ws.column_dimensions['H'].width = 12  # Status
+        ws.column_dimensions['I'].width = 40  # Error
 
     # Freeze header row
     ws.freeze_panes = "A2"
@@ -149,8 +222,18 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     except Exception as e:
         print(f"⚠ Failed to load METEOR metric: {e}")
 
+    # Load ROUGE metric
+    rouge_metric = None
+    try:
+        rouge_metric = evaluate.load('rouge')
+        print("✓ ROUGE metric loaded")
+    except Exception as e:
+        print(f"⚠ Failed to load ROUGE metric: {e}")
+
     bert_scores = []
     meteor_scores = []
+    rouge_scores = []
+    exercise_matches = []
 
     for idx, result in enumerate(results, start=1):
         row = idx + 1
@@ -170,6 +253,12 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         meteor_sim = compute_meteor_score(ground_truth, prediction, meteor_metric)
         meteor_scores.append(meteor_sim)
 
+        rouge_sim = compute_rouge_score(ground_truth, prediction, rouge_metric)
+        rouge_scores.append(rouge_sim)
+
+        exercise_match = check_exercise_match(ground_truth, prediction)
+        exercise_matches.append(exercise_match)
+
         # Write data
         col = 1
         ws.cell(row=row, column=col).value = idx
@@ -181,11 +270,23 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         ws.cell(row=row, column=col).value = prediction
         col += 1
 
+        # Track column indices for color coding
+        bert_col_idx = None
         if use_bert and bert_sim is not None:
             ws.cell(row=row, column=col).value = round(bert_sim, 4)
+            bert_col_idx = col
             col += 1
 
+        meteor_col_idx = col
         ws.cell(row=row, column=col).value = round(meteor_sim, 4)
+        col += 1
+
+        rouge_col_idx = col
+        ws.cell(row=row, column=col).value = round(rouge_sim, 4)
+        col += 1
+
+        exercise_col_idx = col
+        ws.cell(row=row, column=col).value = "TRUE" if exercise_match else "FALSE"
         col += 1
 
         ws.cell(row=row, column=col).value = status
@@ -199,11 +300,7 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             cell.border = border
 
             # Color code similarity scores
-            # Determine column indices for coloring
-            bert_col = 5 if use_bert else -1
-            meteor_col = 6 if use_bert else 5
-
-            if use_bert and c == bert_col:  # BERT column
+            if bert_col_idx and c == bert_col_idx:  # BERT column
                 score = bert_sim if bert_sim is not None else 0
                 if score >= BERT_GREEN_THRESHOLD:
                     cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
@@ -212,12 +309,27 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
                 else:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
-            if c == meteor_col:  # METEOR column
+            if c == meteor_col_idx:  # METEOR column
                 score = meteor_sim
                 if score >= METEOR_GREEN_THRESHOLD:
                     cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
                 elif score >= METEOR_YELLOW_THRESHOLD:
                     cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+                else:
+                    cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+
+            if c == rouge_col_idx:  # ROUGE-L column
+                score = rouge_sim
+                if score >= ROUGE_GREEN_THRESHOLD:
+                    cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+                elif score >= ROUGE_YELLOW_THRESHOLD:
+                    cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+                else:
+                    cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+
+            if c == exercise_col_idx:  # Exercise Identified column
+                if exercise_match:
+                    cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
                 else:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
@@ -269,6 +381,38 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             [f"Green (≥{METEOR_GREEN_THRESHOLD})", meteor_green],
             [f"Yellow ({METEOR_YELLOW_THRESHOLD}-{METEOR_GREEN_THRESHOLD})", meteor_yellow],
             [f"Red (<{METEOR_YELLOW_THRESHOLD})", meteor_red],
+            ["", ""],
+        ])
+
+    rouge_chart_start_row = None
+    if rouge_scores:
+        rouge_green = sum(1 for s in rouge_scores if s >= ROUGE_GREEN_THRESHOLD)
+        rouge_yellow = sum(1 for s in rouge_scores if ROUGE_YELLOW_THRESHOLD <= s < ROUGE_GREEN_THRESHOLD)
+        rouge_red = sum(1 for s in rouge_scores if s < ROUGE_YELLOW_THRESHOLD)
+        rouge_chart_start_row = len(summary_data) + 7
+        summary_data.extend([
+            ["ROUGE-L Score", ""],
+            ["Mean", round(np.mean(rouge_scores), 4)],
+            ["Median", round(np.median(rouge_scores), 4)],
+            ["Std Dev", round(np.std(rouge_scores), 4)],
+            ["Min", round(np.min(rouge_scores), 4)],
+            ["Max", round(np.max(rouge_scores), 4)],
+            [f"Green (≥{ROUGE_GREEN_THRESHOLD})", rouge_green],
+            [f"Yellow ({ROUGE_YELLOW_THRESHOLD}-{ROUGE_GREEN_THRESHOLD})", rouge_yellow],
+            [f"Red (<{ROUGE_YELLOW_THRESHOLD})", rouge_red],
+            ["", ""],
+        ])
+
+    if exercise_matches:
+        exercise_correct = sum(1 for match in exercise_matches if match)
+        exercise_incorrect = sum(1 for match in exercise_matches if not match)
+        exercise_accuracy = (exercise_correct / len(exercise_matches) * 100) if exercise_matches else 0
+        summary_data.extend([
+            ["Exercise Identification", ""],
+            ["Correct", exercise_correct],
+            ["Incorrect", exercise_incorrect],
+            ["Accuracy (%)", round(exercise_accuracy, 2)],
+            ["", ""],
         ])
 
     for row_idx, row_data in enumerate(summary_data, start=1):
@@ -419,6 +563,19 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         print(f"  Mean: {np.mean(meteor_scores):.4f}")
         print(f"  Median: {np.median(meteor_scores):.4f}")
         print(f"  Std Dev: {np.std(meteor_scores):.4f}")
+
+    if rouge_scores:
+        print(f"\nROUGE-L Score:")
+        print(f"  Mean: {np.mean(rouge_scores):.4f}")
+        print(f"  Median: {np.median(rouge_scores):.4f}")
+        print(f"  Std Dev: {np.std(rouge_scores):.4f}")
+
+    if exercise_matches:
+        exercise_correct = sum(1 for match in exercise_matches if match)
+        exercise_accuracy = (exercise_correct / len(exercise_matches) * 100) if exercise_matches else 0
+        print(f"\nExercise Identification:")
+        print(f"  Correct: {exercise_correct}/{len(exercise_matches)}")
+        print(f"  Accuracy: {exercise_accuracy:.2f}%")
 
     print(f"{'='*60}")
 
