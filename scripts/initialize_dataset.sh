@@ -86,8 +86,38 @@ fi
 
 echo ""
 
-# Step 5: Generate QVED splits (AFTER cleaning)
-echo -e "${RED}Step 5: Generating QVED Train/Val/Test Splits${NC}"
+# Step 5: Ask about dataset augmentation (BEFORE generating splits)
+echo -e "${RED}Step 5: Dataset Augmentation (Optional)${NC}"
+echo "Dataset augmentation will create additional training samples by applying"
+echo "transformations like flips, rotations, blur, brightness changes, etc."
+echo ""
+echo "⚠️  Important: Augmentation happens BEFORE generating train/val/test splits"
+echo "   so augmented videos will be included in the dataset splits."
+echo ""
+echo -n "Do you want to augment the dataset? (y/N): "
+read -r AUGMENT_RESPONSE
+
+AUGMENT_RESPONSE=$(echo "$AUGMENT_RESPONSE" | tr '[:upper:]' '[:lower:]')
+
+if [[ "$AUGMENT_RESPONSE" == "y" || "$AUGMENT_RESPONSE" == "yes" ]]; then
+    echo ""
+    echo -e "${BLUE}Running: python utils/augment_videos.py${NC}"
+    python utils/augment_videos.py
+
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Error: Dataset augmentation failed${NC}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ Dataset augmentation completed${NC}"
+else
+    echo -e "${RED}⊘ Skipping dataset augmentation${NC}"
+fi
+
+echo ""
+
+# Step 6: Generate QVED splits (AFTER cleaning and augmentation)
+echo -e "${RED}Step 6: Generating QVED Train/Val/Test Splits${NC}"
 echo -e "${BLUE}Running: python utils/qved_from_fine_labels.py${NC}"
 python utils/qved_from_fine_labels.py
 
@@ -113,6 +143,11 @@ echo "  - dataset/qved_test.json         (test split)"
 if [[ "$CLEAN_RESPONSE" == "y" || "$CLEAN_RESPONSE" == "yes" ]]; then
     echo "  - cleaned_dataset/               (quality-filtered videos)"
     echo "  - cleaned_dataset/cleaning_report.csv"
+fi
+
+if [[ "$AUGMENT_RESPONSE" == "y" || "$AUGMENT_RESPONSE" == "yes" ]]; then
+    echo "  - Augmented videos added to exercise folders"
+    echo "  - JSON files updated with augmented video paths"
 fi
 
 echo ""

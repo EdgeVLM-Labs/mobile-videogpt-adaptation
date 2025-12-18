@@ -145,7 +145,15 @@ pip cache purge
 
 pip install mamba-ssm causal-conv1d --no-cache-dir --no-build-isolation
 
-pip install openpyxl scikit-learn sentence-transformers rouge_score
+git clone https://github.com/okankop/vidaug
+cd vidaug
+python setup.py sdist && pip install dist/vidaug-0.1.tar.gz
+
+cd ..
+
+pip install openpyxl scikit-learn sentence-transformers rouge_score scikit-image
+
+pip install git+https://github.com/okankop/vidaug
 
 apt-get update
 apt-get install texlive texlive-latex-extra texlive-fonts-recommended dvipng cm-super

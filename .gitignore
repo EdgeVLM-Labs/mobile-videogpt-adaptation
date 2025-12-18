@@ -145,6 +145,7 @@ checkpoints/
 images
 flash-attention/
 VideoMamba/
+vidaug/
 dataset/
 fine_grained_labels.json
 plots/

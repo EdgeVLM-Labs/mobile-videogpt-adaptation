@@ -30,7 +30,15 @@ def main():
     for full_path, exercise in manifest.items():
         filename = os.path.basename(full_path)
         filename_to_path[filename] = full_path
-        filename_to_exercise[filename] = exercise.replace('_', ' ')
+        # Handle both string and dict values in manifest
+        if isinstance(exercise, str):
+            filename_to_exercise[filename] = exercise.replace('_', ' ')
+        elif isinstance(exercise, dict):
+            # For dict entries (augmented videos), extract exercise from path
+            exercise_name = full_path.split('/')[0] if '/' in full_path else 'unknown'
+            filename_to_exercise[filename] = exercise_name.replace('_', ' ')
+        else:
+            filename_to_exercise[filename] = str(exercise).replace('_', ' ')
 
     # Load fine-grained labels
     with open(FINE_LABELS_JSON, 'r') as f:
