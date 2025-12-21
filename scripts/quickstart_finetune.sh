@@ -76,11 +76,12 @@ read -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     HF_REPO_NAME="mobile-videogpt-finetune-${TIMESTAMP}"
-    echo "Uploading to EdgeVLM-Labs/${HF_REPO_NAME}..."
+    echo "Uploading to EdgeVLM-Labs/${HF_REPO_NAME} (private)..."
     python utils/hf_upload.py \
         --model_path "$MODEL_PATH" \
         --repo_name "$HF_REPO_NAME" \
-        --org "EdgeVLM-Labs"
+        --org "EdgeVLM-Labs" \
+        --private
 
     if [ $? -eq 0 ]; then
         echo "✓ Model uploaded successfully to HuggingFace!"
