@@ -20,6 +20,8 @@ MAX_NEW_TOKENS=64
 BASE_MODEL="Amshaker/Mobile-VideoGPT-0.5B"
 LIMIT=""
 NO_BERT=""
+NO_LLM_JUDGE=""
+INCLUDE_BASE_MODEL=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -64,6 +66,14 @@ while [[ $# -gt 0 ]]; do
             NO_BERT="--no-bert"
             shift
             ;;
+        --no-llm-judge)
+            NO_LLM_JUDGE="--no-llm-judge"
+            shift
+            ;;
+        --include-base-model)
+            INCLUDE_BASE_MODEL="--include-base-model"
+            shift
+            ;;
         -h|--help)
             echo "Usage: bash scripts/run_inference.sh [--model_path <path> | --hf_repo <repo>] [options]"
             echo ""
@@ -80,6 +90,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --base_model      Base model for LoRA adapters (default: Amshaker/Mobile-VideoGPT-0.5B)"
             echo "  --limit           Limit number of samples (for testing)"
             echo "  --no-bert         Skip BERT similarity (faster evaluation)"
+            echo "  --no-llm-judge    Skip LLM judge evaluation (faster, skips Mixtral scoring)"
+            echo "  --include-base-model  Include base model predictions for comparison (requires confirmation)"
             echo ""
             echo "Examples:"
             echo "  # Using local checkpoint:"
@@ -201,10 +213,17 @@ echo ""
 echo "[Step 2/2] Generating evaluation report..."
 echo "========================================="
 
+BASE_MODEL_ARGS=""
+if [ -n "$INCLUDE_BASE_MODEL" ]; then
+    BASE_MODEL_ARGS="$INCLUDE_BASE_MODEL --base-model $BASE_MODEL --test-json $TEST_JSON --data-path $DATA_PATH"
+fi
+
 python utils/generate_test_report.py \
     --predictions "$PREDICTIONS_FILE" \
     --output "$REPORT_FILE" \
-    $NO_BERT
+    $NO_BERT \
+    $NO_LLM_JUDGE \
+    $BASE_MODEL_ARGS
 
 if [ $? -ne 0 ]; then
     echo "⚠ Warning: Failed to generate evaluation report"
