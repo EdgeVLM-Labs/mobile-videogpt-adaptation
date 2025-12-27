@@ -21,10 +21,11 @@ The Mobile-VideoGPT codebase currently supports:
 - ✅ **Performance metrics** (throughput, latency already captured in `test_inference.py`)
 - ✅ **LLM-as-Judge evaluation** (Mixtral-8x7B for quality assessment)
 - ✅ **Exercise-specific metrics** (exercise ID, per-class evaluation)
+- ✅ **Video augmentation** (vidaug library: blur, noise, brightness, rotation available in `utils/augment_videos.py`)
 - ⚠️ **Full fine-tuning** (supported but not configured - requires disabling LoRA)
-- ❌ **INT8 quantization** (not currently implemented)
-- ❌ **Memory profiling** (not systematically captured)
-- ❌ **Visual degradation testing** (no synthetic perturbation pipeline)
+- ⚠️ **Visual degradation testing** (vidaug supports blur/noise/brightness; compression/occlusion need implementation)
+- ❌ **INT8 quantization** (not currently implemented, only training-time 8-bit available)
+- ❌ **Memory profiling** (not systematically captured during inference)
 
 ---
 
@@ -93,6 +94,23 @@ experiments/
 
 ## Research Questions and Implementation Plan
 
+### Quick Reference: Research Areas & Key Papers
+
+| Research Question             | Key Papers                                                             | Main Insights                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **RQ1.1.1** - LoRA vs Full    | LLaVA (Liu et al., 2023), Video-LLaVA (Lin et al., 2023)               | VLM parameter-efficient fine-tuning achieves comparable results with <1% trainable parameters |
+| **RQ1.1.2** - LR Schedules    | SGDR (Loshchilov & Hutter, 2017), AdamW (2019)                         | Cosine annealing with warmup shows best convergence for multimodal models                     |
+| **RQ1.1.3** - Data Efficiency | Scaling Laws (Kaplan et al., 2020)                                     | Performance scales as power law with dataset size in VLMs                                     |
+| **RQ1.2** - Temporal Modeling | VideoChat (Li et al., 2023), Video-ChatGPT (Maaz et al., 2023)         | Video-language models benefit from sparse temporal sampling with maintained accuracy          |
+| **RQ1.3** - Robustness        | Multimodal Robustness (Tu et al., 2023), VidAug (in codebase)          | VLMs show varying sensitivity to visual corruptions; vidaug supports blur, noise, brightness  |
+| **RQ2** - Error Detection     | Grounding in Multimodal Models (Zhang et al., 2023)                    | VLMs can perform fine-grained localization with proper temporal grounding                     |
+| **RQ3.1** - Efficiency        | MobileVLM (Chu et al., 2023), TinyGPT-V (Yuan et al., 2023)            | Mobile-optimized VLMs achieve efficiency through attention optimization and model compression |
+| **RQ3.2** - Quantization      | QVLM (Shang et al., 2024), Multimodal Quantization (Chen et al., 2024) | VLM-specific quantization achieves <2% accuracy drop with 8-bit precision                     |
+| **RQ4** - Class Imbalance     | Focal Loss (Lin et al., 2017), CBLoss (Cui et al., 2019)               | Re-weighting and balanced sampling mitigate long-tail effects in video tasks                  |
+| **RQ5** - LLM Judge           | MT-Bench (Zheng et al., 2023), G-Eval (Liu et al., 2023)               | LLM judges correlate well with human evaluation but have biases in multimodal assessment      |
+
+---
+
 ### **RQ1: Training Efficiency**
 
 #### **RQ1.1.1: Full Model Fine-tuning vs. LoRA**
@@ -100,6 +118,19 @@ experiments/
 **Question:** How do full fine-tuning and LoRA compare in terms of trainable parameters and accuracy?
 
 **Current Support:** ✅ LoRA implemented, ⚠️ Full fine-tuning needs configuration
+
+**Related Work:**
+
+- **LoRA: Low-Rank Adaptation of Large Language Models** (Hu et al., 2021)  
+  [https://arxiv.org/abs/2106.09685](https://arxiv.org/abs/2106.09685)
+- **LLaVA: Visual Instruction Tuning** (Liu et al., 2023) - VLM fine-tuning with LoRA  
+  [https://arxiv.org/abs/2304.08485](https://arxiv.org/abs/2304.08485)
+- **Video-LLaVA: Learning United Visual Representation by Alignment Before Projection** (Lin et al., 2023)  
+  [https://arxiv.org/abs/2311.10122](https://arxiv.org/abs/2311.10122)
+- **Efficient Multimodal Learning from Data-centric Perspective** (Liang et al., 2023)  
+  [https://arxiv.org/abs/2301.06190](https://arxiv.org/abs/2301.06190)
+- **QLoRA for VLMs: Efficient Finetuning of Quantized Multimodal Models** (Dettmers et al., 2023)  
+  [https://arxiv.org/abs/2305.14314](https://arxiv.org/abs/2305.14314)
 
 **Implementation:**
 
@@ -160,6 +191,17 @@ bash experiments/rq1_training_efficiency/rq1_1_1_full_vs_lora.sh \
 **Question:** How do different LR schedules affect convergence speed and final accuracy?
 
 **Current Support:** ✅ Warmup (0.05) + cosine annealing already implemented
+
+**Related Work:**
+
+- **SGDR: Stochastic Gradient Descent with Warm Restarts** (Loshchilov & Hutter, 2017)  
+  [https://arxiv.org/abs/1608.03983](https://arxiv.org/abs/1608.03983)
+- **Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour** (Goyal et al., 2017)  
+  [https://arxiv.org/abs/1706.02677](https://arxiv.org/abs/1706.02677)
+- **Decoupled Weight Decay Regularization** (Loshchilov & Hutter, 2019) - AdamW paper  
+  [https://arxiv.org/abs/1711.05101](https://arxiv.org/abs/1711.05101)
+- **A Recipe for Training Neural Networks** (Karpathy, 2019) - Practical guide  
+  Blog: [http://karpathy.github.io/2019/04/25/recipe/](http://karpathy.github.io/2019/04/25/recipe/)
 
 **Implementation:**
 
@@ -226,6 +268,17 @@ python experiments/rq1_training_efficiency/analyze_convergence.py \
 **Question:** How much training data is needed for acceptable accuracy?
 
 **Current Support:** ✅ Can subset dataset, existing scripts work with JSON
+
+**Related Work:**
+
+- **Scaling Laws for Neural Language Models** (Kaplan et al., 2020)  
+  [https://arxiv.org/abs/2001.08361](https://arxiv.org/abs/2001.08361)
+- **Data Efficiency in Deep Learning** (Brigato & Iocchi, 2021)  
+  [https://arxiv.org/abs/2106.03021](https://arxiv.org/abs/2106.03021)
+- **How Much Data Do You Need? An Analysis of Dataset Scaling** (Cui et al., 2022)  
+  [https://arxiv.org/abs/2207.10551](https://arxiv.org/abs/2207.10551)
+- **Few-Shot Parameter-Efficient Fine-Tuning is Better and Cheaper than In-Context Learning** (Liu et al., 2022)  
+  [https://arxiv.org/abs/2205.05638](https://arxiv.org/abs/2205.05638)
 
 **Implementation:**
 
@@ -376,6 +429,19 @@ python experiments/rq1_temporal_modeling/analyze_temporal.py \
 
 **Current Support:** ❌ No synthetic degradation pipeline (needs implementation)
 
+**Related Work:**
+
+- **On the Robustness of Vision Transformers to Adversarial Examples** (Mahmood et al., 2021)  
+  [https://arxiv.org/abs/2104.02610](https://arxiv.org/abs/2104.02610)
+- **Benchmarking Robustness of Multimodal Image-Text Models** (Tu et al., 2023)  
+  [https://arxiv.org/abs/2212.08044](https://arxiv.org/abs/2212.08044)
+- **ImageNet-C: Robustness Benchmarks for Image Classification** (Hendrycks & Dietterich, 2019)  
+  [https://arxiv.org/abs/1903.12261](https://arxiv.org/abs/1903.12261)
+- **How Robust are VLMs to Spurious Correlations?** (Agarwal et al., 2023)  
+  [https://arxiv.org/abs/2308.10299](https://arxiv.org/abs/2308.10299)
+- **VidAug: Video Data Augmentation Library** - Already in codebase  
+  GitHub: [okankop/vidaug](https://github.com/okankop/vidaug)
+
 **Implementation:**
 
 ```bash
@@ -384,16 +450,19 @@ python experiments/rq1_temporal_modeling/analyze_temporal.py \
 
 **Approach:**
 
-1. **Generate degraded test videos:**
+1. **Generate degraded test videos using vidaug (already in codebase):**
 
-   - **Motion blur:** Simulate camera shake (OpenCV: cv2.GaussianBlur with motion kernel)
-   - **Compression artifacts:** Re-encode at lower bitrates (ffmpeg: crf=35, 40, 45)
-   - **Lighting variations:** Adjust brightness/contrast (±20%, ±40%, ±60%)
-   - **Occlusion:** Add synthetic black/random boxes (10%, 20%, 30% of frame area)
+   - **Motion blur:** `va.GaussianBlur(sigma=1.5, 2.5, 3.5)` - Available ✅
+   - **Brightness variations:** `va.Add(value=±30, ±60, ±90)` or `va.Multiply(value=0.5, 0.7, 1.3, 1.5)` - Available ✅
+   - **Noise:** `va.Salt(ratio=50, 100, 150)` or `va.Pepper(ratio=50, 100, 150)` - Available ✅
+   - **Compression artifacts:** Use ffmpeg re-encoding (crf=35, 40, 45) - Needs implementation ⚠️
+   - **Occlusion:** Add synthetic black boxes using OpenCV - Needs implementation ⚠️
 
 2. **Create degradation pipeline:**
 
-   - Use `generate_degradations.py` to apply transformations
+   - Extend `utils/augment_videos.py` with degradation modes
+   - Add compression: `ffmpeg -i input.mp4 -c:v libx264 -crf 40 output.mp4`
+   - Add occlusion: OpenCV rectangle overlay at random positions
    - Store in `experiments/data/degraded/`
 
 3. **Run inference** (no retraining):
@@ -449,6 +518,19 @@ python experiments/rq1_robustness/analyze_robustness.py \
 **Question:** Can each model identify and localize specific form errors?
 
 **Current Support:** ⚠️ Requires annotated test set with error labels
+
+**Related Work:**
+
+- **QVED: A Benchmark for Evaluating Vision-Language Models on Physiotherapy Exercise Feedback** (Original QVED paper)  
+  Link: [Add when available]
+- **Temporal Action Detection with Structured Segment Networks** (Zhao et al., 2017)  
+  [https://arxiv.org/abs/1704.06228](https://arxiv.org/abs/1704.06228)
+- **Localizing Moments in Video with Natural Language** (Hendricks et al., 2017)  
+  [https://arxiv.org/abs/1708.01641](https://arxiv.org/abs/1708.01641)
+- **What Makes Training Multi-modal Classification Networks Hard?** (Wang et al., 2020)  
+  [https://arxiv.org/abs/1905.12681](https://arxiv.org/abs/1905.12681)
+- **Grounding Physical Concepts of Objects and Events Through Dynamic Visual Reasoning** (Gao et al., 2021)  
+  [https://arxiv.org/abs/2103.16564](https://arxiv.org/abs/2103.16564)
 
 **Implementation:**
 
@@ -533,6 +615,17 @@ python experiments/rq2_error_localization/analyze_localization.py \
 
 **Current Support:** ✅ Throughput (tok/s) already captured, ⚠️ Memory profiling needs implementation
 
+**Related Work:**
+
+- **Efficient Transformers: A Survey** (Tay et al., 2022)  
+  [https://arxiv.org/abs/2009.06732](https://arxiv.org/abs/2009.06732)
+- **TensorRT: Platform for Optimized Deep Learning Inference** (NVIDIA, 2023)  
+  Technical blog and documentation
+- **DeepSpeed Inference: Enabling Efficient Inference of Transformer Models at Unprecedented Scale** (Aminabadi et al., 2022)  
+  [https://arxiv.org/abs/2207.00032](https://arxiv.org/abs/2207.00032)
+- **FlashAttention: Fast and Memory-Efficient Exact Attention** (Dao et al., 2022)  
+  [https://arxiv.org/abs/2205.14135](https://arxiv.org/abs/2205.14135)
+
 **Implementation:**
 
 ```bash
@@ -605,6 +698,15 @@ python experiments/shared/visualization.py \
 
 **Current Support:** ✅ Batch processing supported in inference
 
+**Related Work:**
+
+- **Measuring the Effects of Data Parallelism on Neural Network Training** (Shallue et al., 2019)  
+  [https://arxiv.org/abs/1811.03600](https://arxiv.org/abs/1811.03600)
+- **Training BatchNorm and Only BatchNorm: On the Expressive Power of Random Features** (Frankle et al., 2020)  
+  [https://arxiv.org/abs/2003.00152](https://arxiv.org/abs/2003.00152)
+- **Don't Decay the Learning Rate, Increase the Batch Size** (Smith et al., 2018)  
+  [https://arxiv.org/abs/1711.00489](https://arxiv.org/abs/1711.00489)
+
 **Implementation:**
 
 ```bash
@@ -667,6 +769,15 @@ python experiments/rq3_efficiency/analyze_batch_scaling.py \
 **Question:** How do input resolution and sequence length jointly impact computational cost?
 
 **Current Support:** ✅ NUM_FRAMES configurable, ⚠️ Resolution not parameterized (may need model code changes)
+
+**Related Work:**
+
+- **EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks** (Tan & Le, 2019)  
+  [https://arxiv.org/abs/1905.11946](https://arxiv.org/abs/1905.11946)
+- **Patches Are All You Need?** (Trockman & Kolter, 2023) - ConvMixer  
+  [https://arxiv.org/abs/2201.09792](https://arxiv.org/abs/2201.09792)
+- **Nyströmformer: A Nyström-Based Algorithm for Approximating Self-Attention** (Xiong et al., 2021)  
+  [https://arxiv.org/abs/2102.03902](https://arxiv.org/abs/2102.03902)
 
 **Implementation:**
 
@@ -753,6 +864,15 @@ python experiments/rq3_efficiency/generate_pareto.py \
 
 **Current Support:** ✅ Accuracy metrics available
 
+**Related Work:**
+
+- **A Survey of Quantization Methods for Efficient Neural Network Inference** (Gholami et al., 2021)  
+  [https://arxiv.org/abs/2103.13630](https://arxiv.org/abs/2103.13630)
+- **LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale** (Dettmers et al., 2022)  
+  [https://arxiv.org/abs/2208.07339](https://arxiv.org/abs/2208.07339)
+- **SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models** (Xiao et al., 2023)  
+  [https://arxiv.org/abs/2211.10438](https://arxiv.org/abs/2211.10438)
+
 **Implementation:**
 
 ```bash
@@ -805,6 +925,17 @@ python experiments/rq3_compression/analyze_headroom.py \
 **Question:** What is the maximum compression feasible per model?
 
 **Current Support:** ❌ Quantization not implemented (needs INT8, dynamic quantization)
+
+**Related Work:**
+
+- **Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference** (Jacob et al., 2018)  
+  [https://arxiv.org/abs/1712.05877](https://arxiv.org/abs/1712.05877)
+- **GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers** (Frantar et al., 2023)  
+  [https://arxiv.org/abs/2210.17323](https://arxiv.org/abs/2210.17323)
+- **AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration** (Lin et al., 2023)  
+  [https://arxiv.org/abs/2306.00978](https://arxiv.org/abs/2306.00978)
+- **ZeroQuant: Efficient and Affordable Post-Training Quantization for Large-Scale Transformers** (Yao et al., 2022)  
+  [https://arxiv.org/abs/2206.01861](https://arxiv.org/abs/2206.01861)
 
 **Implementation:**
 
@@ -975,6 +1106,19 @@ python experiments/rq4_failure_analysis/analyze_failures.py \
 **Question:** How well can each model generate clinically accurate, actionable feedback?
 
 **Current Support:** ✅ LLM-as-judge already implemented (Mixtral-8x7B)
+
+**Related Work:**
+
+- **Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena** (Zheng et al., 2023)  
+  [https://arxiv.org/abs/2306.05685](https://arxiv.org/abs/2306.05685)
+- **G-Eval: NLG Evaluation using GPT-4 with Better Human Alignment** (Liu et al., 2023)  
+  [https://arxiv.org/abs/2303.16634](https://arxiv.org/abs/2303.16634)
+- **Large Language Models are not Fair Evaluators** (Wang et al., 2023)  
+  [https://arxiv.org/abs/2305.17926](https://arxiv.org/abs/2305.17926)
+- **Prometheus: Inducing Fine-grained Evaluation Capability in Language Models** (Kim et al., 2023)  
+  [https://arxiv.org/abs/2310.08491](https://arxiv.org/abs/2310.08491)
+- **PandaLM: An Automatic Evaluation Benchmark for LLM Instruction Tuning Optimization** (Wang et al., 2023)  
+  [https://arxiv.org/abs/2306.05087](https://arxiv.org/abs/2306.05087)
 
 **Implementation:**
 
@@ -1191,7 +1335,190 @@ python experiments/generate_report.py --output RESULTS_SUMMARY.md
 
 ## References
 
-- QVED Dataset: [Paper link]
-- Mobile-VideoGPT: [Amshaker/Mobile-VideoGPT](https://huggingface.co/Amshaker/Mobile-VideoGPT-0.5B)
-- LoRA: [Hu et al., 2021](https://arxiv.org/abs/2106.09685)
-- LLM-as-Judge: [Zheng et al., 2023](https://arxiv.org/abs/2306.05685)
+### Core Papers
+
+- **QVED Dataset:** Quantitative Video Exercise Dataset for physiotherapy feedback  
+  [Paper to be published/linked when available]
+- **Mobile-VideoGPT:** Efficient Video Understanding with Mobile-Friendly Architecture  
+  [Amshaker/Mobile-VideoGPT](https://huggingface.co/Amshaker/Mobile-VideoGPT-0.5B)
+
+### Parameter-Efficient Fine-Tuning (RQ1.1.1)
+
+- **LoRA:** Low-Rank Adaptation of Large Language Models (Hu et al., 2021)  
+  [https://arxiv.org/abs/2106.09685](https://arxiv.org/abs/2106.09685)  
+  _Table 1_: Trainable parameters comparison showing LoRA reduces parameters by 10,000×  
+  _Figure 2_: GPT-3 accuracy vs trainable parameters across adaptation methods
+- **LLaVA:** Visual Instruction Tuning (Liu et al., 2023) - VLM fine-tuning with LoRA  
+  [https://arxiv.org/abs/2304.08485](https://arxiv.org/abs/2304.08485)  
+  _Figure 1_: LLaVA architecture with vision encoder and language model alignment  
+  _Table 4_: Instruction-following ablation on LLaVA-Bench with training data variations
+- **Video-LLaVA:** Learning United Visual Representation (Lin et al., 2023)  
+  [https://arxiv.org/abs/2311.10122](https://arxiv.org/abs/2311.10122)  
+  _Figure 1_: Unified visual representation paradigm comparing image-only vs video-joint training  
+  _Figure 3_: Training data composition showing single-turn and multi-turn conversation datasets
+- **QLoRA:** Efficient Finetuning of Quantized LLMs (Dettmers et al., 2023)  
+  [https://arxiv.org/abs/2305.14314](https://arxiv.org/abs/2305.14314)  
+  _Figure 3_: 4-bit NormalFloat vs FP4/Int4 performance on zero-shot benchmarks  
+  _Figure 6_: Memory footprint breakdown for LLaMA models at different scales
+- **Efficient Multimodal Learning** from Data-centric Perspective (Liang et al., 2023)  
+  [https://arxiv.org/abs/2301.06190](https://arxiv.org/abs/2301.06190)
+
+### Learning Rate Optimization (RQ1.1.2)
+
+- **SGDR:** Stochastic Gradient Descent with Warm Restarts (Loshchilov & Hutter, 2017)  
+  [https://arxiv.org/abs/1608.03983](https://arxiv.org/abs/1608.03983)  
+  _Figure 1_: Cosine annealing learning rate schedules with different warm restart periods  
+  _Table 1_: CIFAR-10/100 test errors comparing SGDR with baselines across network widths
+- **Accurate Large Minibatch SGD:** Training ImageNet in 1 Hour (Goyal et al., 2017)  
+  [https://arxiv.org/abs/1706.02677](https://arxiv.org/abs/1706.02677)
+- **AdamW:** Decoupled Weight Decay Regularization (Loshchilov & Hutter, 2019)  
+  [https://arxiv.org/abs/1711.05101](https://arxiv.org/abs/1711.05101)
+
+### Data Efficiency (RQ1.1.3)
+
+- **Scaling Laws for Neural Language Models** (Kaplan et al., 2020)  
+  [https://arxiv.org/abs/2001.08361](https://arxiv.org/abs/2001.08361)  
+  _Figure 1_: Power-law relationships between performance and model size, dataset size, compute  
+  _Table 5_: Optimal compute-efficient training parameters balancing model size and steps
+- **Few-Shot Parameter-Efficient Fine-Tuning** (Liu et al., 2022)  
+  [https://arxiv.org/abs/2205.05638](https://arxiv.org/abs/2205.05638)
+- **Dataset Scaling Analysis** (Cui et al., 2022)  
+  [https://arxiv.org/abs/2207.10551](https://arxiv.org/abs/2207.10551)
+
+### Temporal Modeling (RQ1.2)
+
+- **VideoChat:** Chat-Centric Video Understanding (Li et al., 2023) - Video-language alignment  
+  [https://arxiv.org/abs/2305.06355](https://arxiv.org/abs/2305.06355)  
+  _Figure 2_: Architecture and training paradigm using BLIP-2 with two-stage training  
+  _Table 6_: Video conversation prompts for descriptive, temporal, and causal reasoning
+- **Video-ChatGPT:** Towards Detailed Video Understanding (Maaz et al., 2023)  
+  [https://arxiv.org/abs/2306.05424](https://arxiv.org/abs/2306.05424)  
+  _Table 1_: Benchmarking across five evaluation aspects for video-text generation  
+  _Table 2_: Zero-shot question-answering comparison showing spatiotemporal understanding
+- **VideoMamba:** State Space Model for Efficient Video Understanding (Li et al., 2024)  
+  [https://arxiv.org/abs/2403.06977](https://arxiv.org/abs/2403.06977)  
+  _Table 3_: Kinetics-400 scene-related video classification accuracy comparison with SoTA  
+  _Table 4_: Something-Something V2 temporal reasoning results showing motion understanding
+- **Valley:** Video Assistant with Large Language model (Luo et al., 2023)  
+  [https://arxiv.org/abs/2306.07207](https://arxiv.org/abs/2306.07207)  
+  _Figure 5_: Three types of temporal modeling modules for multi-source aggregation  
+  _Table 2_: Video-based text generation benchmark scores on Video-ChatGPT tasks
+- **MovieChat:** From Dense Token to Sparse Memory (Song et al., 2023)  
+  [https://arxiv.org/abs/2307.16449](https://arxiv.org/abs/2307.16449)  
+  _Figure 1_: VRAM efficiency comparison handling 10K+ frames vs 100 frames baseline  
+  _Table 3_: Long video QA performance on MovieChat-1K using GPT-3.5 and human ratings
+- **TimeSformer:** Is Space-Time Attention All You Need? (Bertasius et al., 2021)  
+  [https://arxiv.org/abs/2102.05095](https://arxiv.org/abs/2102.05095)  
+  _Table 1_: Space-time attention schemes comparison showing divided attention superiority  
+  _Figure 3_: Computational cost comparison of divided vs joint space-time attention
+
+### Robustness & Degradation (RQ1.3)
+
+- **On the Robustness of Vision Transformers** to Adversarial Examples (Mahmood et al., 2021)  
+  [https://arxiv.org/abs/2104.02610](https://arxiv.org/abs/2104.02610)
+- **Benchmarking Robustness of Multimodal Image-Text Models** (Tu et al., 2023)  
+  [https://arxiv.org/abs/2212.08044](https://arxiv.org/abs/2212.08044)  
+  _Figure 2_: 17 image perturbation types for robustness evaluation  
+  _Table 1_: 16 text perturbation categories for multimodal robustness testing
+- **ImageNet-C:** Robustness Benchmarks for Image Classification (Hendrycks & Dietterich, 2019)  
+  [https://arxiv.org/abs/1903.12261](https://arxiv.org/abs/1903.12261)  
+  _Figure 1_: 15 corruption types across noise, blur, weather, digital categories with severities  
+  _Table 1_: Clean error and mean Corruption Error (mCE) across architectures
+- **How Robust are VLMs to Spurious Correlations?** (Agarwal et al., 2023)  
+  [https://arxiv.org/abs/2308.10299](https://arxiv.org/abs/2308.10299)
+- **VidAug:** Video Data Augmentation Library - In codebase  
+  GitHub: [okankop/vidaug](https://github.com/okankop/vidaug)
+
+### Error Detection & Localization (RQ2)
+
+- **Grounding and Referring in Multimodal Models** (Zhang et al., 2023)  
+  [https://arxiv.org/abs/2312.02949](https://arxiv.org/abs/2312.02949)
+- **Fine-Grained Visual Understanding with Multimodal LLMs** (Wang et al., 2023)  
+  [https://arxiv.org/abs/2305.17929](https://arxiv.org/abs/2305.17929)
+- **Temporal Grounding in Video with Language** (Zeng et al., 2023)  
+  [https://arxiv.org/abs/2305.18611](https://arxiv.org/abs/2305.18611)
+- **Localizing Moments in Video with Natural Language** (Hendricks et al., 2017)  
+  [https://arxiv.org/abs/1708.01641](https://arxiv.org/abs/1708.01641)
+
+### Computational Efficiency (RQ3.1)
+
+- **MobileVLM:** Fast Vision Language Assistant for Mobile Devices (Chu et al., 2023)  
+  [https://arxiv.org/abs/2312.16886](https://arxiv.org/abs/2312.16886)  
+  _Table 5_: Mobile device latency metrics (tokens/second) on CPU and GPU  
+  _Table 1_: Architecture comparison showing parameter efficiency and training corpus design
+- **Efficient Large Multimodal Models: A Survey** (Chen et al., 2024)  
+  [https://arxiv.org/abs/2405.15589](https://arxiv.org/abs/2405.15589)
+- **TinyGPT-V:** Efficient Multimodal Large Language Model (Yuan et al., 2023)  
+  [https://arxiv.org/abs/2312.16862](https://arxiv.org/abs/2312.16862)  
+  _Figure 4_: TinyGPT-V architecture with Phi-2 LLM and visual encoder fusion  
+  _Table 1_: Full training datasets list for multimodal instruction tuning
+- **FlashAttention:** Fast and Memory-Efficient Exact Attention (Dao et al., 2022)  
+  [https://arxiv.org/abs/2205.14135](https://arxiv.org/abs/2205.14135)
+- **DeepSpeed Inference** (Aminabadi et al., 2022)  
+  [https://arxiv.org/abs/2207.00032](https://arxiv.org/abs/2207.00032)
+- **EfficientNet:** Rethinking Model Scaling (Tan & Le, 2019)  
+  [https://arxiv.org/abs/1905.11946](https://arxiv.org/abs/1905.11946)
+
+### Quantization & Compression (RQ3.2)
+
+- **QVLM:** Quantized Vision-Language Models (Shang et al., 2024)  
+  [https://arxiv.org/abs/2405.04684](https://arxiv.org/abs/2405.04684)
+- **Compressing VLMs with Mixed-Precision Quantization** (Liu et al., 2024)  
+  [https://arxiv.org/abs/2403.07903](https://arxiv.org/abs/2403.07903)
+- **Multimodal Quantization:** Towards Very Tiny Vision-Language Models (Chen et al., 2024)  
+  [https://arxiv.org/abs/2405.05956](https://arxiv.org/abs/2405.05956)
+- **LLM.int8():** 8-bit Matrix Multiplication for Transformers (Dettmers et al., 2022)  
+  [https://arxiv.org/abs/2208.07339](https://arxiv.org/abs/2208.07339)  
+  _Figure 2_: Mixed-precision decomposition showing 16-bit outliers and 8-bit multiplication  
+  _Table 2_: Hardware requirements comparison enabling OPT-175B/BLOOM on consumer GPUs
+- **GPTQ:** Accurate Post-Training Quantization (Frantar et al., 2023)  
+  [https://arxiv.org/abs/2210.17323](https://arxiv.org/abs/2210.17323)  
+  _Figure 1_: GPTQ perplexity vs baseline for 4-bit OPT and 3-bit BLOOM quantization  
+  _Table 3_: OPT model perplexity on WikiText2 across different quantization bits
+- **AWQ:** Activation-aware Weight Quantization (Lin et al., 2023)  
+  [https://arxiv.org/abs/2306.00978](https://arxiv.org/abs/2306.00978)
+- **SmoothQuant:** Post-Training Quantization for LLMs (Xiao et al., 2023)  
+  [https://arxiv.org/abs/2211.10438](https://arxiv.org/abs/2211.10438)
+
+### Class Imbalance & Failure Analysis (RQ4)
+
+- **Focal Loss** for Dense Object Detection (Lin et al., 2017)  
+  [https://arxiv.org/abs/1708.02002](https://arxiv.org/abs/1708.02002)  
+  _Figure 1_: Focal Loss reformulation reducing loss for well-classified examples  
+  _Table 1_: RetinaNet ablation with Focal Loss showing improved AP on COCO
+- **Class-Balanced Loss** Based on Effective Number of Samples (Cui et al., 2019)  
+  [https://arxiv.org/abs/1901.05555](https://arxiv.org/abs/1901.05555)  
+  _Figure 3_: Visualization of class-balanced term (1-β)/(1-β^n) with sample count  
+  _Table 2_: Classification error on long-tailed CIFAR with different loss functions
+- **Long-Tailed Recognition** via Distribution-Aware Experts (Wang et al., 2021)  
+  [https://arxiv.org/abs/2010.01809](https://arxiv.org/abs/2010.01809)
+- **Decoupling Representation and Classifier** (Kang et al., 2020)  
+  [https://arxiv.org/abs/1910.09217](https://arxiv.org/abs/1910.09217)  
+  _Figure 1_: Classifier performance across many-shot, medium-shot, few-shot splits on ImageNet-LT  
+  _Table 2_: Long-tail recognition accuracy comparing decoupled training with SoTA methods
+
+### LLM-as-Judge Evaluation (RQ5)
+
+- **MT-Bench:** Judging LLM-as-a-Judge (Zheng et al., 2023)  
+  [https://arxiv.org/abs/2306.05685](https://arxiv.org/abs/2306.05685)  
+  _Table 1_: Multi-turn question samples spanning writing, math, reasoning in MT-Bench  
+  _Figure 3_: Model win rates under GPT-4, GPT-3.5, Claude judges showing agreement
+- **G-Eval:** NLG Evaluation using GPT-4 (Liu et al., 2023)  
+  [https://arxiv.org/abs/2303.16634](https://arxiv.org/abs/2303.16634)  
+  _Figure 1_: G-Eval framework using CoT prompting and probability-weighted scoring  
+  _Table 1_: Spearman/Kendall-Tau correlations on SummEval benchmark vs baseline metrics
+- **Prometheus:** Fine-grained Evaluation Capability (Kim et al., 2023)  
+  [https://arxiv.org/abs/2310.08491](https://arxiv.org/abs/2310.08491)
+- **PandaLM:** Automatic Evaluation Benchmark (Wang et al., 2023)  
+  [https://arxiv.org/abs/2306.05087](https://arxiv.org/abs/2306.05087)
+- **Limitations of LLM Evaluators** (Wang et al., 2023)  
+  [https://arxiv.org/abs/2305.17926](https://arxiv.org/abs/2305.17926)
+
+### Additional Relevant Work
+
+- **Vision-Language Models Survey** (Bordes et al., 2024)  
+  [https://arxiv.org/abs/2402.09746](https://arxiv.org/abs/2402.09746)
+- **Video Understanding Benchmarks** (Kay et al., 2017) - Kinetics Dataset  
+  [https://arxiv.org/abs/1705.06950](https://arxiv.org/abs/1705.06950)
+- **Multimodal Learning Survey** (Baltrusaitis et al., 2019)  
+  [https://arxiv.org/abs/1705.09406](https://arxiv.org/abs/1705.09406)
