@@ -113,9 +113,9 @@ deepspeed mobilevideogpt/train/train.py \
   --per_device_eval_batch_size 4 \
   --gradient_accumulation_steps $GACC \
   --eval_strategy "steps" \
-  --eval_steps 70 \
+  --eval_steps 50 \
   --save_strategy "steps" \
-  --save_steps 70 \
+  --save_steps 50 \
   --save_total_limit 3 \
   --learning_rate $LR \
   --weight_decay 0. \

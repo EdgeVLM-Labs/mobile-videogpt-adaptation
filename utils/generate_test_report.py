@@ -572,7 +572,11 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             [f"Green (≥{LLM_GREEN_THRESHOLD})", llm_green],
             [f"Yellow ({LLM_YELLOW_THRESHOLD}-{LLM_GREEN_THRESHOLD})", llm_yellow],
             [f"Red (<{LLM_YELLOW_THRESHOLD})", llm_red],
-        exercise_correct = sum(1 for match in exercise_matches if match)
+            ["", ""],
+            ])
+
+        if exercise_matches:
+            exercise_correct = sum(1 for match in exercise_matches if match)
         exercise_incorrect = sum(1 for match in exercise_matches if not match)
         exercise_accuracy = (exercise_correct / len(exercise_matches) * 100) if exercise_matches else 0
         summary_data.extend([

@@ -256,6 +256,35 @@ def main():
     with open(output_path, 'w') as f:
         json.dump(results, f, indent=2)
 
+    # Calculate accuracy metrics
+    predictions = [r['prediction'] for r in results if r['status'] == 'success']
+    ground_truths = [r['ground_truth'] for r in results if r['status'] == 'success']
+
+    correct = sum(1 for p, g in zip(predictions, ground_truths) if p.strip().lower() == g.strip().lower())
+    accuracy = correct / len(predictions) if predictions else 0.0
+
+    # Save summary metrics for experiments framework
+    summary_metrics = {
+        'accuracy': accuracy,
+        'total_samples': len(results),
+        'successful': successful,
+        'failed': failed,
+        'correct': correct
+    }
+
+    if throughput_stats:
+        summary_metrics['throughput'] = {
+            'mean_tokens_per_sec': float(np.mean(throughput_stats)),
+            'median_tokens_per_sec': float(np.median(throughput_stats)),
+            'min_tokens_per_sec': float(np.min(throughput_stats)),
+            'max_tokens_per_sec': float(np.max(throughput_stats))
+        }
+
+    # Save summary to test_results.json
+    summary_path = output_path.parent / "test_results.json"
+    with open(summary_path, 'w') as f:
+        json.dump(summary_metrics, f, indent=2)
+
     # Print summary
     successful = sum(1 for r in results if r['status'] == 'success')
     failed = len(results) - successful
@@ -273,6 +302,7 @@ def main():
     print(f"Total: {len(results)}")
     print(f"Successful: {successful}")
     print(f"Failed: {failed}")
+    print(f"Accuracy: {accuracy:.2%} ({correct}/{len(predictions)})")
 
     if throughput_stats:
         print(f"\n📊 Throughput Statistics (Tokens/Second):")
@@ -282,6 +312,7 @@ def main():
         print(f"  Max:    {max_throughput:.2f}")
 
     print(f"\nResults saved to: {output_path}")
+    print(f"Summary metrics saved to: {summary_path}")
     print(f"{'='*60}")
 
 
