@@ -75,6 +75,10 @@ class DataArguments:
     dataset_use: str = field(default="FINETUNING")
     dataset_val: Optional[str] = field(default=None)  # Optional validation dataset
 
+    # Video processing parameters
+    fps: int = field(default=1, metadata={"help": "Frame sampling rate for video processing"})
+    max_frames: int = field(default=16, metadata={"help": "Maximum number of frames to extract from video"})
+
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
@@ -856,9 +860,10 @@ class LazySupervisedDataset(Dataset):
             image_processor = self.data_args.image_processor
             video_processor = self.data_args.video_processor
             frames, context_images = _get_rawvideo_dec(video_file_path, image_processor, video_processor,
-                                                           frame_resolution=224, max_frames=NUM_FRAMES,
-                                                           num_video_frames=NUM_FRAMES,
-                                                           num_context_images=NUM_CONTEXT_IMAGES)
+                                                           frame_resolution=224, max_frames=self.data_args.max_frames,
+                                                           num_video_frames=self.data_args.max_frames,
+                                                           num_context_images=NUM_CONTEXT_IMAGES,
+                                                           video_framerate=self.data_args.fps)
             sources = preprocess_multimodal(
                     copy.deepcopy([e["conversations"] for e in [sources]]),
                     self.data_args)

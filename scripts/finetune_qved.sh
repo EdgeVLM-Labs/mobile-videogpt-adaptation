@@ -47,6 +47,10 @@ BATCH=8                      # Per device batch size
 GACC=8                       # Gradient accumulation to simulate batch=64
 MAXLEN=2048                  # Max sequence length
 
+# Video processing parameters
+FPS=1                        # Frame sampling rate
+MAX_FRAMES=16                # Maximum frames per video
+
 echo "========================================="
 echo "QVED Dataset Finetuning Configuration"
 echo "========================================="
@@ -55,6 +59,8 @@ echo "Output Dir: $OUTPUT_DIR_PATH"
 echo "Epochs: $EPOCHS"
 echo "Learning Rate: $LR"
 echo "Batch Size: $BATCH x $GACC accumulation steps = effective batch of $((BATCH * GACC))"
+echo "FPS: $FPS"
+echo "Max Frames: $MAX_FRAMES"
 echo "========================================="
 
 # Save hyperparameters to a config file
@@ -128,7 +134,9 @@ deepspeed mobilevideogpt/train/train.py \
   --report_to wandb \
   --run_name $WANDB_NAME \
   --num_select_k_frames_in_chunk 4 \
-  --topk True
+  --topk True \
+  --fps $FPS \
+  --max_frames $MAX_FRAMES
 
 echo "========================================="
 echo "Finetuning completed!"
