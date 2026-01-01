@@ -205,7 +205,7 @@ def compute_cosine_similarity_bert(text1: str, text2: str, model) -> float:
 
 
 def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = True,
-                       base_predictions: List[Dict] = None):
+                       base_predictions: List[Dict] = None, use_llm_judge: bool = True):
     """Create an Excel report with formatted results and similarity scores."""
 
     # Create base prediction lookup if provided
@@ -226,6 +226,12 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             print(f"⚠ Failed to load BERT model: {e}")
             print("  Falling back to TF-IDF similarity")
             use_bert = False
+
+    # Load LLM judge if requested
+    llm_tokenizer = None
+    llm_model = None
+    if use_llm_judge:
+        llm_tokenizer, llm_model = load_llm_judge()
 
     # Create workbook
     wb = openpyxl.Workbook()
@@ -330,6 +336,7 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     throughput_values = []
     generation_times = []
     exercise_matches = []
+    exercise_stats = {}  # Track per-exercise statistics: {exercise_name: {'correct': x, 'total': y}}
 
     for idx, result in enumerate(results, start=1):
         row = idx + 1
@@ -369,6 +376,15 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
 
         exercise_match = check_exercise_match(ground_truth, prediction)
         exercise_matches.append(exercise_match)
+
+        # Track per-exercise statistics
+        exercise_name = extract_exercise_name(ground_truth)
+        if exercise_name:
+            if exercise_name not in exercise_stats:
+                exercise_stats[exercise_name] = {'correct': 0, 'total': 0}
+            exercise_stats[exercise_name]['total'] += 1
+            if exercise_match:
+                exercise_stats[exercise_name]['correct'] += 1
 
         # Write data
         col = 1
@@ -572,16 +588,32 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             [f"Green (≥{LLM_GREEN_THRESHOLD})", llm_green],
             [f"Yellow ({LLM_YELLOW_THRESHOLD}-{LLM_GREEN_THRESHOLD})", llm_yellow],
             [f"Red (<{LLM_YELLOW_THRESHOLD})", llm_red],
+            ["", ""],
+        ])
+
+    if exercise_matches:
         exercise_correct = sum(1 for match in exercise_matches if match)
         exercise_incorrect = sum(1 for match in exercise_matches if not match)
         exercise_accuracy = (exercise_correct / len(exercise_matches) * 100) if exercise_matches else 0
         summary_data.extend([
             ["Exercise Identification", ""],
-            ["Correct", exercise_correct],
-            ["Incorrect", exercise_incorrect],
-            ["Accuracy (%)", round(exercise_accuracy, 2)],
+            ["Overall Correct", exercise_correct],
+            ["Overall Incorrect", exercise_incorrect],
+            ["Overall Accuracy (%)", round(exercise_accuracy, 2)],
             ["", ""],
+            ["Per-Exercise Breakdown", ""],
         ])
+
+        # Add per-exercise statistics sorted by exercise name
+        for exercise_name in sorted(exercise_stats.keys()):
+            stats = exercise_stats[exercise_name]
+            correct = stats['correct']
+            total = stats['total']
+            # Format: "exercise_name" -> "x/total"
+            display_name = exercise_name.replace('_', ' ').title()
+            summary_data.append([display_name, f"{correct}/{total}"])
+
+        summary_data.append(["", ""])
 
     for row_idx, row_data in enumerate(summary_data, start=1):
         for col_idx, value in enumerate(row_data, start=1):
