@@ -96,6 +96,8 @@ deepspeed mobilevideogpt/train/train.py \
   --lora_enable True \
   --lora_r $LORA_R \
   --lora_alpha $LORA_ALPHA \
+  --lora_dropout 0.05 \
+  --lora_bias none \
   --mm_projector_lr $MM_PROJ_LR \
   --model_name_or_path "$BASE_LLM_PATH" \
   --version qwen2_instruct \
@@ -112,11 +114,12 @@ deepspeed mobilevideogpt/train/train.py \
   --group_by_modality_length True \
   --bf16 True \
   --tf32 True \
+  --fp16 False \
   --gradient_checkpointing True \
   --output_dir "$OUTPUT_DIR_PATH" \
   --num_train_epochs $EPOCHS \
   --per_device_train_batch_size $BATCH \
-  --per_device_eval_batch_size 4 \
+  --per_device_eval_batch_size 8 \
   --gradient_accumulation_steps $GACC \
   --eval_strategy "steps" \
   --eval_steps 70 \
