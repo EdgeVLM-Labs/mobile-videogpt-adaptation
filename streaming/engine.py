@@ -160,10 +160,13 @@ class StreamingMobileVideoGPT:
         if self.lora_adapter:
             # Load base model and LoRA adapter
             logger.info(f"Loading base model: {self.model_path}")
+            # CRITICAL: Set num_select_k_frames_in_chunk=8 to match VideoMamba's temporal embedding size
+            # The model defaults to 4 but VideoMamba requires exactly 8 frames
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
                 config=model_config,
                 torch_dtype=dtype,
+                num_select_k_frames_in_chunk=8,  # Must be 8 for VideoMamba
             )
 
             # Load and merge LoRA adapter
@@ -182,17 +185,32 @@ class StreamingMobileVideoGPT:
                 raise
         else:
             # Load standard model
+            # CRITICAL: Set num_select_k_frames_in_chunk=8 to match VideoMamba's temporal embedding size
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
                 config=model_config,
                 torch_dtype=dtype,
+                num_select_k_frames_in_chunk=8,  # Must be 8 for VideoMamba
             )
 
         self.model.to(self.device)
         self.model.eval()
 
-        # Load vision towers
+        # Disable fused operations in VideoMamba to avoid Triton kernel CUDA errors
+        # This uses PyTorch native operations which are slower but more stable
         vision_tower = self.model.get_vision_tower()
+        if hasattr(vision_tower, 'vision_encoder'):
+            video_encoder = vision_tower.vision_encoder
+            if hasattr(video_encoder, 'fused_add_norm'):
+                logger.warning("Disabling fused_add_norm in VideoMamba to avoid CUDA assertions")
+                video_encoder.fused_add_norm = False
+                # Also disable in all layers
+                if hasattr(video_encoder, 'layers'):
+                    for layer in video_encoder.layers:
+                        if hasattr(layer, 'fused_add_norm'):
+                            layer.fused_add_norm = False
+
+        # Load vision towers
         vision_tower.load_model(model_config.mm_vision_tower)
         self.video_processor = vision_tower.image_processor
 
@@ -383,6 +401,14 @@ class StreamingMobileVideoGPT:
         # No additional reshaping needed!
 
         batch_size = 1
+
+        # Debug logging for tensor shapes
+        logger.info(f"Encoding chunk - video_tensor shape: {video_tensor.shape}, context_tensor shape: {context_tensor.shape}")
+
+        # Validate tensor shapes
+        assert video_tensor.shape[0] == 8, f"Expected 8 video frames, got {video_tensor.shape[0]}"
+        assert context_tensor.shape[0] == 16, f"Expected 16 context frames, got {context_tensor.shape[0]}"
+        assert video_tensor.dim() == 4, f"Expected 4D video tensor, got {video_tensor.dim()}D"
 
         # Encode using model's encoders
         with torch.no_grad():

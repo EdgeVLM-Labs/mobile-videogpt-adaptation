@@ -280,6 +280,13 @@ case $MODE in
             log_message "Using headless OpenCV backend (QT_QPA_PLATFORM=offscreen)"
         fi
 
+        # Set Triton cache and debugging env vars to help with CUDA errors
+        export TRITON_CACHE_DIR="${HOME}/.triton/cache"
+        export CUDA_LAUNCH_BLOCKING=1  # Helps identify exact CUDA error location
+        export TORCH_USE_CUDA_DSA=1    # Enable CUDA device-side assertions for better error messages
+        print_info "CUDA debugging enabled (CUDA_LAUNCH_BLOCKING=1)"
+        log_message "CUDA debugging enabled for better error diagnostics"
+
         # Check if config file exists
         if [[ ! -f "$CONFIG_FILE" ]]; then
             print_warning "Config file not found: $CONFIG_FILE"
