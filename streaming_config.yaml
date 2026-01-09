@@ -58,7 +58,7 @@ generation:
 prompts:
   system: "You are a physiotherapy assistant providing real-time exercise form feedback."
   observation_context: "Analyzing exercise form from video stream..."
-  feedback_prefix: "Form correction: "
+  feedback_prefix: "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
 
 # Performance
 performance:

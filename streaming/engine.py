@@ -407,7 +407,7 @@ class StreamingMobileVideoGPT:
         # Prepare prompt
         prompt = self.config.get("prompts", {}).get(
             "feedback_prefix",
-            "Please evaluate the exercise form shown. What mistakes, if any, are present?"
+            "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
         )
 
         # Use conversation template

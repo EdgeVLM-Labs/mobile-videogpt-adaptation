@@ -77,7 +77,7 @@ class VideoFrameBuffer:
         self.chunk_count = 0
 
         logger.info(f"Initialized VideoFrameBuffer: chunk_size={chunk_size}, "
-                   f"overlap={overlap}, stride={stride}, max_size={max_buffer_size}")
+                   f"overlap={overlap}, stride={self.stride}, max_size={max_buffer_size}")
 
     def add_frame(self, frame: np.ndarray) -> bool:
         """
