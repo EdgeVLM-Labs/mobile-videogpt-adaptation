@@ -196,21 +196,12 @@ class StreamingMobileVideoGPT:
         self.model.to(self.device)
         self.model.eval()
 
-        # Disable fused operations in VideoMamba to avoid Triton kernel CUDA errors
-        # This uses PyTorch native operations which are slower but more stable
-        vision_tower = self.model.get_vision_tower()
-        if hasattr(vision_tower, 'vision_encoder'):
-            video_encoder = vision_tower.vision_encoder
-            if hasattr(video_encoder, 'fused_add_norm'):
-                logger.warning("Disabling fused_add_norm in VideoMamba to avoid CUDA assertions")
-                video_encoder.fused_add_norm = False
-                # Also disable in all layers
-                if hasattr(video_encoder, 'layers'):
-                    for layer in video_encoder.layers:
-                        if hasattr(layer, 'fused_add_norm'):
-                            layer.fused_add_norm = False
+        # Note: Disabling fused_add_norm at runtime can cause issues
+        # If Triton errors occur, they're usually from index/dimension mismatches
+        # which we've fixed in arch.py
 
         # Load vision towers
+        vision_tower = self.model.get_vision_tower()
         vision_tower.load_model(model_config.mm_vision_tower)
         self.video_processor = vision_tower.image_processor
 

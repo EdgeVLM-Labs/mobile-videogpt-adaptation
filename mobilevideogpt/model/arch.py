@@ -191,6 +191,18 @@ class MobileVideoGPTMetaForCausalLM(ABC):
             chunk_features = chunk_batch
 
             seleted_indices,pooled_image_features = self.select_frame_in_chunk(chunk_features,batch_size)
+
+            # Map context image indices to video frame indices
+            # If we have more context images than video frames (e.g., 16 context, 8 video)
+            # we need to map: video_idx = context_idx * num_video_frames // num_context_images
+            num_context_per_chunk = chunk_features.shape[1]
+            num_video_per_chunk = video_batch.shape[1]
+            if num_context_per_chunk != num_video_per_chunk:
+                # Map indices from context space to video space
+                seleted_indices = (seleted_indices * num_video_per_chunk) // num_context_per_chunk
+                # Clamp to valid range to avoid out of bounds
+                seleted_indices = torch.clamp(seleted_indices, 0, num_video_per_chunk - 1)
+
             batch_indices = torch.arange(num_chunks).unsqueeze(1).repeat(1, topK).to(seleted_indices.device)  # Shape (B, K)
 
             select_video = video_batch[batch_indices, seleted_indices]
