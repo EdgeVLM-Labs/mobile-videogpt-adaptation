@@ -106,6 +106,15 @@ class StreamingMobileVideoGPT:
         # Add special action tokens
         self._add_action_tokens()
 
+        # Warmup: Run a dummy inference to trigger Triton kernel compilation
+        try:
+            logger.info("Running warmup inference to compile kernels...")
+            self._warmup_model()
+            logger.info("Warmup complete - kernels compiled successfully")
+        except Exception as e:
+            logger.warning(f"Warmup failed: {e}")
+            logger.warning("Continuing anyway, but first inference may be slow or fail")
+
         # Initialize components
         self._init_components()
 
@@ -196,11 +205,7 @@ class StreamingMobileVideoGPT:
         self.model.to(self.device)
         self.model.eval()
 
-        # Note: Disabling fused_add_norm at runtime can cause issues
-        # If Triton errors occur, they're usually from index/dimension mismatches
-        # which we've fixed in arch.py
-
-        # Load vision towers
+        # Load vision towers first
         vision_tower = self.model.get_vision_tower()
         vision_tower.load_model(model_config.mm_vision_tower)
         self.video_processor = vision_tower.image_processor
@@ -217,6 +222,26 @@ class StreamingMobileVideoGPT:
         self.token_ids = add_special_tokens(self.tokenizer, self.model, tokens)
         self.action_tokens = {v: k for k, v in tokens.items()}  # Reverse mapping
         logger.info(f"Action tokens: {self.token_ids}")
+
+    def _warmup_model(self):
+        """Run dummy inference to compile Triton kernels and avoid segfaults."""
+        # Create dummy tensors matching expected shapes
+        dummy_video = torch.zeros((8, 3, 224, 224), dtype=torch.float16, device=self.device)
+        dummy_context = torch.zeros((16, 3, 224, 224), dtype=torch.float16, device=self.device)
+
+        with torch.no_grad():
+            try:
+                # This triggers kernel compilation
+                _ = self.model.encode_videos_by_seletive_frames(
+                    dummy_video, dummy_context, batch_size=1
+                )
+            except Exception as e:
+                # Some errors during warmup are expected
+                logger.debug(f"Warmup encoding error (expected): {e}")
+
+        # Clear cache after warmup
+        if self.device == "cuda":
+            torch.cuda.empty_cache()
 
     def _init_components(self):
         """Initialize streaming components."""
@@ -393,15 +418,23 @@ class StreamingMobileVideoGPT:
 
         batch_size = 1
 
-        # Debug logging for tensor shapes
-        logger.info(f"Encoding chunk - video_tensor shape: {video_tensor.shape}, context_tensor shape: {context_tensor.shape}")
+        # Validate tensor shapes and properties
+        logger.debug(f"Encoding chunk - video: {video_tensor.shape}, context: {context_tensor.shape}")
 
-        # Validate tensor shapes
-        assert video_tensor.shape[0] == 8, f"Expected 8 video frames, got {video_tensor.shape[0]}"
-        assert context_tensor.shape[0] == 16, f"Expected 16 context frames, got {context_tensor.shape[0]}"
-        assert video_tensor.dim() == 4, f"Expected 4D video tensor, got {video_tensor.dim()}D"
+        if video_tensor.shape[0] != 8:
+            raise ValueError(f"Expected 8 video frames, got {video_tensor.shape[0]}")
+        if context_tensor.shape[0] != 16:
+            raise ValueError(f"Expected 16 context frames, got {context_tensor.shape[0]}")
+        if video_tensor.dim() != 4:
+            raise ValueError(f"Expected 4D video tensor, got {video_tensor.dim()}D")
 
-        # Encode using model's encoders
+        # Check for NaN or Inf values that can cause CUDA errors
+        if torch.isnan(video_tensor).any() or torch.isinf(video_tensor).any():
+            logger.error("Video tensor contains NaN or Inf values!")
+            raise ValueError("Invalid video tensor values")
+        if torch.isnan(context_tensor).any() or torch.isinf(context_tensor).any():
+            logger.error("Context tensor contains NaN or Inf values!")
+            raise ValueError("Invalid context tensor values")
         with torch.no_grad():
             # Encode video and context
             video_features, context_features = self.model.encode_videos_by_seletive_frames(

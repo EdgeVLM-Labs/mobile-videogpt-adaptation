@@ -18,6 +18,8 @@ import time
 import numpy as np
 from pathlib import Path
 import sys
+import gc
+import torch
 
 # Set headless backend for OpenCV if no display is available
 if os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
@@ -167,16 +169,27 @@ class StreamingDemo:
         print("\n" + "="*60)
         print("Starting Streaming Demo")
         print("="*60)
+        print(f"DEBUG: Entered run() method, display={self.display}")
+
         if self.display:
             print("Press 'q' to quit, 's' to show stats, 'r' to reset\n")
         else:
             print("Running in HEADLESS mode - feedback will be printed to terminal")
             print("Press Ctrl+C to stop\n")
 
+        print(f"DEBUG: About to start main loop...")
+
         try:
+            frame_num = 0
             while True:
+                if frame_num == 0:
+                    print(f"DEBUG: Reading first frame...")
+
                 # Read frame
                 ret, frame = self.cap.read()
+
+                if frame_num == 0:
+                    print(f"DEBUG: First frame read: ret={ret}, shape={frame.shape if ret else None}")
 
                 if not ret:
                     print("End of video or camera disconnected")
@@ -410,14 +423,24 @@ def main():
         lora_adapter=lora_adapter,
     )
 
+    print("Engine created - synchronizing CUDA...")
+    if args.device == "cuda" and torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+    gc.collect()
+    print("Synchronization complete")
+
     # Run demo
+    print("Creating demo object...")
     demo = StreamingDemo(
         engine=engine,
         video_source=video_source,
         display=not args.no_display,
         save_path=args.save_output,
     )
+    print("Demo object created successfully")
 
+    print("Starting demo.run()...")
     demo.run(max_frames=args.max_frames)
 
 

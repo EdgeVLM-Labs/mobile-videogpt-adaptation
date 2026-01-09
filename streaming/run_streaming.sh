@@ -259,9 +259,9 @@ case $MODE in
 
     demo)
         # Check if demo_streaming.py exists
-        if [[ ! -f "demo_streaming.py" ]]; then
-            print_error "demo_streaming.py not found in project root!"
-            log_message "ERROR: demo_streaming.py not found!"
+        if [[ ! -f "demo_streaming_simple.py" ]]; then
+            print_error "demo_streaming_simple.py not found in project root!"
+            log_message "ERROR: demo_streaming_simple.py not found!"
             exit 1
         fi
 
@@ -282,10 +282,15 @@ case $MODE in
 
         # Set Triton cache and debugging env vars to help with CUDA errors
         export TRITON_CACHE_DIR="${HOME}/.triton/cache"
-        export CUDA_LAUNCH_BLOCKING=1  # Helps identify exact CUDA error location
-        export TORCH_USE_CUDA_DSA=1    # Enable CUDA device-side assertions for better error messages
-        print_info "CUDA debugging enabled (CUDA_LAUNCH_BLOCKING=1)"
-        log_message "CUDA debugging enabled for better error diagnostics"
+        export TRITON_PTXAS_PATH=""  # Disable ptxas optimizations that can cause issues
+        export TRITON_DISABLE_LINE_INFO=1  # Reduce Triton compilation overhead
+        # Disable CUDA_LAUNCH_BLOCKING for production (causes slowdown)
+        # export CUDA_LAUNCH_BLOCKING=1
+        export TORCH_USE_CUDA_DSA=1    # Enable CUDA device-side assertions
+        # Prevent CUDA from using too much memory
+        export PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:512"
+        print_info "CUDA/Triton optimizations configured"
+        log_message "Triton cache and CUDA memory limits configured"
 
         # Check if config file exists
         if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -297,8 +302,8 @@ case $MODE in
             log_message "Config file: $CONFIG_FILE"
         fi
 
-        # Build command
-        CMD="python demo_streaming.py --model \"$HF_MODEL_REPO\" --device $DEVICE"
+        # Build command using the simplified demo that works
+        CMD="python demo_streaming_simple.py"
 
         # Add LoRA adapter if detected
         if [[ "$USE_LORA" == true ]]; then
