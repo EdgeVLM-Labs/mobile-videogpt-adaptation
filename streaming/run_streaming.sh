@@ -265,6 +265,21 @@ case $MODE in
             exit 1
         fi
 
+        # Auto-detect headless environment (no DISPLAY or Wayland)
+        if [[ -z "$DISPLAY" ]] && [[ -z "$WAYLAND_DISPLAY" ]] && [[ "$NO_DISPLAY" == false ]]; then
+            print_warning "No display detected, enabling headless mode"
+            log_message "WARNING: No display detected, running in headless mode"
+            NO_DISPLAY=true
+        fi
+
+        # Set OpenCV to use headless backend if no display
+        if [[ "$NO_DISPLAY" == true ]]; then
+            export QT_QPA_PLATFORM=offscreen
+            export MPLBACKEND=Agg
+            print_info "Using headless OpenCV backend"
+            log_message "Using headless OpenCV backend (QT_QPA_PLATFORM=offscreen)"
+        fi
+
         # Check if config file exists
         if [[ ! -f "$CONFIG_FILE" ]]; then
             print_warning "Config file not found: $CONFIG_FILE"

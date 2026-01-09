@@ -12,11 +12,17 @@ Usage:
 """
 
 import argparse
+import os
 import cv2
 import time
 import numpy as np
 from pathlib import Path
 import sys
+
+# Set headless backend for OpenCV if no display is available
+if os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
+    # Use headless backend
+    cv2.setNumThreads(1)
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
@@ -195,19 +201,24 @@ class StreamingDemo:
 
                 # Display
                 if self.display:
-                    cv2.imshow("Streaming Mobile-VideoGPT", annotated)
+                    try:
+                        cv2.imshow("Streaming Mobile-VideoGPT", annotated)
 
-                    # Handle keys
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == ord('q'):
-                        print("Quit requested")
-                        break
-                    elif key == ord('s'):
-                        self.engine.print_stats()
-                    elif key == ord('r'):
-                        print("Resetting engine...")
-                        self.engine.reset()
-                        self.current_feedback = "Reset - Starting..."
+                        # Handle keys
+                        key = cv2.waitKey(1) & 0xFF
+                        if key == ord('q'):
+                            print("Quit requested")
+                            break
+                        elif key == ord('s'):
+                            self.engine.print_stats()
+                        elif key == ord('r'):
+                            print("Resetting engine...")
+                            self.engine.reset()
+                            self.current_feedback = "Reset - Starting..."
+                    except cv2.error as e:
+                        print(f"Display error (running in headless mode?): {e}")
+                        print("Continuing without display...")
+                        self.display = False  # Disable display for subsequent frames
 
                 self.frame_count += 1
 
