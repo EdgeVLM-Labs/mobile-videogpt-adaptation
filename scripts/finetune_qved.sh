@@ -28,28 +28,53 @@ OUTPUT_DIR_PATH="results/qved_finetune_mobilevideogpt_0.5B"
 # Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR_PATH"
 
-# Training hyperparameters optimized for small dataset
-# EPOCHS=3                     # Reduced epochs
-# LR=2e-4                      # Increased learning rate
-# MM_PROJ_LR=2e-4              # Even lower for projection layers
-# LORA_R=64                    # LoRA rank
-# LORA_ALPHA=128               # LoRA alpha
-# BATCH=16                      # Smaller batch for stability
-# GACC=4                      # Gradient accumulation to simulate batch=64
-# MAXLEN=2048                  # Max sequence length
-
-EPOCHS=3                     # Reduced epochs
-LR=2e-4                      # Increased learning rate
-MM_PROJ_LR=1e-4              # Even lower for projection layers
-LORA_R=64                    # LoRA rank
-LORA_ALPHA=128               # LoRA alpha
-BATCH=8                      # Per device batch size
-GACC=8                       # Gradient accumulation to simulate batch=64
-MAXLEN=2048                  # Max sequence length
+# =========================================
+# HYPERPARAMETERS - Configure all values here
+# =========================================
 
 # Video processing parameters
 FPS=1                        # Frame sampling rate
 MAX_FRAMES=16                # Maximum frames per video
+INPUT_RESOLUTION=224         # Input resolution to encoder (224 x 224)
+
+# Training epochs and learning rates
+EPOCHS=3                     # Number of training epochs
+LR=2e-4                      # Learning rate
+MM_PROJ_LR=1e-4              # Projector learning rate
+
+# LoRA configuration
+LORA_R=64                    # LoRA rank
+LORA_ALPHA=128               # LoRA alpha
+LORA_DROPOUT=0.05            # LoRA dropout
+
+# Batch size configuration
+BATCH=8                      # Per device train batch size
+GACC=4                       # Gradient accumulation steps
+EVAL_BATCH=8                 # Per device eval batch size
+
+# Sequence length
+MAXLEN=2048                  # Max sequence length
+
+# Evaluation and saving
+EVAL_STRATEGY="steps"        # Evaluation strategy
+EVAL_STEPS=30                # Evaluation steps
+SAVE_STRATEGY="steps"        # Save strategy
+SAVE_STEPS=30                # Save steps
+SAVE_TOTAL_LIMIT=3           # Maximum checkpoints to keep
+
+# Training configuration
+WARMUP_RATIO=0.05            # Warmup ratio
+LOGGING_STEPS=1              # Logging steps
+DATALOADER_WORKERS=2         # Dataloader num workers
+GRADIENT_CHECKPOINTING=True  # Enable gradient checkpointing
+
+# Precision settings (True/False)
+BF16=True                    # Use bfloat16
+TF32=True                    # Use TensorFloat-32
+FP16=False                   # Use float16
+
+# DeepSpeed configuration
+DEEPSPEED_CONFIG="scripts/zero2.json"  # ZeRO optimization config
 
 echo "========================================="
 echo "QVED Dataset Finetuning Configuration"
@@ -92,11 +117,11 @@ echo "Hyperparameters saved to $CONFIG_FILE"
 # ZeRO-3 causes tensor initialization errors with mamba_ssm modules
 
 deepspeed mobilevideogpt/train/train.py \
-  --deepspeed scripts/zero2.json \
+  --deepspeed $DEEPSPEED_CONFIG \
   --lora_enable True \
   --lora_r $LORA_R \
   --lora_alpha $LORA_ALPHA \
-  --lora_dropout 0.05 \
+  --lora_dropout $LORA_DROPOUT \
   --lora_bias none \
   --mm_projector_lr $MM_PROJ_LR \
   --model_name_or_path "$BASE_LLM_PATH" \
@@ -112,27 +137,27 @@ deepspeed mobilevideogpt/train/train.py \
   --mm_use_im_patch_token False \
   --image_aspect_ratio pad \
   --group_by_modality_length True \
-  --bf16 True \
-  --tf32 True \
-  --fp16 False \
-  --gradient_checkpointing True \
+  --bf16 $BF16 \
+  --tf32 $TF32 \
+  --fp16 $FP16 \
+  --gradient_checkpointing $GRADIENT_CHECKPOINTING \
   --output_dir "$OUTPUT_DIR_PATH" \
   --num_train_epochs $EPOCHS \
   --per_device_train_batch_size $BATCH \
-  --per_device_eval_batch_size 8 \
+  --per_device_eval_batch_size $EVAL_BATCH \
   --gradient_accumulation_steps $GACC \
-  --eval_strategy "steps" \
-  --eval_steps 70 \
-  --save_strategy "steps" \
-  --save_steps 70 \
-  --save_total_limit 3 \
+  --eval_strategy $EVAL_STRATEGY \
+  --eval_steps $EVAL_STEPS \
+  --save_strategy $SAVE_STRATEGY \
+  --save_steps $SAVE_STEPS \
+  --save_total_limit $SAVE_TOTAL_LIMIT \
   --learning_rate $LR \
   --weight_decay 0. \
-  --warmup_ratio 0.05 \
+  --warmup_ratio $WARMUP_RATIO \
   --lr_scheduler_type "cosine" \
-  --logging_steps 1 \
+  --logging_steps $LOGGING_STEPS \
   --model_max_length $MAXLEN \
-  --dataloader_num_workers 2 \
+  --dataloader_num_workers $DATALOADER_WORKERS \
   --lazy_preprocess True \
   --report_to wandb \
   --run_name $WANDB_NAME \
