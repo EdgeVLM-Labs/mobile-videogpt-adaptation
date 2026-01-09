@@ -40,7 +40,21 @@ def parse_args():
         "--model",
         type=str,
         default="Amshaker/Mobile-VideoGPT-0.5B",
-        help="Path to pretrained model",
+        help="Path to pretrained model or LoRA adapter",
+    )
+
+    parser.add_argument(
+        "--base-model",
+        type=str,
+        default=None,
+        help="Base model path (required if --model is a LoRA adapter)",
+    )
+
+    parser.add_argument(
+        "--lora-adapter",
+        type=str,
+        default=None,
+        help="LoRA adapter path (if provided, --model becomes the base model)",
     )
 
     parser.add_argument(
@@ -349,11 +363,25 @@ def main():
         config["demo"]["display_video"] = not args.no_display
 
     # Initialize streaming engine
-    print(f"\nInitializing Mobile-VideoGPT ({args.model})...")
+    model_path = args.model
+    base_model = args.base_model
+    lora_adapter = args.lora_adapter
+
+    print(f"\nInitializing Mobile-VideoGPT ({model_path})...")
+    if lora_adapter:
+        print(f"  Base model: {model_path}")
+        print(f"  LoRA adapter: {lora_adapter}")
+    elif base_model:
+        print(f"  Base model: {base_model}")
+        print(f"  LoRA adapter: {model_path}")
+        lora_adapter = model_path
+        model_path = base_model
+
     engine = StreamingMobileVideoGPT(
-        model_path=args.model,
+        model_path=model_path,
         config_dict=config,
         device=args.device,
+        lora_adapter=lora_adapter,
     )
 
     # Run demo

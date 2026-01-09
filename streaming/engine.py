@@ -64,6 +64,7 @@ class StreamingMobileVideoGPT:
         config_path: Optional[str] = None,
         config_dict: Optional[Dict] = None,
         device: str = "cuda",
+        lora_adapter: Optional[str] = None,
     ):
         """
         Initialize streaming inference engine.
@@ -73,6 +74,7 @@ class StreamingMobileVideoGPT:
             config_path: Path to YAML config file
             config_dict: Config dictionary (overrides config_path)
             device: Device to run on ("cuda" or "cpu")
+            lora_adapter: Path to LoRA adapter to merge with base model
         """
         # Load configuration
         if config_dict is not None:
@@ -93,9 +95,12 @@ class StreamingMobileVideoGPT:
 
         self.device = device
         self.model_path = model_path
+        self.lora_adapter = lora_adapter
 
         # Load model and tokenizer
         logger.info(f"Loading model from {model_path}")
+        if lora_adapter:
+            logger.info(f"Will merge LoRA adapter from {lora_adapter}")
         self._load_model()
 
         # Add special action tokens
@@ -151,11 +156,38 @@ class StreamingMobileVideoGPT:
 
         # Load model with FP16 for efficiency
         dtype = torch.float16 if self.device == "cuda" else torch.float32
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_path,
-            config=model_config,
-            torch_dtype=dtype,
-        )
+
+        if self.lora_adapter:
+            # Load base model and LoRA adapter
+            logger.info(f"Loading base model: {self.model_path}")
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                config=model_config,
+                torch_dtype=dtype,
+            )
+
+            # Load and merge LoRA adapter
+            try:
+                from peft import PeftModel
+                logger.info(f"Loading LoRA adapter: {self.lora_adapter}")
+                self.model = PeftModel.from_pretrained(self.model, self.lora_adapter)
+                logger.info("Merging LoRA adapter with base model...")
+                self.model = self.model.merge_and_unload()
+                logger.info("LoRA adapter merged successfully")
+            except ImportError:
+                logger.error("PEFT library not installed. Install with: pip install peft")
+                raise
+            except Exception as e:
+                logger.error(f"Failed to load LoRA adapter: {e}")
+                raise
+        else:
+            # Load standard model
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                config=model_config,
+                torch_dtype=dtype,
+            )
+
         self.model.to(self.device)
         self.model.eval()
 

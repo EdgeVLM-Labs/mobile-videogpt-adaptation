@@ -17,7 +17,8 @@
 # =============================================================================
 
 # Default configuration
-HF_MODEL_REPO="${HF_MODEL_REPO:-EdgeVLM-Labs/mobile-videogpt-finetune-2000}"  # Default finetuned model
+HF_MODEL_REPO="${HF_MODEL_REPO:-EdgeVLM-Labs/mobile-videogpt-finetune-2000}"  # Default LoRA finetuned adapter
+BASE_MODEL_REPO="${BASE_MODEL_REPO:-Amshaker/Mobile-VideoGPT-0.5B}"  # Base model for LoRA
 CONFIG_FILE="streaming_config.yaml"
 DEVICE="cuda"
 VIDEO_INPUT="sample_videos/test_stream.mp4"  # Default test video
@@ -72,14 +73,20 @@ ${BLUE}Options:${NC}
     --inference             Run inference.py instead of demo
 
 ${BLUE}Examples:${NC}
-    ${GREEN}# Run with default 0.5B model (webcam)${NC}
+    ${GREEN}# Run with default EdgeVLM finetuned model (test video)${NC}
     $0
 
-    ${GREEN}# Use 1.5B model variant${NC}
+    ${GREEN}# Use base 0.5B model without LoRA${NC}
+    $0 --model 0.5B
+
+    ${GREEN}# Use 1.5B base model${NC}
     $0 --model 1.5B
 
     ${GREEN}# Use custom HuggingFace model${NC}
     $0 --custom YourUsername/your-finetuned-model
+
+    ${GREEN}# Use local LoRA finetuned model${NC}
+    $0 --custom /path/to/results/qved_finetune_mobilevideogpt_0.5B
 
     ${GREEN}# Process a video file${NC}
     $0 --video sample_videos/00000340.mp4
@@ -97,10 +104,14 @@ ${BLUE}Environment Variables:${NC}
     HF_MODEL_REPO           Override default HuggingFace model repository
 
 ${BLUE}Model Variants:${NC}
-    0.5B                    Amshaker/Mobile-VideoGPT-0.5B
-    1.5B                    Amshaker/Mobile-VideoGPT-1.5B
-    finetuned (default)     EdgeVLM-Labs/mobile-videogpt-finetune-2000
+    0.5B                    Amshaker/Mobile-VideoGPT-0.5B (base)
+    1.5B                    Amshaker/Mobile-VideoGPT-1.5B (base)
+    EdgeVLM (default)       EdgeVLM-Labs/mobile-videogpt-finetune-2000 (LoRA adapter)
 
+${BLUE}Note:${NC}
+    The default model is a LoRA adapter that will be automatically merged
+    with Amshaker/Mobile-VideoGPT-0.5B base model. Use --model 0.5B or 1.5B
+    to use base models without LoRA.
 EOF
 }
 
@@ -200,11 +211,27 @@ log_message "Config: $CONFIG_FILE"
 log_message "Mode: $MODE"
 log_message "========================================="
 
-# Check if model repo is set (use base model if empty)
+# Check if model repo is set and determine if LoRA adapter
+USE_LORA=false
+LORA_ADAPTER=""
+
 if [[ -z "$HF_MODEL_REPO" ]]; then
     HF_MODEL_REPO="EdgeVLM-Labs/mobile-videogpt-finetune-2000"
-    print_warning "No model specified, using default model: $HF_MODEL_REPO"
-    log_message "WARNING: No model specified, using default: $HF_MODEL_REPO"
+    USE_LORA=true
+    LORA_ADAPTER="$HF_MODEL_REPO"
+    HF_MODEL_REPO="$BASE_MODEL_REPO"
+    print_warning "No model specified, using default LoRA adapter: $LORA_ADAPTER"
+    log_message "WARNING: No model specified, using default LoRA adapter with base: $HF_MODEL_REPO"
+elif [[ "$HF_MODEL_REPO" == "EdgeVLM-Labs/mobile-videogpt-finetune-2000" ]] || [[ "$HF_MODEL_REPO" =~ "checkpoint-" ]] || [[ -f "$HF_MODEL_REPO/adapter_config.json" ]]; then
+    # Detected LoRA adapter
+    USE_LORA=true
+    LORA_ADAPTER="$HF_MODEL_REPO"
+    HF_MODEL_REPO="$BASE_MODEL_REPO"
+    print_info "Detected LoRA adapter, will merge with base model"
+    print_info "Base model: ${GREEN}$HF_MODEL_REPO${NC}"
+    print_info "LoRA adapter: ${GREEN}$LORA_ADAPTER${NC}"
+    log_message "Base model: $HF_MODEL_REPO"
+    log_message "LoRA adapter: $LORA_ADAPTER"
 else
     print_info "Using model: ${GREEN}$HF_MODEL_REPO${NC}"
     log_message "Model: $HF_MODEL_REPO"
@@ -250,6 +277,11 @@ case $MODE in
 
         # Build command
         CMD="python demo_streaming.py --model \"$HF_MODEL_REPO\" --device $DEVICE"
+
+        # Add LoRA adapter if detected
+        if [[ "$USE_LORA" == true ]]; then
+            CMD="$CMD --lora-adapter \"$LORA_ADAPTER\""
+        fi
 
         if [[ -n "$VIDEO_INPUT" ]]; then
             if [[ ! -f "$VIDEO_INPUT" ]]; then
