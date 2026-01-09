@@ -1,0 +1,84 @@
+# Streaming Inference Configuration for Mobile-VideoGPT
+# Real-time exercise feedback with action token prediction
+
+# Model Configuration
+model:
+  pretrained_path: "Amshaker/Mobile-VideoGPT-0.5B"
+  device: "cuda"
+  dtype: "float16" # Use FP16 for faster inference
+  use_cache: true # Enable KV cache
+
+# Video Processing
+video:
+  chunk_size: 8 # Fixed by VideoMamba architecture
+  overlap: 4 # Number of frames to overlap between chunks
+  capture_fps: 30 # Webcam/input video capture FPS
+  process_fps: 8 # Target processing FPS (limited by model speed)
+  frame_width: 224
+  frame_height: 224
+  num_context_images: 16 # Number of context images for CLIP encoder
+
+# Temporal Context
+temporal:
+  max_history: 3 # Number of previous chunks to remember
+  context_aggregation: "concatenate" # How to combine chunks: "concatenate", "average", "attention"
+
+# Action Token Prediction
+action_prediction:
+  strategy: "rule_based" # Options: "rule_based", "model_based"
+  confidence_threshold: 0.75 # Minimum confidence to trigger feedback
+
+  # Rule-based strategy settings
+  rules:
+    time_based_interval: 5 # Predict feedback every N chunks
+    motion_threshold: 0.7 # Motion score threshold for feedback
+    min_feedback_interval: 3.0 # Minimum seconds between feedback
+
+  # Model-based strategy settings (for future use)
+  model:
+    checkpoint_path: null # Path to trained action predictor model
+    use_temporal_features: true
+
+# Special Tokens
+special_tokens:
+  next: "<next>" # Continue observing, no speech
+  feedback: "<feedback>" # Provide form correction
+  correct: "<correct>" # Positive reinforcement
+
+# Text Generation
+generation:
+  max_new_tokens: 256 # Maximum length of feedback text
+  temperature: 0.7
+  top_p: 0.9
+  do_sample: true
+  num_beams: 1 # Use greedy decoding for speed
+  repetition_penalty: 1.2
+
+# Prompts
+prompts:
+  system: "You are a physiotherapy assistant providing real-time exercise form feedback."
+  observation_context: "Analyzing exercise form from video stream..."
+  feedback_prefix: "Form correction: "
+
+# Performance
+performance:
+  async_capture: true # Capture video frames asynchronously
+  frame_skip: 3 # Process every Nth frame (1 = no skipping)
+  batch_preprocessing: true # Batch preprocess multiple frames
+  profile: false # Enable performance profiling
+
+# Logging
+logging:
+  level: "INFO" # DEBUG, INFO, WARNING, ERROR
+  log_file: "streaming_inference.log"
+  console: true
+
+# Demo Settings (for webcam demo)
+demo:
+  video_source: 0 # Webcam ID (0 for default webcam, or path to video file)
+  display_video: true # Show video feed with annotations
+  display_fps: true # Show FPS counter
+  save_output: false # Save annotated video
+  output_path: "demo_output.mp4"
+  text_overlay: true # Show feedback as text overlay
+  voice_output: false # Text-to-speech for feedback (requires pyttsx3)
