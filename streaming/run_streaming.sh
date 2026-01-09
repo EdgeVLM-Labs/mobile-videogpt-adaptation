@@ -17,10 +17,10 @@
 # =============================================================================
 
 # Default configuration
-HF_MODEL_REPO="${HF_MODEL_REPO:-Amshaker/Mobile-VideoGPT-0.5B}"  # Default base model
+HF_MODEL_REPO="${HF_MODEL_REPO:-EdgeVLM-Labs/mobile-videogpt-finetune-2000}"  # Default finetuned model
 CONFIG_FILE="streaming_config.yaml"
 DEVICE="cuda"
-VIDEO_INPUT=""
+VIDEO_INPUT="sample_videos/test_stream.mp4"  # Default test video
 MAX_FRAMES=""
 SAVE_OUTPUT=false
 NO_DISPLAY=false
@@ -97,8 +97,9 @@ ${BLUE}Environment Variables:${NC}
     HF_MODEL_REPO           Override default HuggingFace model repository
 
 ${BLUE}Model Variants:${NC}
-    0.5B (default)          Amshaker/Mobile-VideoGPT-0.5B
+    0.5B                    Amshaker/Mobile-VideoGPT-0.5B
     1.5B                    Amshaker/Mobile-VideoGPT-1.5B
+    finetuned (default)     EdgeVLM-Labs/mobile-videogpt-finetune-2000
 
 EOF
 }
@@ -171,35 +172,69 @@ done
 # Navigate to project root (one level up from streaming/)
 cd "$(dirname "$0")/.." || exit 1
 
+# Create logs directory if it doesn't exist
+LOG_DIR="logs/streaming"
+mkdir -p "$LOG_DIR"
+
+# Create log file with timestamp
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="$LOG_DIR/streaming_${TIMESTAMP}.log"
+
 print_info "Mobile-VideoGPT Streaming System"
 echo "=================================="
+print_info "Log file: $LOG_FILE"
+
+# Function to log messages to both console and file
+log_message() {
+    echo "$1" | tee -a "$LOG_FILE"
+}
+
+# Save session configuration to log
+log_message "========================================="
+log_message "Mobile-VideoGPT Streaming Session"
+log_message "Started: $(date)"
+log_message "========================================="
+log_message "Model: $HF_MODEL_REPO"
+log_message "Device: $DEVICE"
+log_message "Config: $CONFIG_FILE"
+log_message "Mode: $MODE"
+log_message "========================================="
 
 # Check if model repo is set (use base model if empty)
 if [[ -z "$HF_MODEL_REPO" ]]; then
-    HF_MODEL_REPO="Amshaker/Mobile-VideoGPT-0.5B"
-    print_warning "No model specified, using base model: $HF_MODEL_REPO"
+    HF_MODEL_REPO="EdgeVLM-Labs/mobile-videogpt-finetune-2000"
+    print_warning "No model specified, using default model: $HF_MODEL_REPO"
+    log_message "WARNING: No model specified, using default: $HF_MODEL_REPO"
 else
     print_info "Using model: ${GREEN}$HF_MODEL_REPO${NC}"
+    log_message "Model: $HF_MODEL_REPO"
 fi
 
 # Execute based on mode
 case $MODE in
     test)
         print_info "Running unit tests..."
-        python -m pytest tests/test_streaming.py -v --tb=short
-        exit $?
+        log_message "Running unit tests..."
+        python -m pytest tests/test_streaming.py -v --tb=short 2>&1 | tee -a "$LOG_FILE"
+        EXIT_CODE=${PIPESTATUS[0]}
+        log_message "Test completed with exit code: $EXIT_CODE"
+        exit $EXIT_CODE
         ;;
 
     inference)
         print_info "Running inference.py..."
-        python inference.py
-        exit $?
+        log_message "Running inference.py..."
+        python inference.py 2>&1 | tee -a "$LOG_FILE"
+        EXIT_CODE=${PIPESTATUS[0]}
+        log_message "Inference completed with exit code: $EXIT_CODE"
+        exit $EXIT_CODE
         ;;
 
     demo)
         # Check if demo_streaming.py exists
         if [[ ! -f "demo_streaming.py" ]]; then
             print_error "demo_streaming.py not found in project root!"
+            log_message "ERROR: demo_streaming.py not found!"
             exit 1
         fi
 
@@ -207,8 +242,10 @@ case $MODE in
         if [[ ! -f "$CONFIG_FILE" ]]; then
             print_warning "Config file not found: $CONFIG_FILE"
             print_info "Using default configuration from code"
+            log_message "WARNING: Config file not found, using defaults"
         else
             print_info "Using config: $CONFIG_FILE"
+            log_message "Config file: $CONFIG_FILE"
         fi
 
         # Build command
@@ -217,12 +254,15 @@ case $MODE in
         if [[ -n "$VIDEO_INPUT" ]]; then
             if [[ ! -f "$VIDEO_INPUT" ]]; then
                 print_error "Video file not found: $VIDEO_INPUT"
+                log_message "ERROR: Video file not found: $VIDEO_INPUT"
                 exit 1
             fi
             CMD="$CMD --video \"$VIDEO_INPUT\""
             print_info "Input: Video file - $VIDEO_INPUT"
+            log_message "Input: Video file - $VIDEO_INPUT"
         else
             print_info "Input: Webcam (default)"
+            log_message "Input: Webcam"
         fi
 
         if [[ -f "$CONFIG_FILE" ]]; then
@@ -236,30 +276,43 @@ case $MODE in
         if [[ "$SAVE_OUTPUT" == true ]]; then
             CMD="$CMD --save-output"
             print_info "Output will be saved to file"
+            log_message "Save output: enabled"
         fi
 
         if [[ "$NO_DISPLAY" == true ]]; then
             CMD="$CMD --no-display"
             print_info "Running in headless mode (no display)"
+            log_message "Display: disabled (headless)"
         fi
 
         print_info "Device: $DEVICE"
         echo ""
         print_info "Launching streaming demo..."
+        log_message "========================================="
+        log_message "Launching streaming demo"
+        log_message "Command: $CMD"
+        log_message "========================================="
         print_info "Command: $CMD"
         echo ""
 
-        # Run the demo
-        eval $CMD
-        EXIT_CODE=$?
+        # Run the demo with output logging
+        eval $CMD 2>&1 | tee -a "$LOG_FILE"
+        EXIT_CODE=${PIPESTATUS[0]}
 
         echo ""
+        log_message "========================================="
         if [[ $EXIT_CODE -eq 0 ]]; then
             print_success "Demo completed successfully!"
+            log_message "Demo completed successfully!"
+            log_message "Exit code: 0"
         else
             print_error "Demo exited with code $EXIT_CODE"
+            log_message "ERROR: Demo exited with code $EXIT_CODE"
         fi
+        log_message "Ended: $(date)"
+        log_message "========================================="
 
+        print_info "Full log saved to: $LOG_FILE"
         exit $EXIT_CODE
         ;;
 esac
