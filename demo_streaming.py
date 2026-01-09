@@ -167,7 +167,11 @@ class StreamingDemo:
         print("\n" + "="*60)
         print("Starting Streaming Demo")
         print("="*60)
-        print("Press 'q' to quit, 's' to show stats, 'r' to reset\n")
+        if self.display:
+            print("Press 'q' to quit, 's' to show stats, 'r' to reset\n")
+        else:
+            print("Running in HEADLESS mode - feedback will be printed to terminal")
+            print("Press Ctrl+C to stop\n")
 
         try:
             while True:
@@ -190,7 +194,12 @@ class StreamingDemo:
                 if result is not None:
                     self.current_feedback = result["feedback_text"]
                     self.feedback_timestamp = result["timestamp"]
-                    print(f"\n[{result['timestamp']:.1f}s] 🎯 FEEDBACK: {self.current_feedback}\n")
+                    feedback_msg = f"\n[{result['timestamp']:.1f}s] 🎯 FEEDBACK: {self.current_feedback}\n"
+                    print(feedback_msg)
+                    # Always log feedback to make it visible in headless mode
+                    if not self.display:
+                        print(f"Chunk #{result.get('chunk_id', '?')} | Confidence: {result.get('confidence', 0):.2f}")
+                        print("-" * 80)
 
                 # Annotate frame
                 annotated = self._annotate_frame(frame, process_time)
@@ -221,6 +230,12 @@ class StreamingDemo:
                         self.display = False  # Disable display for subsequent frames
 
                 self.frame_count += 1
+
+                # Progress indicator for headless mode
+                if not self.display and self.frame_count % 30 == 0:
+                    elapsed = time.time() - self.start_time
+                    fps = self.frame_count / elapsed if elapsed > 0 else 0
+                    print(f"Processed {self.frame_count} frames | {fps:.1f} FPS | Elapsed: {elapsed:.1f}s")
 
                 # Check max frames
                 if max_frames and self.frame_count >= max_frames:

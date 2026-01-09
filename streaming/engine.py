@@ -374,10 +374,15 @@ class StreamingMobileVideoGPT:
         video_tensor = torch.stack(video_tensors).half().to(self.device)
         context_tensor = torch.stack(context_tensors).half().to(self.device)
 
-        # Reshape for model
+        # Reshape for model - add batch dimension first
         batch_size = 1
-        video_tensor = rearrange(video_tensor, 't c h w -> (b t) c h w', b=batch_size)
-        context_tensor = rearrange(context_tensor, 't c h w -> (b t) c h w', b=batch_size)
+        # Add batch dimension: (t, c, h, w) -> (b, t, c, h, w)
+        video_tensor = video_tensor.unsqueeze(0)  # (1, t, c, h, w)
+        context_tensor = context_tensor.unsqueeze(0)  # (1, t, c, h, w)
+        
+        # Merge batch and time: (b, t, c, h, w) -> (b*t, c, h, w)
+        video_tensor = rearrange(video_tensor, 'b t c h w -> (b t) c h w')
+        context_tensor = rearrange(context_tensor, 'b t c h w -> (b t) c h w')
 
         # Encode using model's encoders
         with torch.no_grad():
