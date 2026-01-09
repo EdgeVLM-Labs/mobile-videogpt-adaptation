@@ -371,18 +371,18 @@ class StreamingMobileVideoGPT:
             )
 
         # Convert to tensors
-        video_tensor = torch.stack(video_tensors).half().to(self.device)
-        context_tensor = torch.stack(context_tensors).half().to(self.device)
+        video_tensor = torch.stack(video_tensors).half().to(self.device)  # (8, 3, 224, 224)
+        context_tensor = torch.stack(context_tensors).half().to(self.device)  # (16, 3, 224, 224)
 
-        # Reshape for model - add batch dimension first
+        # The model expects:
+        # - video frames: (b*t, c, h, w) where t must be divisible by CHUNK_SIZE (8)
+        # - context images: (b*t, c, h, w) where t should match structure
+        #
+        # We have 8 video frames and 16 context frames for 1 batch
+        # The tensors are already in (b*t, c, h, w) format where b=1
+        # No additional reshaping needed!
+
         batch_size = 1
-        # Add batch dimension: (t, c, h, w) -> (b, t, c, h, w)
-        video_tensor = video_tensor.unsqueeze(0)  # (1, t, c, h, w)
-        context_tensor = context_tensor.unsqueeze(0)  # (1, t, c, h, w)
-        
-        # Merge batch and time: (b, t, c, h, w) -> (b*t, c, h, w)
-        video_tensor = rearrange(video_tensor, 'b t c h w -> (b t) c h w')
-        context_tensor = rearrange(context_tensor, 'b t c h w -> (b t) c h w')
 
         # Encode using model's encoders
         with torch.no_grad():
