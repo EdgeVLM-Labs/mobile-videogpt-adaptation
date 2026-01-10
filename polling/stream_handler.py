@@ -160,13 +160,16 @@ class VideoStreamHandler:
         self,
         start_time: Optional[float] = None,
         duration: Optional[float] = None,
+        advance_by: Optional[float] = None,
     ) -> Tuple[List[np.ndarray], int]:
         """
         Extract frames from video file for a time window.
 
         Args:
             start_time: Start time in seconds (None = current position)
-            duration: Duration in seconds (None = use all remaining)
+            duration: Duration in seconds (None = num_frames / fps)
+            advance_by: How many seconds to advance position after extraction
+                       (None = same as duration for no overlap)
 
         Returns:
             Tuple of (list of frames, number of frames extracted)
@@ -181,29 +184,38 @@ class VideoStreamHandler:
         else:
             start_frame = self._current_frame_idx
 
-        if duration is not None:
-            end_frame = min(
-                start_frame + int(duration * self._video_fps),
-                self._total_frames
-            )
-        else:
-            end_frame = self._total_frames
+        # Default duration: enough for num_frames at specified fps
+        if duration is None:
+            duration = self.num_frames / self.fps
+
+        end_frame = min(
+            start_frame + int(duration * self._video_fps),
+            self._total_frames
+        )
 
         # Calculate stride for uniform sampling
         num_available = end_frame - start_frame
         if num_available <= 0:
             return [], 0
 
-        # Sample frames uniformly
+        # Sample frames uniformly to get exactly num_frames
         if num_available >= self.num_frames:
-            stride = num_available // self.num_frames
-            frame_indices = [start_frame + i * stride for i in range(self.num_frames)]
+            # Uniform sampling across the window
+            frame_indices = [
+                start_frame + int(i * num_available / self.num_frames)
+                for i in range(self.num_frames)
+            ]
         else:
+            # Not enough frames, take what we have
             frame_indices = list(range(start_frame, end_frame))
 
         try:
             frames = self._video_reader.get_batch(frame_indices).asnumpy()
-            self._current_frame_idx = end_frame
+            # Move position forward by advance_by (or duration if not specified)
+            # advance_by < duration creates overlapping windows
+            if advance_by is None:
+                advance_by = duration
+            self._current_frame_idx = start_frame + int(advance_by * self._video_fps)
             return list(frames), len(frames)
         except Exception as e:
             self.logger.error(f"Error extracting frames: {e}")
@@ -215,6 +227,7 @@ class VideoStreamHandler:
         video_processor,
         num_video_frames: int = 16,
         num_context_images: int = 16,
+        polling_interval: Optional[float] = None,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor], int]:
         """
         Get processed frames ready for model inference.
@@ -222,13 +235,16 @@ class VideoStreamHandler:
         For video files: extracts next window of frames
         For streams: gets frames from buffer
 
+        Args:
+            polling_interval: Polling interval in seconds (controls position advancement)
+
         Returns:
             Tuple of (video_frames, context_frames, slice_len)
         """
         # Get raw frames
         if self._video_reader is not None:
-            # Video file mode
-            raw_frames, slice_len = self.extract_frames_from_file()
+            # Video file mode - advance by polling_interval to allow continuous polling
+            raw_frames, slice_len = self.extract_frames_from_file(advance_by=polling_interval)
         elif len(self.frame_buffer) > 0:
             # Stream mode - get frames from buffer
             buffer_frames = list(self.frame_buffer)

@@ -497,22 +497,21 @@ class PollingInferenceEngine:
                 self.metrics.start_inference(poll_index)
 
                 try:
-                    # Extract frames
+                    # Extract frames from current position
                     frame_start = time.time()
                     video_frames, context_frames, slice_len = self.stream_handler.get_frames_for_inference(
                         self.image_processor,
                         self.video_processor,
                         num_video_frames=self.config.num_frames,
                         num_context_images=self.config.num_context_images,
+                        polling_interval=self.config.polling_interval,
                     )
                     frame_time = time.time() - frame_start
                     self.metrics.record_timing("frame_extraction_time", frame_time)
 
                     if slice_len == 0:
-                        self.logger.warning("No frames extracted, skipping poll")
-                        poll_index += 1
-                        time.sleep(self.config.polling_interval)
-                        continue
+                        self.logger.warning("No frames extracted, end of video reached")
+                        break
 
                     self.logger.info(f"Extracted {slice_len} frames in {frame_time*1000:.1f}ms")
 
