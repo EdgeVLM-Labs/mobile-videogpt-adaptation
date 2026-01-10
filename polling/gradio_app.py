@@ -163,6 +163,7 @@ class GradioPollingApp:
                 if not os.path.exists(video_path):
                     yield (
                         video_path,
+                        "❌ **Error**",
                         "❌ Video file not found",
                         "Error: Video file does not exist",
                         "",
@@ -198,6 +199,7 @@ class GradioPollingApp:
                 logging.error("Failed to load model")
                 yield (
                     video_path if use_webcam else video_path,
+                    "❌ **Error**",
                     "❌ Failed to load model",
                     "Error: Could not load model",
                     "",
@@ -218,6 +220,7 @@ class GradioPollingApp:
                 logging.error("Failed to open video source")
                 yield (
                     video_path,
+                    "❌ **Error**",
                     "❌ Failed to open video",
                     "Error: Could not open video source",
                     "",
@@ -227,17 +230,19 @@ class GradioPollingApp:
 
             logging.info(f"Video opened: duration={self.engine.stream_handler.total_duration:.2f}s")
 
+            # Get total duration first
+            total_duration = self.engine.stream_handler.total_duration
+            poll_index = 0
+
             # Yield initial state with video loaded (only set video once to avoid interrupting playback)
             yield (
                 video_path,
+                f"🔴 **Analysis Position:** 0:00 / {int(total_duration//60)}:{int(total_duration%60):02d}",
                 "🔄 Starting polling...",
                 "Initializing...",
                 "",
                 self.log_capture.get_logs()
             )
-
-            poll_index = 0
-            total_duration = self.engine.stream_handler.total_duration
 
             while self.is_running:
                 # Check if video exhausted
@@ -316,8 +321,16 @@ class GradioPollingApp:
                     current_metrics = self.format_metrics(metrics)
                     all_responses = self.format_all_responses(self.poll_results)
 
+                    # Format timestamp
+                    current_min = int(position // 60)
+                    current_sec = int(position % 60)
+                    total_min = int(total_duration // 60)
+                    total_sec = int(total_duration % 60)
+                    timestamp = f"🔴 **Analysis Position:** {current_min}:{current_sec:02d} / {total_min}:{total_sec:02d} (Poll #{poll_index + 1})"
+
                     yield (
                         gr.skip(),  # Don't update video player to avoid interrupting playback
+                        timestamp,
                         current_response,
                         current_metrics,
                         all_responses,
@@ -332,8 +345,15 @@ class GradioPollingApp:
 
                 except Exception as e:
                     logging.error(f"Error in poll #{poll_index + 1}: {str(e)}")
+                    current_min = int(position // 60) if 'position' in locals() else 0
+                    current_sec = int(position % 60) if 'position' in locals() else 0
+                    total_min = int(total_duration // 60)
+                    total_sec = int(total_duration % 60)
+                    timestamp = f"❌ **Error at:** {current_min}:{current_sec:02d} / {total_min}:{total_sec:02d}"
+
                     yield (
                         gr.skip(),  # Don't update video player
+                        timestamp,
                         f"❌ Error in poll #{poll_index + 1}: {str(e)}",
                         "Error occurred",
                         self.format_all_responses(self.poll_results),
@@ -345,8 +365,13 @@ class GradioPollingApp:
             progress(1.0, desc="Complete!")
             logging.info(f"Polling complete: {poll_index} polls processed")
 
+            total_min = int(total_duration // 60)
+            total_sec = int(total_duration % 60)
+            timestamp = f"✅ **Complete:** {total_min}:{total_sec:02d} / {total_min}:{total_sec:02d} ({poll_index} polls)"
+
             yield (
                 gr.skip(),  # Don't update video player
+                timestamp,
                 f"✅ **Polling Complete**\n\nProcessed {poll_index} polls successfully",
                 f"**Final Stats:**\n{poll_index} polls completed",
                 self.format_all_responses(self.poll_results),
@@ -357,6 +382,7 @@ class GradioPollingApp:
             logging.error(f"Fatal error: {str(e)}")
             yield (
                 gr.skip(),  # Don't update video player
+                "❌ **Fatal Error**",
                 f"❌ **Error:** {str(e)}",
                 "Error occurred during inference",
                 "",
@@ -475,6 +501,13 @@ def create_interface():
 
             with gr.Column(scale=2):
                 gr.Markdown("### 🎬 Video Player")
+
+                # Video timestamp indicator
+                video_timestamp = gr.Markdown(
+                    value="🔴 **Analysis Position:** 0:00 / 0:00",
+                    elem_classes=["timestamp-box"]
+                )
+
                 video_player = gr.Video(
                     label="Current Video",
                     autoplay=True,
@@ -533,6 +566,7 @@ def create_interface():
             ],
             outputs=[
                 video_player,
+                video_timestamp,
                 current_response,
                 current_metrics,
                 all_responses,
@@ -547,6 +581,22 @@ def create_interface():
 
         # Custom CSS
         demo.css = """
+        .timestamp-box {
+            padding: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 8px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            color: white !important;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .timestamp-box * {
+            color: white !important;
+        }
+
         .response-box, .metrics-box, .all-responses-box, .summary-box {
             min-height: 200px;
             max-height: 400px;
