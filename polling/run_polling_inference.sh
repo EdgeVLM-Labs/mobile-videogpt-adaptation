@@ -31,6 +31,7 @@ MAX_POLLS="${MAX_POLLS:-}"                     # maximum number of polls (empty 
 NUM_FRAMES="${NUM_FRAMES:-16}"                 # frames per inference
 FPS="${FPS:-1}"                                # frame sampling rate
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-512}"        # max generation tokens
+WARMUP_RUNS="${WARMUP_RUNS:-0}"                # number of warmup runs
 
 # Inference prompt
 PROMPT="${PROMPT:-Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?}"
@@ -38,8 +39,8 @@ PROMPT="${PROMPT:-Please evaluate the exercise form shown. What mistakes, if any
 # Output directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-LOG_DIR="${PROJECT_ROOT}/logs/streaming"
-OUTPUT_DIR="${PROJECT_ROOT}/results/streaming"
+LOG_DIR="${PROJECT_ROOT}/logs/polling"
+OUTPUT_DIR="${PROJECT_ROOT}/results/polling"
 
 # Logging configuration
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
@@ -135,6 +136,25 @@ check_dependencies() {
 setup_environment() {
     log "INFO" "Setting up environment..."
 
+    # Activate conda environment
+    CONDA_ENV="mobile_videogpt"
+    log "INFO" "Activating conda environment: ${CONDA_ENV}"
+
+    # Initialize conda for bash
+    eval "$(conda shell.bash hook)" || {
+        log "ERROR" "Failed to initialize conda"
+        exit 1
+    }
+
+    # Activate environment
+    conda activate "${CONDA_ENV}" || {
+        log "ERROR" "Failed to activate conda environment: ${CONDA_ENV}"
+        log "ERROR" "Please create it first with: conda create -n mobile_videogpt python=3.10"
+        exit 1
+    }
+
+    log "INFO" "Conda environment activated: ${CONDA_ENV}"
+
     # Create directories
     mkdir -p "${LOG_DIR}"
     mkdir -p "${OUTPUT_DIR}"
@@ -165,6 +185,7 @@ usage() {
     echo "  --num-frames NUM             Frames per inference (default: 16)"
     echo "  --fps NUM                    Frame sampling rate (default: 1)"
     echo "  --max-new-tokens NUM         Max generation tokens (default: 512)"
+    echo "  --warmup-runs NUM            Number of warmup runs (default: 0)"
     echo "  --prompt TEXT                Custom inference prompt"
     echo "  --load-4bit                  Load model in 4-bit quantization"
     echo "  --load-8bit                  Load model in 8-bit quantization"
@@ -231,6 +252,10 @@ while [[ $# -gt 0 ]]; do
             MAX_NEW_TOKENS="$2"
             shift 2
             ;;
+        --warmup-runs)
+            WARMUP_RUNS="$2"
+            shift 2
+            ;;
         --prompt)
             PROMPT="$2"
             shift 2
@@ -287,6 +312,7 @@ PYTHON_CMD+=" --max-duration ${MAX_DURATION}"
 PYTHON_CMD+=" --num-frames ${NUM_FRAMES}"
 PYTHON_CMD+=" --fps ${FPS}"
 PYTHON_CMD+=" --max-new-tokens ${MAX_NEW_TOKENS}"
+PYTHON_CMD+=" --warmup-runs ${WARMUP_RUNS}"
 PYTHON_CMD+=" --prompt \"${PROMPT}\""
 PYTHON_CMD+=" --log-dir \"${LOG_DIR}\""
 PYTHON_CMD+=" --output-dir \"${OUTPUT_DIR}\""

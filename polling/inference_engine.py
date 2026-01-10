@@ -313,6 +313,59 @@ class PollingInferenceEngine:
 
         return input_ids, conv.sep
 
+    def warmup(self, num_runs: int = 1):
+        """
+        Perform warmup runs to load model into memory and optimize caching.
+
+        Args:
+            num_runs: Number of warmup inference runs
+        """
+        self.logger.info("="*60)
+        self.logger.info(f"Starting warmup with {num_runs} run(s)...")
+        self.logger.info("="*60)
+
+        # Create dummy data
+        dummy_frames = [
+            torch.zeros(
+                (3, self.config.image_resolution, self.config.image_resolution),
+                dtype=torch.float16,
+                device=self.config.device
+            )
+            for _ in range(self.config.num_frames)
+        ]
+
+        dummy_context = [
+            torch.zeros(
+                (3, self.config.image_resolution, self.config.image_resolution),
+                dtype=torch.float16,
+                device=self.config.device
+            )
+            for _ in range(self.config.num_context_images)
+        ]
+
+        warmup_prompt = "Analyze this exercise."
+
+        for i in range(num_runs):
+            start_time = time.time()
+            self.logger.info(f"Warmup run {i+1}/{num_runs}...")
+
+            try:
+                _, ttft, _, _ = self.run_single_inference(
+                    dummy_frames,
+                    dummy_context,
+                    warmup_prompt,
+                    self.config.num_frames
+                )
+
+                warmup_time = time.time() - start_time
+                self.logger.info(f"  Completed in {warmup_time:.2f}s (TTFT: {ttft*1000:.1f}ms)")
+
+            except Exception as e:
+                self.logger.warning(f"  Warmup run {i+1} failed: {e}")
+
+        self.logger.info("Warmup complete!")
+        self.logger.info("="*60)
+
     def run_single_inference(
         self,
         video_frames: torch.Tensor,

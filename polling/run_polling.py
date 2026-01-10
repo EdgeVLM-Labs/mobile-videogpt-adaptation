@@ -121,17 +121,25 @@ def parse_args():
         help="Load model in 8-bit quantization",
     )
 
+    # Warmup arguments
+    parser.add_argument(
+        "--warmup-runs",
+        type=int,
+        default=0,
+        help="Number of warmup runs before actual inference (0 = no warmup)",
+    )
+
     # Output arguments
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="results/streaming",
+        default="results/polling",
         help="Directory to save results",
     )
     parser.add_argument(
         "--log-dir",
         type=str,
-        default="logs/streaming",
+        default="logs/polling",
         help="Directory to save logs",
     )
     parser.add_argument(
@@ -215,6 +223,12 @@ def main():
             return 1
 
         print("✅ Model loaded successfully\n")
+
+        # Warmup if requested
+        if args.warmup_runs > 0:
+            print(f"🔥 Running {args.warmup_runs} warmup run(s)...")
+            engine.warmup(num_runs=args.warmup_runs)
+            print("✅ Warmup complete\n")
 
         # Run polling loop
         print(f"🎬 Starting polling on: {args.video_source}")
