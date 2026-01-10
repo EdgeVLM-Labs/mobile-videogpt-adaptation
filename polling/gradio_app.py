@@ -84,14 +84,14 @@ class GradioPollingApp:
             return "No metrics available"
 
         output = []
-        output.append("📊 **Poll Metrics**\n")
-        output.append(f"**Latency:** {metrics.get('latency_ms', 0):.1f} ms")
-        output.append(f"**TTFT:** {metrics.get('ttft_ms', 0):.1f} ms")
-        output.append(f"**Tokens/s:** {metrics.get('tokens_per_second', 0):.1f}")
-        output.append(f"**Frames:** {metrics.get('frames_processed', 0)}")
+        output.append("**Poll Metrics**\n")
+        output.append(f"**Latency:** {metrics.get('latency_ms', 0):.1f} ms\n")
+        output.append(f"**TTFT:** {metrics.get('ttft_ms', 0):.1f} ms\n")
+        output.append(f"**Tokens/s:** {metrics.get('tokens_per_second', 0):.1f}\n")
+        output.append(f"**Frames:** {metrics.get('frames_processed', 0)}\n")
         output.append(f"**Output Tokens:** {metrics.get('output_tokens', 0)}")
 
-        return "\n".join(output)
+        return "".join(output)
 
     def format_session_metrics(self, session_metrics: dict) -> str:
         """Format session-level metrics"""
@@ -166,7 +166,6 @@ class GradioPollingApp:
                         "❌ Video file not found",
                         "Error: Video file does not exist",
                         "",
-                        "",
                         self.log_capture.get_logs()
                     )
                     return
@@ -202,7 +201,6 @@ class GradioPollingApp:
                     "❌ Failed to load model",
                     "Error: Could not load model",
                     "",
-                    "",
                     self.log_capture.get_logs()
                 )
                 return
@@ -223,12 +221,20 @@ class GradioPollingApp:
                     "❌ Failed to open video",
                     "Error: Could not open video source",
                     "",
-                    "",
                     self.log_capture.get_logs()
                 )
                 return
 
             logging.info(f"Video opened: duration={self.engine.stream_handler.total_duration:.2f}s")
+
+            # Yield initial state with video loaded (only set video once to avoid interrupting playback)
+            yield (
+                video_path,
+                "🔄 Starting polling...",
+                "Initializing...",
+                "",
+                self.log_capture.get_logs()
+            )
 
             poll_index = 0
             total_duration = self.engine.stream_handler.total_duration
@@ -257,20 +263,40 @@ class GradioPollingApp:
                     )
 
                     if slice_len == 0:
-                        break
+                        # Log and skip this poll, but continue to next position
+                        logging.warning(f"Poll #{poll_index + 1}: No frames extracted, skipping")
+                        poll_index += 1
+                        time.sleep(config.polling_interval)
+                        continue
 
                     # Run inference
                     response, ttft, input_tokens, output_tokens = self.engine.run_single_inference(
                         video_frames, context_frames, prompt, slice_len
                     )
 
+                    # Validate token counts (ensure non-negative)
+                    input_tokens = max(0, input_tokens) if input_tokens else 0
+                    output_tokens = max(0, output_tokens) if output_tokens else 0
+                    ttft = max(0.0, ttft) if ttft else 0.0
+
                     # Record metrics
-                    metrics = self.engine.metrics.end_inference(
+                    metrics_obj = self.engine.metrics.end_inference(
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
                         frames_processed=slice_len,
-                        buffer_size=0
+                        buffer_size=0,
+                        response=response,
+                        time_to_first_token=ttft
                     )
+
+                    # Convert to dict for display
+                    metrics = {
+                        'latency_ms': metrics_obj.total_inference_time * 1000,
+                        'ttft_ms': metrics_obj.time_to_first_token * 1000,
+                        'tokens_per_second': metrics_obj.tokens_per_second,
+                        'frames_processed': metrics_obj.frames_processed,
+                        'output_tokens': metrics_obj.output_tokens
+                    }
 
                     # Store results
                     result = {
@@ -282,7 +308,7 @@ class GradioPollingApp:
                     self.poll_results.append(result)
                     self.metrics_history.append(metrics)
 
-# Log poll completion
+                    # Log poll completion
                     logging.info(f"Poll #{poll_index + 1} complete: latency={metrics.get('latency_ms', 0):.1f}ms")
 
                     # Format outputs
@@ -290,16 +316,11 @@ class GradioPollingApp:
                     current_metrics = self.format_metrics(metrics)
                     all_responses = self.format_all_responses(self.poll_results)
 
-                    # Get session metrics
-                    session_metrics = self.engine.metrics.current_session.get_summary()
-                    session_summary = self.format_session_metrics(session_metrics)
-
                     yield (
-                        video_path,
+                        gr.skip(),  # Don't update video player to avoid interrupting playback
                         current_response,
                         current_metrics,
                         all_responses,
-                        session_summary,
                         self.log_capture.get_logs()
                     )
 
@@ -311,10 +332,11 @@ class GradioPollingApp:
 
                 except Exception as e:
                     logging.error(f"Error in poll #{poll_index + 1}: {str(e)}")
-                    yield (                        video_path,                        f"❌ Error in poll #{poll_index + 1}: {str(e)}",
+                    yield (
+                        gr.skip(),  # Don't update video player
+                        f"❌ Error in poll #{poll_index + 1}: {str(e)}",
                         "Error occurred",
                         self.format_all_responses(self.poll_results),
-                        self.format_session_metrics(self.engine.metrics.current_session.get_summary()) if self.engine else "",
                         self.log_capture.get_logs()
                     )
                     break
@@ -323,25 +345,20 @@ class GradioPollingApp:
             progress(1.0, desc="Complete!")
             logging.info(f"Polling complete: {poll_index} polls processed")
 
-            session_metrics = self.engine.metrics.current_session.get_summary()
-            final_summary = self.format_session_metrics(session_metrics)
-
             yield (
-                video_path,
+                gr.skip(),  # Don't update video player
                 f"✅ **Polling Complete**\n\nProcessed {poll_index} polls successfully",
                 f"**Final Stats:**\n{poll_index} polls completed",
                 self.format_all_responses(self.poll_results),
-                final_summary,
                 self.log_capture.get_logs()
             )
 
         except Exception as e:
             logging.error(f"Fatal error: {str(e)}")
             yield (
-                video_source if 'video_path' not in locals() else video_path,
+                gr.skip(),  # Don't update video player
                 f"❌ **Error:** {str(e)}",
                 "Error occurred during inference",
-                "",
                 "",
                 self.log_capture.get_logs()
             )
@@ -461,6 +478,7 @@ def create_interface():
                 video_player = gr.Video(
                     label="Current Video",
                     autoplay=True,
+                    loop=True,
                     show_label=False,
                     height=300
                 )
@@ -488,13 +506,7 @@ def create_interface():
                     elem_classes=["all-responses-box"]
                 )
 
-                gr.Markdown("### 📈 Session Summary")
-                session_summary = gr.Markdown(
-                    value="No session data yet",
-                    elem_classes=["summary-box"]
-                )
-
-                gr.Markdown("### 📋 Live Logs")
+                gr.Markdown("###  Live Logs")
                 live_logs = gr.Textbox(
                     value="No logs yet",
                     lines=15,
@@ -524,7 +536,6 @@ def create_interface():
                 current_response,
                 current_metrics,
                 all_responses,
-                session_summary,
                 live_logs
             ]
         )

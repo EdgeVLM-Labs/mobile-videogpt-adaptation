@@ -4,18 +4,50 @@ Handles frame extraction from video files and live streams.
 """
 
 import os
+import sys
 import time
 import logging
 import threading
+import warnings
 from typing import List, Tuple, Optional, Generator
 from collections import deque
 from dataclasses import dataclass
+from contextlib import contextmanager
+
+# Suppress FFmpeg warnings
+os.environ['OPENCV_FFMPEG_LOGLEVEL'] = '-8'
+os.environ['OPENCV_LOG_LEVEL'] = 'SILENT'
+os.environ['AV_LOG_LEVEL'] = 'quiet'
 
 import cv2
 import numpy as np
 import torch
 from PIL import Image
 from decord import VideoReader, cpu
+
+# Set decord log level to error only
+try:
+    from decord import bridge
+    bridge.set_bridge('torch')
+except:
+    pass
+
+# Suppress Python warnings
+warnings.filterwarnings('ignore')
+
+
+@contextmanager
+def suppress_stderr():
+    """Context manager to suppress stderr output (FFmpeg warnings)."""
+    stderr_fd = sys.stderr.fileno()
+    with open(os.devnull, 'w') as devnull:
+        old_stderr = os.dup(stderr_fd)
+        os.dup2(devnull.fileno(), stderr_fd)
+        try:
+            yield
+        finally:
+            os.dup2(old_stderr, stderr_fd)
+            os.close(old_stderr)
 
 
 @dataclass
@@ -68,7 +100,12 @@ class VideoStreamHandler:
             return False
 
         try:
-            self._video_reader = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+            # Suppress FFmpeg output and warnings
+            os.environ['FFREPORT'] = 'level=-8'
+
+            with suppress_stderr():
+                self._video_reader = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+
             self._video_fps = self._video_reader.get_avg_fps()
             self._total_frames = len(self._video_reader)
             self._video_path = video_path
@@ -184,6 +221,11 @@ class VideoStreamHandler:
         else:
             start_frame = self._current_frame_idx
 
+        # Ensure we don't go past video end
+        if start_frame >= self._total_frames:
+            self.logger.warning(f"Start frame {start_frame} >= total frames {self._total_frames}")
+            return [], 0
+
         # Default duration: enough for num_frames at specified fps
         if duration is None:
             duration = self.num_frames / self.fps
@@ -196,6 +238,7 @@ class VideoStreamHandler:
         # Calculate stride for uniform sampling
         num_available = end_frame - start_frame
         if num_available <= 0:
+            self.logger.warning(f"No frames available: start={start_frame}, end={end_frame}")
             return [], 0
 
         # Sample frames uniformly to get exactly num_frames
@@ -209,16 +252,78 @@ class VideoStreamHandler:
             # Not enough frames, take what we have
             frame_indices = list(range(start_frame, end_frame))
 
+        # Ensure all indices are valid
+        frame_indices = [idx for idx in frame_indices if 0 <= idx < self._total_frames]
+        if not frame_indices:
+            return [], 0
+
         try:
-            frames = self._video_reader.get_batch(frame_indices).asnumpy()
+            # Try to extract frames with suppressed stderr
+            with suppress_stderr():
+                frames = self._video_reader.get_batch(frame_indices).asnumpy()
+
             # Move position forward by advance_by (or duration if not specified)
             # advance_by < duration creates overlapping windows
             if advance_by is None:
                 advance_by = duration
             self._current_frame_idx = start_frame + int(advance_by * self._video_fps)
+
+            self.logger.debug(f"Extracted {len(frames)} frames from indices {frame_indices[0]}-{frame_indices[-1]}")
             return list(frames), len(frames)
+
         except Exception as e:
-            self.logger.error(f"Error extracting frames: {e}")
+            # If batch extraction fails, use OpenCV as robust fallback
+            self.logger.warning(f"Decord extraction failed, using OpenCV fallback: {e}")
+
+            try:
+                # Use OpenCV for sequential frame reading (more robust but slower)
+                cap = cv2.VideoCapture(self._video_path)
+                if not cap.isOpened():
+                    raise Exception("Failed to open video with OpenCV")
+
+                frames = []
+                failed_indices = []
+
+                for idx in frame_indices:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                    ret, frame = cap.read()
+                    if ret:
+                        # Convert BGR to RGB
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        frames.append(frame_rgb)
+                    else:
+                        failed_indices.append(idx)
+                        # Pad with last successful frame or black frame
+                        if len(frames) > 0:
+                            frames.append(frames[-1].copy())  # Duplicate last frame
+                        else:
+                            # Create black frame with correct dimensions
+                            black_frame = np.zeros((self.image_resolution, self.image_resolution, 3), dtype=np.uint8)
+                            frames.append(black_frame)
+
+                cap.release()
+
+                if len(failed_indices) > 0:
+                    self.logger.warning(f"Padded {len(failed_indices)} corrupted frames with duplicates")
+
+                if len(frames) >= self.num_frames // 2:  # Accept if we got at least half the frames
+                    # Advance position
+                    if advance_by is None:
+                        advance_by = duration
+                    self._current_frame_idx = start_frame + int(advance_by * self._video_fps)
+
+                    self.logger.info(f"OpenCV fallback: extracted {len(frames)} frames ({len(frames) - len(failed_indices)} good, {len(failed_indices)} padded)")
+                    return frames, len(frames)
+                else:
+                    raise Exception(f"Too many corrupted frames: only {len(frames) - len(failed_indices)}/{len(frame_indices)} readable")
+
+            except Exception as e2:
+                self.logger.error(f"OpenCV fallback also failed: {e2}")
+
+            # If all else fails, advance position and return empty
+            if advance_by is None:
+                advance_by = duration
+            self._current_frame_idx = start_frame + int(advance_by * self._video_fps)
             return [], 0
 
     def get_frames_for_inference(
@@ -243,8 +348,13 @@ class VideoStreamHandler:
         """
         # Get raw frames
         if self._video_reader is not None:
-            # Video file mode - advance by polling_interval to allow continuous polling
-            raw_frames, slice_len = self.extract_frames_from_file(advance_by=polling_interval)
+            # Video file mode - use polling_interval as both duration and advance_by
+            # This ensures we sample from a window equal to polling_interval and advance by the same amount
+            # For continuous non-overlapping polling throughout the entire video
+            raw_frames, slice_len = self.extract_frames_from_file(
+                duration=polling_interval,
+                advance_by=polling_interval
+            )
         elif len(self.frame_buffer) > 0:
             # Stream mode - get frames from buffer
             buffer_frames = list(self.frame_buffer)
