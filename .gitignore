@@ -154,4 +154,7 @@ exercise_based_counts_full.json
 client_secret.json
 utils/credentials.json
 test_set_counts_full.json
-/logs
+logs/
+sample_videos/concatenated_*.mp4
+sample_videos/manifest_*.txt
+sample_videos/video_list.txt
