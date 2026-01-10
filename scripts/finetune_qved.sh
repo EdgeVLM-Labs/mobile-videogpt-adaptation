@@ -16,14 +16,14 @@ export WANDB_PROJECT="mobile-videogpt"
 export WANDB_ENTITY="fyp-21"
 export WANDB_NAME="qved-finetune-$(date +%Y%m%d_%H%M%S)"
 
-# Model paths - using pre-trained Mobile-VideoGPT-0.5B checkpoint
-BASE_LLM_PATH="Amshaker/Mobile-VideoGPT-0.5B"
+# Model paths - using pre-trained Mobile-VideoGPT-1.5B checkpoint
+BASE_LLM_PATH="Amshaker/Mobile-VideoGPT-1.5B"
 VISION_TOWER="OpenGVLab/VideoMamba"
 IMAGE_VISION_TOWER="openai/clip-vit-base-patch16"
 PROJECTOR_TYPE="etp"
 
 # Output directory for finetuned model
-OUTPUT_DIR_PATH="results/qved_finetune_mobilevideogpt_0.5B"
+OUTPUT_DIR_PATH="results/qved_finetune_mobilevideogpt_1.5B"
 
 # Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR_PATH"
