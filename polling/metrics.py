@@ -39,6 +39,7 @@ class InferenceMetrics:
     # Response
     response_length: int = 0
     response_preview: str = ""
+    naturalizer_response: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -55,6 +56,7 @@ class SessionMetrics:
     polling_interval: float = 3.0
     video_source: str = ""
     prompt: str = ""
+    naturalizer_enabled: bool = False
 
     # Aggregated stats
     total_polls: int = 0
@@ -161,8 +163,10 @@ class MetricsTracker:
         self.log_dir = log_dir
         self.save_metrics = save_metrics
         self.logger = logging.getLogger("MetricsTracker")
+        self.session_log_handler = None
 
         os.makedirs(log_dir, exist_ok=True)
+        os.makedirs("results/polling", exist_ok=True)
 
         self.current_session: Optional[SessionMetrics] = None
         self._current_inference_start: float = 0.0
@@ -172,7 +176,8 @@ class MetricsTracker:
         self,
         video_source: str,
         prompt: str,
-        polling_interval: float
+        polling_interval: float,
+        naturalizer_enabled: bool = False
     ) -> str:
         """Start a new metrics tracking session."""
         session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -183,9 +188,31 @@ class MetricsTracker:
             video_source=video_source,
             prompt=prompt,
             polling_interval=polling_interval,
+            naturalizer_enabled=naturalizer_enabled,
         )
 
+        # Create session-specific log file with matching session_id
+        # Remove old handler from root logger if it exists
+        if self.session_log_handler:
+            root_logger = logging.getLogger()
+            root_logger.removeHandler(self.session_log_handler)
+            self.session_log_handler.close()
+            self.session_log_handler = None
+        log_file = os.path.join(self.log_dir, f"polling_{session_id}.log")
+        self.session_log_handler = logging.FileHandler(log_file)
+        self.session_log_handler.setLevel(logging.DEBUG)
+        log_format = logging.Formatter(
+            '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        self.session_log_handler.setFormatter(log_format)
+
+        # Add handler to root logger so all polling logs go to this file
+        root_logger = logging.getLogger()
+        root_logger.addHandler(self.session_log_handler)
+
         self.logger.info(f"Started metrics session: {session_id}")
+        self.logger.info(f"Log file: {log_file}")
         return session_id
 
     def start_inference(self, poll_index: int):
@@ -208,6 +235,7 @@ class MetricsTracker:
         buffer_size: int,
         response: str,
         time_to_first_token: float,
+        naturalizer_response: str = "",
     ) -> InferenceMetrics:
         """Complete the current inference and record metrics."""
         total_time = time.time() - self._current_inference_start
@@ -228,6 +256,7 @@ class MetricsTracker:
             buffer_size=buffer_size,
             response_length=len(response),
             response_preview=response[:200] + "..." if len(response) > 200 else response,
+            naturalizer_response=naturalizer_response[:200] + "..." if len(naturalizer_response) > 200 else naturalizer_response,
         )
 
         if self.current_session:
@@ -272,6 +301,7 @@ class MetricsTracker:
 
         # Save to file
         if self.save_metrics:
+            # Save detailed metrics
             metrics_file = os.path.join(
                 self.log_dir,
                 f"metrics_{self.current_session.session_id}.json"
@@ -279,6 +309,22 @@ class MetricsTracker:
             with open(metrics_file, "w") as f:
                 json.dump(self.current_session.to_dict(), f, indent=2)
             self.logger.info(f"Metrics saved to: {metrics_file}")
+
+            # Save summary to results/polling/
+            summary_file = os.path.join(
+                "results/polling",
+                f"summary_{self.current_session.session_id}.json"
+            )
+            with open(summary_file, "w") as f:
+                json.dump(summary, f, indent=2)
+            self.logger.info(f"Summary saved to: {summary_file}")
+
+        # Clean up session log handler
+        if self.session_log_handler:
+            root_logger = logging.getLogger()
+            root_logger.removeHandler(self.session_log_handler)
+            self.session_log_handler.close()
+            self.session_log_handler = None
 
         return summary
 
@@ -295,3 +341,14 @@ class MetricsTracker:
             "elapsed_time": time.time() - self.current_session.start_time,
             "recent_avg_latency_ms": statistics.mean(latencies) * 1000 if latencies else 0,
         }
+
+    def cleanup(self):
+        """Clean up resources and remove log handlers."""
+        if self.session_log_handler:
+            try:
+                root_logger = logging.getLogger()
+                root_logger.removeHandler(self.session_log_handler)
+                self.session_log_handler.close()
+                self.session_log_handler = None
+            except Exception as e:
+                self.logger.warning(f"Error cleaning up log handler: {e}")

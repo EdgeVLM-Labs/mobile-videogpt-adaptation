@@ -49,7 +49,7 @@ if [ $? -eq 0 ]; then
     echo "  Location: plots/qved_finetune_mobilevideogpt_0.5B/"
 else
     echo "⚠ Warning: Failed to generate plots. You can generate them later with:"
-    echo "  python utils/plot_training_stats.py --log_file $LOG_FILE"
+    echo "  python utils/inference/plot_training_stats.py --log_file $LOG_FILE"
 fi
 
 echo -e "\n========================================="
@@ -89,7 +89,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     else
         echo "⚠ Warning: Failed to upload model to HuggingFace"
         echo "  You can upload manually later with:"
-        echo "  python utils/hf_upload.py --model_path $MODEL_PATH"
+        echo "  python utils/inference/hf_upload.py --model_path $MODEL_PATH"
     fi
 else
     echo "Skipping HuggingFace upload."
@@ -102,11 +102,11 @@ echo "All steps complete!"
 echo "========================================="
 echo ""
 echo "To use the finetuned model:"
-echo "  python utils/infer_qved.py \\"
+echo "  python utils/inference/infer_qved.py \\"
 echo "    --model_path $MODEL_PATH \\"
 echo "    --video_path sample_videos/00000340.mp4"
 echo ""
-echo "Adjustable parameters in utils/infer_qved.py:"
+echo "Adjustable parameters in utils/inference/infer_qved.py:"
 echo "  --model_path       Path to model checkpoint (default: Amshaker/Mobile-VideoGPT-0.5B)"
 echo "  --video_path       Path to video file (default: sample_videos/00000340.mp4)"
 echo "  --prompt           Custom prompt (default: physiotherapy evaluation prompt)"

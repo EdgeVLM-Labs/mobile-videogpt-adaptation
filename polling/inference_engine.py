@@ -121,20 +121,8 @@ class PollingInferenceEngine:
         console_handler.setFormatter(console_format)
         logger.addHandler(console_handler)
 
-        # File handler
-        os.makedirs(self.config.log_dir, exist_ok=True)
-        log_file = os.path.join(
-            self.config.log_dir,
-            f"polling_{time.strftime('%Y%m%d_%H%M%S')}.log"
-        )
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(logging.DEBUG)
-        file_format = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        file_handler.setFormatter(file_format)
-        logger.addHandler(file_handler)
+        # Note: File handler is created by MetricsTracker.start_session()
+        # to ensure consistent session_id across all files
 
         return logger
 
@@ -145,6 +133,11 @@ class PollingInferenceEngine:
         Returns:
             True if model loaded successfully
         """
+        # Check if model is already loaded
+        if self._is_loaded and self.model is not None:
+            self.logger.info("Model already loaded, skipping reload")
+            return True
+
         self.logger.info("=" * 60)
         self.logger.info("LOADING MODEL WITH LORA ADAPTERS")
         self.logger.info("=" * 60)
@@ -607,8 +600,22 @@ class PollingInferenceEngine:
     def cleanup(self):
         """Clean up resources."""
         self.stream_handler.close()
+
+        # Unload model and processors
         if self.model is not None:
             del self.model
             self.model = None
-        torch.cuda.empty_cache()
+        if self.tokenizer is not None:
+            del self.tokenizer
+            self.tokenizer = None
+        if self.image_processor is not None:
+            del self.image_processor
+            self.image_processor = None
+
+        # Clear CUDA cache
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+        self._is_loaded = False
         self.logger.info("Resources cleaned up")

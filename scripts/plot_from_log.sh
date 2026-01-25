@@ -44,7 +44,7 @@ if command -v conda &> /dev/null; then
 fi
 
 # Generate plots
-python utils/plot_training_stats.py \
+python utils/inference/plot_training_stats.py \
     --log_file "$LOG_FILE" \
     --model_name "qved_finetune_mobilevideogpt_0.5B"
 

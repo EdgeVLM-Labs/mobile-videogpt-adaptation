@@ -30,6 +30,7 @@ from polling.config import PollingConfig
 from polling.inference_engine import PollingInferenceEngine
 from polling.stream_handler import VideoStreamHandler
 from polling.metrics import MetricsTracker
+from utils.naturalizer.feedback_naturalizer import FeedbackNaturalizer
 
 
 class LogCapture(logging.Handler):
@@ -54,6 +55,7 @@ class GradioPollingApp:
 
     def __init__(self):
         self.engine: Optional[PollingInferenceEngine] = None
+        self.naturalizer: Optional[FeedbackNaturalizer] = None
         self.is_running = False
         self.current_session_id = None
         self.poll_results = []
@@ -193,6 +195,8 @@ class GradioPollingApp:
         max_new_tokens: int,
         warmup_runs: int,
         prompt: str,
+        use_naturalizer: bool,
+        naturalizer_threshold: float,
         progress=gr.Progress()
     ) -> Generator[Tuple[str, str, str, str, str, str], None, None]:
         """Run polling inference"""
@@ -202,6 +206,24 @@ class GradioPollingApp:
             self.metrics_history = []
             self.is_running = True
             self.current_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Initialize naturalizer if enabled (reuse existing instance if available)
+            if use_naturalizer:
+                if not self.naturalizer:
+                    logging.info(f"Initializing Feedback Naturalizer (threshold={naturalizer_threshold})")
+                    self.naturalizer = FeedbackNaturalizer(threshold=naturalizer_threshold)
+                else:
+                    logging.info("Reusing existing Feedback Naturalizer")
+                    self.naturalizer.reset()
+            else:
+                # Clean up naturalizer if it exists but is not needed
+                if self.naturalizer:
+                    logging.info("Cleaning up unused Feedback Naturalizer")
+                    try:
+                        self.naturalizer.cleanup()
+                    except:
+                        pass
+                self.naturalizer = None
 
             # Create temp directory for video segments
             if self.temp_dir:
@@ -252,9 +274,35 @@ class GradioPollingApp:
             logging.info(f"Starting inference with video: {video_path}")
             logging.info(f"Config: interval={polling_interval}s, frames={num_frames}, fps={fps}")
 
-            # Initialize engine
+            # Initialize or reuse engine
             progress(0.1, desc="Loading model...")
-            self.engine = PollingInferenceEngine(config)
+
+            # Check if we can reuse existing engine
+            if self.engine and self.engine._is_loaded:
+                # Check if config matches
+                if (self.engine.config.base_model_path == base_model and
+                    self.engine.config.lora_weights_path == lora_weights):
+                    logging.info("Reusing existing engine (config matches)")
+                else:
+                    logging.info("Config changed, cleaning up old engine and creating new one")
+                    try:
+                        self.engine.cleanup()
+                        self.engine.metrics.cleanup()
+                    except:
+                        pass
+                    self.engine = None
+
+            # Create new engine if needed
+            if not self.engine:
+                logging.info("Creating new inference engine")
+                self.engine = PollingInferenceEngine(config)
+            else:
+                # Update config for existing engine (update runtime params only)
+                self.engine.config.polling_interval = polling_interval
+                self.engine.config.num_frames = num_frames
+                self.engine.config.fps = fps
+                self.engine.config.max_new_tokens = max_new_tokens
+                self.engine.config.prompt = prompt
 
             # Load model to initialize processors
             if not self.engine.load_model():
@@ -273,7 +321,8 @@ class GradioPollingApp:
             self.engine.metrics.start_session(
                 video_source=video_path,
                 prompt=prompt,
-                polling_interval=polling_interval
+                polling_interval=polling_interval,
+                naturalizer_enabled=use_naturalizer
             )
 
             # Run warmup
@@ -348,6 +397,17 @@ class GradioPollingApp:
                         video_frames, context_frames, prompt, slice_len
                     )
 
+                    # Process through naturalizer
+                    if self.naturalizer:
+                        nat_result = self.naturalizer.process(response)
+                        display_response = nat_result['display']
+                        is_repeat = nat_result['is_repeat']
+                        repeat_info = f" 🔄 Repeat #{nat_result['repeat_count']}" if is_repeat else " ✨ New"
+                    else:
+                        display_response = response
+                        is_repeat = False
+                        repeat_info = ""
+
                     # Validate token counts (ensure non-negative)
                     input_tokens = max(0, input_tokens) if input_tokens else 0
                     output_tokens = max(0, output_tokens) if output_tokens else 0
@@ -360,7 +420,8 @@ class GradioPollingApp:
                         frames_processed=slice_len,
                         buffer_size=0,
                         response=response,
-                        time_to_first_token=ttft
+                        time_to_first_token=ttft,
+                        naturalizer_response=display_response if self.naturalizer else ""
                     )
 
                     # Convert to dict for display
@@ -383,10 +444,10 @@ class GradioPollingApp:
                     self.metrics_history.append(metrics)
 
                     # Log poll completion
-                    logging.info(f"Poll #{poll_index + 1} complete: latency={metrics.get('latency_ms', 0):.1f}ms")
+                    logging.info(f"Poll #{poll_index + 1} complete: latency={metrics.get('latency_ms', 0):.1f}ms{repeat_info}")
 
                     # Format outputs
-                    current_response = f"**Poll #{poll_index + 1}** (Position: {position:.2f}s)\n\n{response}"
+                    current_response = f"**Poll #{poll_index + 1}** (Position: {position:.2f}s){repeat_info}\n\n{display_response}"
                     current_metrics = self.format_metrics(metrics)
                     all_responses = self.format_all_responses(self.poll_results)
 
@@ -480,8 +541,19 @@ class GradioPollingApp:
 
         finally:
             self.is_running = False
+
             if self.engine:
-                self.engine.cleanup()
+                try:
+                    self.engine.stream_handler.close()
+                except Exception as e:
+                    logging.error(f"Error closing stream: {e}")
+
+                # Clean up metrics log handlers
+                try:
+                    self.engine.metrics.cleanup()
+                except Exception as e:
+                    logging.error(f"Error cleaning up metrics: {e}")
+
             # Clean up temp directory
             if self.temp_dir and os.path.exists(self.temp_dir):
                 try:
@@ -489,6 +561,12 @@ class GradioPollingApp:
                     shutil.rmtree(self.temp_dir)
                 except Exception as e:
                     logging.warning(f"Failed to clean up temp directory: {e}")
+
+            # Force garbage collection
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     def stop_inference(self):
         """Stop current inference"""
@@ -599,6 +677,23 @@ def create_interface():
                     info="Evaluation prompt"
                 )
 
+                gr.Markdown("### Feedback Naturalizer")
+
+                use_naturalizer = gr.Checkbox(
+                    label="Enable Naturalizer",
+                    value=False,
+                    info="Detect repetitive feedback and provide varied responses"
+                )
+
+                naturalizer_threshold = gr.Slider(
+                    minimum=0.5,
+                    maximum=0.95,
+                    value=0.70,
+                    step=0.05,
+                    label="Similarity Threshold",
+                    info="Higher = stricter repeat detection (0.70 recommended)"
+                )
+
                 with gr.Row():
                     start_btn = gr.Button("Start Polling", variant="primary", size="lg")
                     stop_btn = gr.Button("Stop", variant="stop", size="lg")
@@ -666,7 +761,9 @@ def create_interface():
                 fps,
                 max_new_tokens,
                 warmup_runs,
-                prompt
+                prompt,
+                use_naturalizer,
+                naturalizer_threshold
             ],
             outputs=[
                 video_player,

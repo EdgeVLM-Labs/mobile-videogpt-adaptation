@@ -156,3 +156,12 @@ if __name__ == "__main__":
         print(f"   → \"{result['display']}\" {status}\n")
 
     print("=" * 60)
+    def cleanup(self):
+        """Clean up resources and free memory."""
+        if hasattr(self, 'model') and self.model is not None:
+            del self.model
+            self.model = None
+        self.history = []
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()

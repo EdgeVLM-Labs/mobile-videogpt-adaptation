@@ -228,7 +228,7 @@ python utils/generate_test_report.py \
 if [ $? -ne 0 ]; then
     echo "⚠ Warning: Failed to generate evaluation report"
     echo "  You can generate it later with:"
-    echo "  python utils/generate_test_report.py --predictions $PREDICTIONS_FILE"
+    echo "  python utils/inference/generate_test_report.py --predictions $PREDICTIONS_FILE"
 else
     echo ""
     echo "✓ Evaluation report saved to: $REPORT_FILE"
