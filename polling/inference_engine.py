@@ -121,20 +121,8 @@ class PollingInferenceEngine:
         console_handler.setFormatter(console_format)
         logger.addHandler(console_handler)
 
-        # File handler
-        os.makedirs(self.config.log_dir, exist_ok=True)
-        log_file = os.path.join(
-            self.config.log_dir,
-            f"polling_{time.strftime('%Y%m%d_%H%M%S')}.log"
-        )
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(logging.DEBUG)
-        file_format = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        file_handler.setFormatter(file_format)
-        logger.addHandler(file_handler)
+        # Note: File handler is created by MetricsTracker.start_session()
+        # to ensure consistent session_id across all files
 
         return logger
 

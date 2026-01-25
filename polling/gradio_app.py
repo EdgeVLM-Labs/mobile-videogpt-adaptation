@@ -284,7 +284,8 @@ class GradioPollingApp:
             self.engine.metrics.start_session(
                 video_source=video_path,
                 prompt=prompt,
-                polling_interval=polling_interval
+                polling_interval=polling_interval,
+                naturalizer_enabled=use_naturalizer
             )
 
             # Run warmup
@@ -382,7 +383,8 @@ class GradioPollingApp:
                         frames_processed=slice_len,
                         buffer_size=0,
                         response=response,
-                        time_to_first_token=ttft
+                        time_to_first_token=ttft,
+                        naturalizer_response=display_response if self.naturalizer else ""
                     )
 
                     # Convert to dict for display
