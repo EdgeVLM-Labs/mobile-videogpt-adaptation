@@ -146,7 +146,7 @@ images
 flash-attention/
 VideoMamba/
 vidaug/
-dataset/
+/dataset/
 fine_grained_labels.json
 plots/
 results/
