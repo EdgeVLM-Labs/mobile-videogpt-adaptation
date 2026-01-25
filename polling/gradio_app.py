@@ -30,7 +30,7 @@ from polling.config import PollingConfig
 from polling.inference_engine import PollingInferenceEngine
 from polling.stream_handler import VideoStreamHandler
 from polling.metrics import MetricsTracker
-from utils.feedback_naturalizer import FeedbackNaturalizer
+from utils.naturalizer.feedback_naturalizer import FeedbackNaturalizer
 
 
 class LogCapture(logging.Handler):
@@ -195,6 +195,8 @@ class GradioPollingApp:
         max_new_tokens: int,
         warmup_runs: int,
         prompt: str,
+        use_naturalizer: bool,
+        naturalizer_threshold: float,
         progress=gr.Progress()
     ) -> Generator[Tuple[str, str, str, str, str, str], None, None]:
         """Run polling inference"""
@@ -204,6 +206,13 @@ class GradioPollingApp:
             self.metrics_history = []
             self.is_running = True
             self.current_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Initialize naturalizer if enabled
+            if use_naturalizer:
+                logging.info(f"Initializing Feedback Naturalizer (threshold={naturalizer_threshold})")
+                self.naturalizer = FeedbackNaturalizer(threshold=naturalizer_threshold)
+            else:
+                self.naturalizer = None
 
             # Create temp directory for video segments
             if self.temp_dir:
@@ -257,10 +266,6 @@ class GradioPollingApp:
             # Initialize engine
             progress(0.1, desc="Loading model...")
             self.engine = PollingInferenceEngine(config)
-
-            # Initialize feedback naturalizer
-            progress(0.15, desc="Loading feedback naturalizer...")
-            self.naturalizer = FeedbackNaturalizer(threshold=0.70)
 
             # Load model to initialize processors
             if not self.engine.load_model():
@@ -618,6 +623,23 @@ def create_interface():
                     info="Evaluation prompt"
                 )
 
+                gr.Markdown("### Feedback Naturalizer")
+
+                use_naturalizer = gr.Checkbox(
+                    label="Enable Naturalizer",
+                    value=False,
+                    info="Detect repetitive feedback and provide varied responses"
+                )
+
+                naturalizer_threshold = gr.Slider(
+                    minimum=0.5,
+                    maximum=0.95,
+                    value=0.70,
+                    step=0.05,
+                    label="Similarity Threshold",
+                    info="Higher = stricter repeat detection (0.70 recommended)"
+                )
+
                 with gr.Row():
                     start_btn = gr.Button("Start Polling", variant="primary", size="lg")
                     stop_btn = gr.Button("Stop", variant="stop", size="lg")
@@ -685,7 +707,9 @@ def create_interface():
                 fps,
                 max_new_tokens,
                 warmup_runs,
-                prompt
+                prompt,
+                use_naturalizer,
+                naturalizer_threshold
             ],
             outputs=[
                 video_player,
