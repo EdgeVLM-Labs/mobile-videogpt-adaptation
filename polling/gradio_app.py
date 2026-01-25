@@ -207,11 +207,22 @@ class GradioPollingApp:
             self.is_running = True
             self.current_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            # Initialize naturalizer if enabled
+            # Initialize naturalizer if enabled (reuse existing instance if available)
             if use_naturalizer:
-                logging.info(f"Initializing Feedback Naturalizer (threshold={naturalizer_threshold})")
-                self.naturalizer = FeedbackNaturalizer(threshold=naturalizer_threshold)
+                if not self.naturalizer:
+                    logging.info(f"Initializing Feedback Naturalizer (threshold={naturalizer_threshold})")
+                    self.naturalizer = FeedbackNaturalizer(threshold=naturalizer_threshold)
+                else:
+                    logging.info("Reusing existing Feedback Naturalizer")
+                    self.naturalizer.reset()
             else:
+                # Clean up naturalizer if it exists but is not needed
+                if self.naturalizer:
+                    logging.info("Cleaning up unused Feedback Naturalizer")
+                    try:
+                        self.naturalizer.cleanup()
+                    except:
+                        pass
                 self.naturalizer = None
 
             # Create temp directory for video segments
@@ -263,9 +274,35 @@ class GradioPollingApp:
             logging.info(f"Starting inference with video: {video_path}")
             logging.info(f"Config: interval={polling_interval}s, frames={num_frames}, fps={fps}")
 
-            # Initialize engine
+            # Initialize or reuse engine
             progress(0.1, desc="Loading model...")
-            self.engine = PollingInferenceEngine(config)
+
+            # Check if we can reuse existing engine
+            if self.engine and self.engine._is_loaded:
+                # Check if config matches
+                if (self.engine.config.base_model_path == base_model and
+                    self.engine.config.lora_weights_path == lora_weights):
+                    logging.info("Reusing existing engine (config matches)")
+                else:
+                    logging.info("Config changed, cleaning up old engine and creating new one")
+                    try:
+                        self.engine.cleanup()
+                        self.engine.metrics.cleanup()
+                    except:
+                        pass
+                    self.engine = None
+
+            # Create new engine if needed
+            if not self.engine:
+                logging.info("Creating new inference engine")
+                self.engine = PollingInferenceEngine(config)
+            else:
+                # Update config for existing engine (update runtime params only)
+                self.engine.config.polling_interval = polling_interval
+                self.engine.config.num_frames = num_frames
+                self.engine.config.fps = fps
+                self.engine.config.max_new_tokens = max_new_tokens
+                self.engine.config.prompt = prompt
 
             # Load model to initialize processors
             if not self.engine.load_model():
@@ -504,10 +541,19 @@ class GradioPollingApp:
 
         finally:
             self.is_running = False
+
             if self.engine:
-                self.engine.cleanup()
-            if self.naturalizer:
-                self.naturalizer.reset()
+                try:
+                    self.engine.stream_handler.close()
+                except Exception as e:
+                    logging.error(f"Error closing stream: {e}")
+
+                # Clean up metrics log handlers
+                try:
+                    self.engine.metrics.cleanup()
+                except Exception as e:
+                    logging.error(f"Error cleaning up metrics: {e}")
+
             # Clean up temp directory
             if self.temp_dir and os.path.exists(self.temp_dir):
                 try:
@@ -515,6 +561,12 @@ class GradioPollingApp:
                     shutil.rmtree(self.temp_dir)
                 except Exception as e:
                     logging.warning(f"Failed to clean up temp directory: {e}")
+
+            # Force garbage collection
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     def stop_inference(self):
         """Stop current inference"""

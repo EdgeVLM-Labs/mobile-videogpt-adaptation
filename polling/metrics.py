@@ -192,10 +192,12 @@ class MetricsTracker:
         )
 
         # Create session-specific log file with matching session_id
+        # Remove old handler from root logger if it exists
         if self.session_log_handler:
-            self.logger.removeHandler(self.session_log_handler)
+            root_logger = logging.getLogger()
+            root_logger.removeHandler(self.session_log_handler)
             self.session_log_handler.close()
-
+            self.session_log_handler = None
         log_file = os.path.join(self.log_dir, f"polling_{session_id}.log")
         self.session_log_handler = logging.FileHandler(log_file)
         self.session_log_handler.setLevel(logging.DEBUG)
@@ -339,3 +341,14 @@ class MetricsTracker:
             "elapsed_time": time.time() - self.current_session.start_time,
             "recent_avg_latency_ms": statistics.mean(latencies) * 1000 if latencies else 0,
         }
+
+    def cleanup(self):
+        """Clean up resources and remove log handlers."""
+        if self.session_log_handler:
+            try:
+                root_logger = logging.getLogger()
+                root_logger.removeHandler(self.session_log_handler)
+                self.session_log_handler.close()
+                self.session_log_handler = None
+            except Exception as e:
+                self.logger.warning(f"Error cleaning up log handler: {e}")
