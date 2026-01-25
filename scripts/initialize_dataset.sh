@@ -32,8 +32,8 @@ echo ""
 
 # Step 2: Download dataset
 echo -e "${RED}Step 2: Downloading Dataset from HuggingFace${NC}"
-echo -e "${BLUE}Running: python utils/load_dataset.py ${VIDEO_COUNT}${NC}"
-python utils/load_dataset.py "$VIDEO_COUNT"
+echo -e "${BLUE}Running: python utils/dataset/load_dataset.py ${VIDEO_COUNT}${NC}"
+python utils/dataset/load_dataset.py "$VIDEO_COUNT"
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}Error: Dataset download failed${NC}"
@@ -45,8 +45,8 @@ echo ""
 
 # Step 3: Filter ground truth
 echo -e "${RED}Step 3: Filtering Ground Truth Labels${NC}"
-echo -e "${BLUE}Running: python utils/filter_ground_truth.py${NC}"
-python utils/filter_ground_truth.py
+echo -e "${BLUE}Running: python utils/dataset/filter_ground_truth.py${NC}"
+python utils/dataset/filter_ground_truth.py
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}Error: Ground truth filtering failed${NC}"
@@ -71,8 +71,8 @@ CLEAN_RESPONSE=$(echo "$CLEAN_RESPONSE" | tr '[:upper:]' '[:lower:]')
 
 if [[ "$CLEAN_RESPONSE" == "y" || "$CLEAN_RESPONSE" == "yes" ]]; then
     echo ""
-    echo -e "${BLUE}Running: python utils/clean_dataset.py${NC}"
-    python utils/clean_dataset.py
+    echo -e "${BLUE}Running: python utils/dataset/clean_dataset.py${NC}"
+    python utils/dataset/clean_dataset.py
 
     if [ $? -ne 0 ]; then
         echo -e "${RED}Error: Dataset cleaning failed${NC}"
@@ -101,8 +101,8 @@ AUGMENT_RESPONSE=$(echo "$AUGMENT_RESPONSE" | tr '[:upper:]' '[:lower:]')
 
 if [[ "$AUGMENT_RESPONSE" == "y" || "$AUGMENT_RESPONSE" == "yes" ]]; then
     echo ""
-    echo -e "${BLUE}Running: python utils/augment_videos.py${NC}"
-    python utils/augment_videos.py
+    echo -e "${BLUE}Running: python utils/dataset/augment_videos.py${NC}"
+    python utils/dataset/augment_videos.py
 
     if [ $? -ne 0 ]; then
         echo -e "${RED}Error: Dataset augmentation failed${NC}"
@@ -118,8 +118,8 @@ echo ""
 
 # Step 6: Generate QVED splits (AFTER cleaning and augmentation)
 echo -e "${RED}Step 6: Generating QVED Train/Val/Test Splits${NC}"
-echo -e "${BLUE}Running: python utils/qved_from_fine_labels.py${NC}"
-python utils/qved_from_fine_labels.py
+echo -e "${BLUE}Running: python utils/dataset/qved_from_fine_labels.py${NC}"
+python utils/dataset/qved_from_fine_labels.py
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}Error: QVED split generation failed${NC}"

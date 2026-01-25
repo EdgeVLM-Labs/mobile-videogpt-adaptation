@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from polling.config import PollingConfig
 from polling.inference_engine import PollingInferenceEngine
-from utils.feedback_naturalizer import FeedbackNaturalizer
+from utils.naturalizer.feedback_naturalizer import FeedbackNaturalizer
 
 
 class NaturalizedPollingEngine:
