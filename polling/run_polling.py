@@ -129,6 +129,13 @@ def parse_args():
         help="Number of warmup runs before actual inference (0 = no warmup)",
     )
 
+    # Confidence scoring arguments
+    parser.add_argument(
+        "--enable-confidence-scoring",
+        action="store_true",
+        help="Enable confidence scoring and append (NOT CONFIDENT) to low-confidence responses",
+    )
+
     # Output arguments
     parser.add_argument(
         "--output-dir",
@@ -196,6 +203,7 @@ def main():
         max_new_tokens=args.max_new_tokens,
         load_4bit=args.load_4bit,
         load_8bit=args.load_8bit,
+        enable_confidence_scoring=args.enable_confidence_scoring,
         log_dir=args.log_dir,
         output_dir=args.output_dir,
         log_level=args.log_level,
@@ -209,6 +217,7 @@ def main():
     print(f"   Polling Interval: {config.polling_interval}s")
     print(f"   Max Duration: {config.max_polling_duration}s")
     print(f"   Num Frames: {config.num_frames}")
+    print(f"   Confidence Scoring: {'Enabled' if config.enable_confidence_scoring else 'Disabled'}")
     print(f"   Prompt: {config.prompt[:80]}...")
     print()
 

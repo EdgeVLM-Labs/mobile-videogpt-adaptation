@@ -41,6 +41,7 @@ from mobilevideogpt.constants import (
 from polling.config import PollingConfig
 from polling.metrics import MetricsTracker, InferenceMetrics
 from polling.stream_handler import VideoStreamHandler
+from utils.confidence_scoring.calculate_confidence import is_confident
 
 
 class FirstTokenStreamer:
@@ -426,6 +427,7 @@ class PollingInferenceEngine:
         self._first_token_streamer.reset()
 
         # Generate with inference_mode (more efficient than no_grad)
+        # Return scores for confidence calculation if enabled
         with torch.inference_mode():
             output_ids = self.model.generate(
                 input_ids,
@@ -435,10 +437,25 @@ class PollingInferenceEngine:
                 num_beams=self.config.num_beams,
                 max_new_tokens=self.config.max_new_tokens,
                 use_cache=True,  # Always use KV cache for faster generation
+                return_dict_in_generate=self.config.enable_confidence_scoring,
+                output_scores=self.config.enable_confidence_scoring,
             )
 
         # Record first token time (approximate since we can't hook into generate)
         generation_end = time.time()
+
+        # Extract output_ids from the generation result
+        if self.config.enable_confidence_scoring and hasattr(output_ids, 'sequences'):
+            # output_ids is a GenerateOutput object
+            sequences = output_ids.sequences
+            scores = output_ids.scores if hasattr(output_ids, 'scores') else None
+            sequences_scores = output_ids.sequences_scores if hasattr(output_ids, 'sequences_scores') else None
+            beam_indices = output_ids.beam_indices if hasattr(output_ids, 'beam_indices') else None
+            output_ids = sequences
+        else:
+            scores = None
+            sequences_scores = None
+            beam_indices = None
 
         # Decode output
         output_tokens = output_ids.shape[1] - input_token_count
@@ -446,6 +463,27 @@ class PollingInferenceEngine:
 
         if response.endswith(stop_str):
             response = response[:-len(stop_str)].strip()
+
+        # Check confidence if enabled
+        if self.config.enable_confidence_scoring and scores is not None:
+            try:
+                confident, confidence_metrics = is_confident(
+                    scores=scores,
+                    output_ids=output_ids,
+                    input_token_count=input_token_count,
+                    sequences_scores=sequences_scores,
+                    beam_indices=beam_indices,
+                )
+                
+                # Log confidence metrics
+                self.logger.debug(f"Confidence metrics: {confidence_metrics}")
+                
+                # Append "(NOT CONFIDENT)" if model is not confident
+                if not confident:
+                    response = response + " (NOT CONFIDENT)"
+                    self.logger.info("Low confidence detected, appended (NOT CONFIDENT) to response")
+            except Exception as e:
+                self.logger.warning(f"Failed to calculate confidence: {e}")
 
         # Estimate TTFT (first token is roughly 1/output_tokens of total time)
         # This is approximate since transformers doesn't expose per-token timing
