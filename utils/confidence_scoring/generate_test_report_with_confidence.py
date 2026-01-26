@@ -61,18 +61,20 @@ LLM_YELLOW_THRESHOLD = 3.0  # >= this value is yellow (moderate), below is red
 def check_confidence_from_metrics(result: Dict) -> bool:
     """Check if model is confident based on metrics stored in result.
     
-    Uses the same thresholds from calculate_confidence.py:
+    Uses the same scoring system from calculate_confidence.py:
     - Low average entropy (< ENTROPY_THRESHOLD)
     - High sequence log probability (> SEQ_LOGPROB_THRESHOLD)
     - High top-2 beam margin (> BEAM_TOP2_MARGIN_THRESHOLD)
     - High top beam log probability (> BEAM_TOP_BEAM_LOGPROB_THRESHOLD)
     - Low beam score spread (< BEAM_SCORE_SPREAD_THRESHOLD)
     
+    Model is confident if at least 3 out of 5 criteria are met.
+    
     Args:
         result: Dictionary containing confidence metrics
         
     Returns:
-        bool: True if all confidence criteria are met
+        bool: True if at least 3 out of 5 confidence criteria are met
     """
     # Extract metrics from result
     avg_entropy = result.get('avg_entropy', float('inf'))
@@ -81,15 +83,26 @@ def check_confidence_from_metrics(result: Dict) -> bool:
     beam_top_beam_avg_logprob = result.get('beam_top_beam_avg_logprob', float('-inf'))
     beam_score_spread = result.get('beam_score_spread', float('inf'))
     
-    # Check all confidence criteria
-    is_low_entropy = avg_entropy < ENTROPY_THRESHOLD
-    is_high_logprob = seq_logprob_normalized > SEQ_LOGPROB_THRESHOLD
-    is_high_margin = beam_top2_margin > BEAM_TOP2_MARGIN_THRESHOLD
-    is_high_beam_logprob = beam_top_beam_avg_logprob > BEAM_TOP_BEAM_LOGPROB_THRESHOLD
-    is_low_spread = beam_score_spread < BEAM_SCORE_SPREAD_THRESHOLD
+    # Use scoring system instead of hard-AND gating
+    score = 0
     
-    # Model is confident only if ALL criteria are met
-    return is_low_entropy and is_high_logprob and is_high_margin and is_high_beam_logprob and is_low_spread
+    if avg_entropy < ENTROPY_THRESHOLD:
+        score += 1
+    
+    if seq_logprob_normalized > SEQ_LOGPROB_THRESHOLD:
+        score += 1
+    
+    if beam_top2_margin > BEAM_TOP2_MARGIN_THRESHOLD:
+        score += 1
+    
+    if beam_top_beam_avg_logprob > BEAM_TOP_BEAM_LOGPROB_THRESHOLD:
+        score += 1
+    
+    if beam_score_spread < BEAM_SCORE_SPREAD_THRESHOLD:
+        score += 1
+    
+    # Model is confident if at least 3 out of 5 criteria are met
+    return score >= 3
 
 
 def compute_meteor_score(reference: str, hypothesis: str, metric) -> float:
@@ -321,6 +334,7 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         "Seq LogProb (Norm)",
         "Beam Top2 Margin",
         "Beam Top LogProb",
+        "Beam Score Spread",
         "Throughput (tok/s)",
         "Gen Time (s)",
         "Generated Tokens",
@@ -362,12 +376,13 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     ws.column_dimensions[get_column_letter(col_idx + 5)].width = 15  # Seq LogProb
     ws.column_dimensions[get_column_letter(col_idx + 6)].width = 15  # Beam Top2 Margin
     ws.column_dimensions[get_column_letter(col_idx + 7)].width = 15  # Beam Top LogProb
-    ws.column_dimensions[get_column_letter(col_idx + 8)].width = 15  # Throughput
-    ws.column_dimensions[get_column_letter(col_idx + 9)].width = 12  # Gen Time
-    ws.column_dimensions[get_column_letter(col_idx + 10)].width = 15 # Generated Tokens
-    ws.column_dimensions[get_column_letter(col_idx + 11)].width = 15 # Exercise Match
-    ws.column_dimensions[get_column_letter(col_idx + 12)].width = 10 # Status
-    ws.column_dimensions[get_column_letter(col_idx + 13)].width = 30 # Error
+    ws.column_dimensions[get_column_letter(col_idx + 8)].width = 15  # Beam Score Spread
+    ws.column_dimensions[get_column_letter(col_idx + 9)].width = 15  # Throughput
+    ws.column_dimensions[get_column_letter(col_idx + 10)].width = 12 # Gen Time
+    ws.column_dimensions[get_column_letter(col_idx + 11)].width = 15 # Generated Tokens
+    ws.column_dimensions[get_column_letter(col_idx + 12)].width = 15 # Exercise Match
+    ws.column_dimensions[get_column_letter(col_idx + 13)].width = 10 # Status
+    ws.column_dimensions[get_column_letter(col_idx + 14)].width = 30 # Error
 
     # Freeze header row
     ws.freeze_panes = "A2"
@@ -447,6 +462,7 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         seq_logprob_normalized = result.get('seq_logprob_normalized', 0.0)
         beam_top2_margin = result.get('beam_top2_margin', 0.0)
         beam_top_beam_avg_logprob = result.get('beam_top_beam_avg_logprob', 0.0)
+        beam_score_spread = result.get('beam_score_spread', 0.0)
 
         # Track per-exercise statistics
         exercise_name = extract_exercise_name(ground_truth)
@@ -508,6 +524,8 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         ws.cell(row=row, column=col).value = round(beam_top2_margin, 4)
         col += 1
         ws.cell(row=row, column=col).value = round(beam_top_beam_avg_logprob, 4)
+        col += 1
+        ws.cell(row=row, column=col).value = round(beam_score_spread, 4)
         col += 1
 
         # Throughput metrics

@@ -20,13 +20,13 @@ import torch.nn.functional as F
 ENTROPY_THRESHOLD = 2.0
 
 # Higher (less negative) log probability = more confident
-SEQ_LOGPROB_THRESHOLD = -2.0
+SEQ_LOGPROB_THRESHOLD = -16.0
 
 # Higher margin between top 2 beams = more confident
-BEAM_TOP2_MARGIN_THRESHOLD = 0.5
+BEAM_TOP2_MARGIN_THRESHOLD = 0.001
 
 # Higher (less negative) top beam log prob = more confident
-BEAM_TOP_BEAM_LOGPROB_THRESHOLD = -2.0
+BEAM_TOP_BEAM_LOGPROB_THRESHOLD = -0.2
 
 # Lower score spread might indicate consistency (optional metric)
 BEAM_SCORE_SPREAD_THRESHOLD = 1.0
@@ -150,13 +150,11 @@ def is_confident(
 ) -> Tuple[bool, Dict[str, float]]:
     """Determine if the model is confident in its generation.
 
-    Combines both greedy and beam search confidence metrics to make a final
-    determination. The model is considered confident if it meets ALL of the
-    following criteria:
+    Combines both greedy and beam search confidence metrics using a scoring system.
+    The model is considered confident if it meets at least 2 out of 4 criteria:
     - Low average entropy (< ENTROPY_THRESHOLD)
     - High sequence log probability (> SEQ_LOGPROB_THRESHOLD)
     - High top-2 beam margin (> BEAM_TOP2_MARGIN_THRESHOLD)
-    - High top beam log probability (> BEAM_TOP_BEAM_LOGPROB_THRESHOLD)
     - Low beam score spread (< BEAM_SCORE_SPREAD_THRESHOLD)
 
     Args:
@@ -189,14 +187,25 @@ def is_confident(
         "beam_score_spread": beam_scores["score_spread"],
     }
     
-    # Check all confidence criteria
-    is_low_entropy = confidence_scores["avg_entropy"] < ENTROPY_THRESHOLD
-    is_high_logprob = confidence_scores["seq_logprob_normalized"] > SEQ_LOGPROB_THRESHOLD
-    is_high_margin = beam_scores["top2_margin"] > BEAM_TOP2_MARGIN_THRESHOLD
-    is_high_beam_logprob = beam_scores["top_beam_avg_logprob"] > BEAM_TOP_BEAM_LOGPROB_THRESHOLD
-    is_low_spread = beam_scores["score_spread"] < BEAM_SCORE_SPREAD_THRESHOLD
+    # Use scoring system instead of hard-AND gating
+    score = 0
     
-    # Model is confident only if ALL criteria are met
-    confident = is_low_entropy and is_high_logprob and is_high_margin and is_high_beam_logprob and is_low_spread
+    if confidence_scores["avg_entropy"] < ENTROPY_THRESHOLD:
+        score += 1
+    
+    if confidence_scores["seq_logprob_normalized"] > SEQ_LOGPROB_THRESHOLD:
+        score += 1
+    
+    if beam_scores["top2_margin"] > BEAM_TOP2_MARGIN_THRESHOLD:
+        score += 1
+    
+    if beam_scores["top_beam_avg_logprob"] > BEAM_TOP_BEAM_LOGPROB_THRESHOLD:
+        score += 1
+    
+    if beam_scores["score_spread"] < BEAM_SCORE_SPREAD_THRESHOLD:
+        score += 1
+    
+    # Model is confident if at least 3 out of 5 criteria are met
+    confident = score >= 3
     
     return confident, all_metrics
