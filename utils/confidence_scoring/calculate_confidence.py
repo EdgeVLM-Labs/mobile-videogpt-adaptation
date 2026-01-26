@@ -157,6 +157,7 @@ def is_confident(
     - High sequence log probability (> SEQ_LOGPROB_THRESHOLD)
     - High top-2 beam margin (> BEAM_TOP2_MARGIN_THRESHOLD)
     - High top beam log probability (> BEAM_TOP_BEAM_LOGPROB_THRESHOLD)
+    - Low beam score spread (< BEAM_SCORE_SPREAD_THRESHOLD)
 
     Args:
         scores: Tuple of score tensors (logits), one per generated token.
@@ -193,8 +194,9 @@ def is_confident(
     is_high_logprob = confidence_scores["seq_logprob_normalized"] > SEQ_LOGPROB_THRESHOLD
     is_high_margin = beam_scores["top2_margin"] > BEAM_TOP2_MARGIN_THRESHOLD
     is_high_beam_logprob = beam_scores["top_beam_avg_logprob"] > BEAM_TOP_BEAM_LOGPROB_THRESHOLD
+    is_low_spread = beam_scores["score_spread"] < BEAM_SCORE_SPREAD_THRESHOLD
     
     # Model is confident only if ALL criteria are met
-    confident = is_low_entropy and is_high_logprob and is_high_margin and is_high_beam_logprob
+    confident = is_low_entropy and is_high_logprob and is_high_margin and is_high_beam_logprob and is_low_spread
     
     return confident, all_metrics

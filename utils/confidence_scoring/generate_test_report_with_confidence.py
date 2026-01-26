@@ -5,6 +5,9 @@ Generate Test Evaluation Report with Confidence Scoring
 This script processes test inference results and generates an Excel report with
 similarity scores, confidence metrics, and performance statistics.
 
+Installation:
+    pip install openpyxl scikit-learn evaluate sentence-transformers torch transformers nltk rouge_score absl-py
+
 Usage:
     python generate_test_report_with_confidence.py --predictions test_predictions.json
     python generate_test_report_with_confidence.py --predictions test_predictions.json --output report.xlsx
@@ -34,6 +37,7 @@ from calculate_confidence import (
     SEQ_LOGPROB_THRESHOLD,
     BEAM_TOP2_MARGIN_THRESHOLD,
     BEAM_TOP_BEAM_LOGPROB_THRESHOLD,
+    BEAM_SCORE_SPREAD_THRESHOLD,
 )
 
 
@@ -62,6 +66,7 @@ def check_confidence_from_metrics(result: Dict) -> bool:
     - High sequence log probability (> SEQ_LOGPROB_THRESHOLD)
     - High top-2 beam margin (> BEAM_TOP2_MARGIN_THRESHOLD)
     - High top beam log probability (> BEAM_TOP_BEAM_LOGPROB_THRESHOLD)
+    - Low beam score spread (< BEAM_SCORE_SPREAD_THRESHOLD)
     
     Args:
         result: Dictionary containing confidence metrics
@@ -74,15 +79,17 @@ def check_confidence_from_metrics(result: Dict) -> bool:
     seq_logprob_normalized = result.get('seq_logprob_normalized', float('-inf'))
     beam_top2_margin = result.get('beam_top2_margin', 0.0)
     beam_top_beam_avg_logprob = result.get('beam_top_beam_avg_logprob', float('-inf'))
+    beam_score_spread = result.get('beam_score_spread', float('inf'))
     
     # Check all confidence criteria
     is_low_entropy = avg_entropy < ENTROPY_THRESHOLD
     is_high_logprob = seq_logprob_normalized > SEQ_LOGPROB_THRESHOLD
     is_high_margin = beam_top2_margin > BEAM_TOP2_MARGIN_THRESHOLD
     is_high_beam_logprob = beam_top_beam_avg_logprob > BEAM_TOP_BEAM_LOGPROB_THRESHOLD
+    is_low_spread = beam_score_spread < BEAM_SCORE_SPREAD_THRESHOLD
     
     # Model is confident only if ALL criteria are met
-    return is_low_entropy and is_high_logprob and is_high_margin and is_high_beam_logprob
+    return is_low_entropy and is_high_logprob and is_high_margin and is_high_beam_logprob and is_low_spread
 
 
 def compute_meteor_score(reference: str, hypothesis: str, metric) -> float:
