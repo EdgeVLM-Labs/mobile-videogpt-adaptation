@@ -56,6 +56,10 @@ class PollingConfig:
     output_dir: str = "results/polling"
     save_responses: bool = True
 
+    # Confidence scoring configuration
+    enable_confidence_scoring: bool = False  # Toggle confidence-based filtering
+
+
     def __post_init__(self):
         """Create necessary directories."""
         os.makedirs(self.log_dir, exist_ok=True)
