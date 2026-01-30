@@ -16,8 +16,55 @@ export WANDB_PROJECT="mobile-videogpt"
 export WANDB_ENTITY="fyp-21"
 export WANDB_NAME="qved-finetune-$(date +%Y%m%d_%H%M%S)"
 
-# Model paths - using pre-trained Mobile-VideoGPT-0.5B checkpoint
-BASE_LLM_PATH="Amshaker/Mobile-VideoGPT-0.5B"
+# Optional: Set checkpoint path here to skip checkpoint path prompt
+# Leave empty to prompt user for checkpoint path during execution
+# Examples:
+#   CHECKPOINT_PATH="results/qved_finetune_mobilevideogpt_0.5B/checkpoint-210"
+#   CHECKPOINT_PATH="EdgeVLM-Labs/qved-finetune-20250128"
+CHECKPOINT_PATH=""
+
+echo "========================================="
+echo "Model Loading Configuration"
+echo "========================================="
+echo "1) Load from base LLM (fresh training)"
+echo "2) Load from LoRA checkpoint (continue training)"
+echo -n "Select option [1 or 2]: "
+read -r LOAD_OPTION
+
+if [ "$LOAD_OPTION" = "2" ]; then
+    # User chose checkpoint - check if CHECKPOINT_PATH is already set
+    if [ -z "$CHECKPOINT_PATH" ]; then
+        # Checkpoint path not set, prompt user
+        echo ""
+        echo "Enter the checkpoint path or HuggingFace repo name"
+        echo "Examples:"
+        echo "  - Local: results/qved_finetune_mobilevideogpt_0.5B/checkpoint-210"
+        echo "  - HuggingFace: EdgeVLM-Labs/qved-finetune-20250128"
+        echo -n "Checkpoint path/repo: "
+        read -r CHECKPOINT_PATH
+        
+        if [ -z "$CHECKPOINT_PATH" ]; then
+            echo "ERROR: Checkpoint path cannot be empty!"
+            exit 1
+        fi
+    else
+        # Checkpoint path was pre-configured
+        echo "Using pre-configured checkpoint: $CHECKPOINT_PATH"
+    fi
+    
+    BASE_LLM_PATH="$CHECKPOINT_PATH"
+    IS_LORA_CHECKPOINT="True"
+    echo "✓ Will continue training from: $BASE_LLM_PATH"
+else
+    BASE_LLM_PATH="Amshaker/Mobile-VideoGPT-0.5B"
+    IS_LORA_CHECKPOINT="False"
+    echo "✓ Will start fresh training from base model: $BASE_LLM_PATH"
+fi
+
+echo "========================================="
+echo ""
+
+# Vision tower configuration
 VISION_TOWER="OpenGVLab/VideoMamba"
 IMAGE_VISION_TOWER="openai/clip-vit-base-patch16"
 PROJECTOR_TYPE="etp"
@@ -94,6 +141,7 @@ echo "Hyperparameters saved to $CONFIG_FILE"
 deepspeed mobilevideogpt/train/train.py \
   --deepspeed scripts/zero2.json \
   --lora_enable True \
+  --is_lora_checkpoint $IS_LORA_CHECKPOINT \
   --lora_r $LORA_R \
   --lora_alpha $LORA_ALPHA \
   --lora_dropout 0.05 \
