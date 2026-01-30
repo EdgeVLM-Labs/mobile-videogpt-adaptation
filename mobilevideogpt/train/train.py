@@ -1150,22 +1150,51 @@ def train():
             model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
     if training_args.lora_enable:
-        from peft import LoraConfig, get_peft_model
-        lora_config = LoraConfig(
-            r=training_args.lora_r,
-            lora_alpha=training_args.lora_alpha,
-            target_modules=find_all_linear_names(model),
-            lora_dropout=training_args.lora_dropout,
-            bias=training_args.lora_bias,
-            task_type="CAUSAL_LM",
-        )
-        if training_args.bits == 16:
-            if training_args.bf16:
-                model.to(torch.bfloat16)
-            if training_args.fp16:
-                model.to(torch.float16)
-        rank0_print("Adding LoRA adapters...")
-        model = get_peft_model(model, lora_config)
+        from peft import LoraConfig, get_peft_model, PeftModel
+        import os
+        
+        # Check if model_name_or_path contains existing LoRA adapters
+        adapter_config_path = os.path.join(model_args.model_name_or_path, "adapter_config.json")
+        
+        if os.path.exists(adapter_config_path):
+            # Load existing LoRA adapters and continue training
+            rank0_print(f"Found existing LoRA adapters at {model_args.model_name_or_path}")
+            rank0_print("Loading existing LoRA adapters for continued training...")
+            
+            if training_args.bits == 16:
+                if training_args.bf16:
+                    model.to(torch.bfloat16)
+                if training_args.fp16:
+                    model.to(torch.float16)
+            
+            model = PeftModel.from_pretrained(
+                model, 
+                model_args.model_name_or_path,
+                is_trainable=True
+            )
+            rank0_print("✓ Existing LoRA adapters loaded and ready for continued training!")
+            
+        else:
+            # Initialize new random LoRA adapters (fresh training)
+            rank0_print("Initializing new LoRA adapters...")
+            
+            lora_config = LoraConfig(
+                r=training_args.lora_r,
+                lora_alpha=training_args.lora_alpha,
+                target_modules=find_all_linear_names(model),
+                lora_dropout=training_args.lora_dropout,
+                bias=training_args.lora_bias,
+                task_type="CAUSAL_LM",
+            )
+            
+            if training_args.bits == 16:
+                if training_args.bf16:
+                    model.to(torch.bfloat16)
+                if training_args.fp16:
+                    model.to(torch.float16)
+            
+            rank0_print("Adding new LoRA adapters...")
+            model = get_peft_model(model, lora_config)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
