@@ -5,9 +5,9 @@ HuggingFace Model Upload Utility
 Uploads finetuned Mobile-VideoGPT models to HuggingFace Hub.
 
 Usage:
-    python utils/hf_upload.py --model_path results/qved_finetune_mobilevideogpt_0.5B
-    python utils/hf_upload.py --model_path results/qved_finetune_mobilevideogpt_0.5B --repo_name qved-finetune-20241128
-    python utils/hf_upload.py --model_path results/qved_finetune_mobilevideogpt_0.5B --private
+    python utils/inference/hf_upload.py --model_path results/qved_finetune_mobilevideogpt_0.5B
+    python utils/inference/hf_upload.py --model_path results/qved_finetune_mobilevideogpt_0.5B --repo_name mobile-videogpt-finetune-20241128
+    python utils/inference/hf_upload.py --model_path results/qved_finetune_mobilevideogpt_0.5B --private
 """
 
 import os
@@ -27,7 +27,7 @@ DEFAULT_ORG = "EdgeVLM-Labs"
 def get_default_repo_name() -> str:
     """Generate a default repository name with timestamp."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"qved-finetune-{timestamp}"
+    return f"mobile-videogpt-qved-finetune-{timestamp}"
 
 
 def check_hf_login() -> bool:
@@ -426,7 +426,7 @@ def main():
         "--repo_name",
         type=str,
         default=None,
-        help=f"Name for the HuggingFace repository (default: qved-finetune-TIMESTAMP)",
+        help=f"Name for the HuggingFace repository (default: mobile-videogpt-finetune-TIMESTAMP)",
     )
     parser.add_argument(
         "--org",
