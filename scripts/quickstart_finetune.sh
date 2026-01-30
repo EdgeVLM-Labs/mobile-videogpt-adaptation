@@ -40,7 +40,7 @@ bash scripts/finetune_qved.sh
 # Generate training plots
 echo ""
 echo "Generating training plots..."
-python utils/plot_training_stats.py \
+python utils/inference/plot_training_stats.py \
   --log_file "$LOG_FILE" \
   --model_name "qved_finetune_mobilevideogpt_0.5B"
 
@@ -77,7 +77,7 @@ echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     HF_REPO_NAME="mobile-videogpt-finetune-${TIMESTAMP}"
     echo "Uploading to EdgeVLM-Labs/${HF_REPO_NAME} (private)..."
-    python utils/hf_upload.py \
+    python utils/inference/hf_upload.py \
         --model_path "$MODEL_PATH" \
         --repo_name "$HF_REPO_NAME" \
         --org "EdgeVLM-Labs" \
@@ -94,7 +94,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 else
     echo "Skipping HuggingFace upload."
     echo "You can upload later with:"
-    echo "  python utils/hf_upload.py --model_path $MODEL_PATH"
+    echo "  python utils/inference/hf_upload.py --model_path $MODEL_PATH"
 fi
 
 echo -e "\n========================================="
