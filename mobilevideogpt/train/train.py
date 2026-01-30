@@ -63,6 +63,10 @@ class ModelArguments:
     mm_use_box_start_end: bool = field(default=False)
     num_select_k_frames_in_chunk: Optional[int] = field(default=None)
     topk: Optional[bool] =  field(default=True)
+    is_lora_checkpoint: bool = field(
+        default=False,
+        metadata={"help": "Set to True if model_name_or_path points to a LoRA checkpoint for continued training"}
+    )
 
 
 @dataclass
@@ -1153,29 +1157,37 @@ def train():
         from peft import LoraConfig, get_peft_model, PeftModel
         import os
         
-        # Check if model_name_or_path contains existing LoRA adapters
-        adapter_config_path = os.path.join(model_args.model_name_or_path, "adapter_config.json")
-        
-        if os.path.exists(adapter_config_path):
-            # Load existing LoRA adapters and continue training
-            rank0_print(f"Found existing LoRA adapters at {model_args.model_name_or_path}")
-            rank0_print("Loading existing LoRA adapters for continued training...")
+        if model_args.is_lora_checkpoint:
+            rank0_print(f"Loading existing LoRA adapters from {model_args.model_name_or_path} for continued training...")
             
-            if training_args.bits == 16:
-                if training_args.bf16:
-                    model.to(torch.bfloat16)
-                if training_args.fp16:
-                    model.to(torch.float16)
-            
-            model = PeftModel.from_pretrained(
-                model, 
-                model_args.model_name_or_path,
-                is_trainable=True
-            )
-            rank0_print("✓ Existing LoRA adapters loaded and ready for continued training!")
-            
+            try:
+                # Convert dtype BEFORE loading adapters
+                if training_args.bits == 16:
+                    if training_args.bf16:
+                        model.to(torch.bfloat16)
+                    if training_args.fp16:
+                        model.to(torch.float16)
+                
+                # Load existing LoRA adapters (works for both local and HF repos)
+                model = PeftModel.from_pretrained(
+                    model, 
+                    model_args.model_name_or_path,
+                    is_trainable=True
+                )
+                rank0_print("✓ Existing LoRA adapters loaded successfully for continued training!")
+                
+            except Exception as e:
+                # If loading fails when is_lora_checkpoint=True, this is a critical error
+                raise ValueError(
+                    f"ERROR: is_lora_checkpoint=True but failed to load LoRA adapters from '{model_args.model_name_or_path}'.\n"
+                    f"Please verify:\n"
+                    f"  1. The path/repo is correct\n"
+                    f"  2. It contains adapter_config.json and adapter_model files\n"
+                    f"  3. For HuggingFace repos, ensure you have internet access\n"
+                    f"  4. If this is a base model (not a LoRA checkpoint), set --is_lora_checkpoint False\n"
+                    f"Original error: {str(e)}"
+                )
         else:
-            # Initialize new random LoRA adapters (fresh training)
             rank0_print("Initializing new LoRA adapters...")
             
             lora_config = LoraConfig(
@@ -1193,8 +1205,8 @@ def train():
                 if training_args.fp16:
                     model.to(torch.float16)
             
-            rank0_print("Adding new LoRA adapters...")
             model = get_peft_model(model, lora_config)
+            rank0_print("✓ New LoRA adapters initialized successfully!")
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
