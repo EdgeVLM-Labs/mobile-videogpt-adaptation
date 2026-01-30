@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to initialize QVED dataset with optional cleaning
+# Script to initialize QVED dataset with optional cleaning and augmentation
 # This script orchestrates the complete dataset preparation pipeline
 
 set -e  # Exit on error
@@ -43,35 +43,54 @@ fi
 echo -e "${GREEN}✓ Dataset download completed${NC}"
 echo ""
 
-# Step 3: Filter ground truth
-echo -e "${RED}Step 3: Filtering Ground Truth Labels${NC}"
+# Step 3: Filter ground truth and feedback labels
+echo -e "${RED}Step 3: Filtering Ground Truth and Feedback Labels${NC}"
 echo -e "${BLUE}Running: python utils/dataset/filter_ground_truth.py${NC}"
 python utils/dataset/filter_ground_truth.py
 
 if [ $? -ne 0 ]; then
-    echo -e "${RED}Error: Ground truth filtering failed${NC}"
+    echo -e "${RED}Error: Label filtering failed${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}✓ Ground truth filtering completed${NC}"
+echo -e "${GREEN}✓ Ground truth and feedback filtering completed${NC}"
 echo ""
 
-# Step 4: Ask about dataset cleaning (BEFORE generating splits)
-echo -e "${RED}Step 4: Dataset Cleaning (Optional)${NC}"
-echo "Dataset cleaning will analyze video quality (resolution, brightness, sharpness, motion)"
-echo "and filter out low-quality videos."
+# Step 4: Ask about optional data processing
+echo -e "${RED}Step 4: Optional Data Processing${NC}"
 echo ""
-echo "⚠️  Important: Cleaning happens BEFORE generating train/val/test splits"
-echo "   so splits will only include videos that pass quality checks."
+echo "Available optional processing steps:"
+echo "  1. Dataset Cleaning - Analyze and filter low-quality videos"
+echo "  2. Dataset Augmentation - Create additional training samples"
 echo ""
-echo -n "Do you want to clean the dataset? (y/N): "
+echo "⚠️  Important: These processes happen BEFORE generating train/val/test splits"
+echo ""
+
+# Ask about cleaning
+echo -n "Do you want to clean the dataset? (y/N) [default: N]: "
 read -r CLEAN_RESPONSE
-
 CLEAN_RESPONSE=$(echo "$CLEAN_RESPONSE" | tr '[:upper:]' '[:lower:]')
 
+# Default to "no" if empty
+if [[ -z "$CLEAN_RESPONSE" ]]; then
+    CLEAN_RESPONSE="n"
+fi
+
+# Ask about augmentation
+echo -n "Do you want to augment the dataset? (y/N) [default: N]: "
+read -r AUGMENT_RESPONSE
+AUGMENT_RESPONSE=$(echo "$AUGMENT_RESPONSE" | tr '[:upper:]' '[:lower:]')
+
+# Default to "no" if empty
+if [[ -z "$AUGMENT_RESPONSE" ]]; then
+    AUGMENT_RESPONSE="n"
+fi
+
+echo ""
+
+# Execute cleaning if requested
 if [[ "$CLEAN_RESPONSE" == "y" || "$CLEAN_RESPONSE" == "yes" ]]; then
-    echo ""
-    echo -e "${BLUE}Running: python utils/dataset/clean_dataset.py${NC}"
+    echo -e "${BLUE}Running dataset cleaning...${NC}"
     python utils/dataset/clean_dataset.py
 
     if [ $? -ne 0 ]; then
@@ -80,28 +99,15 @@ if [[ "$CLEAN_RESPONSE" == "y" || "$CLEAN_RESPONSE" == "yes" ]]; then
     fi
 
     echo -e "${GREEN}✓ Dataset cleaning completed${NC}"
+    echo ""
 else
     echo -e "${RED}⊘ Skipping dataset cleaning${NC}"
+    echo ""
 fi
 
-echo ""
-
-# Step 5: Ask about dataset augmentation (BEFORE generating splits)
-echo -e "${RED}Step 5: Dataset Augmentation (Optional)${NC}"
-echo "Dataset augmentation will create additional training samples by applying"
-echo "transformations like flips, rotations, blur, brightness changes, etc."
-echo ""
-echo "⚠️  Important: Augmentation happens BEFORE generating train/val/test splits"
-echo "   so augmented videos will be included in the dataset splits."
-echo ""
-echo -n "Do you want to augment the dataset? (y/N): "
-read -r AUGMENT_RESPONSE
-
-AUGMENT_RESPONSE=$(echo "$AUGMENT_RESPONSE" | tr '[:upper:]' '[:lower:]')
-
+# Execute augmentation if requested
 if [[ "$AUGMENT_RESPONSE" == "y" || "$AUGMENT_RESPONSE" == "yes" ]]; then
-    echo ""
-    echo -e "${BLUE}Running: python utils/dataset/augment_videos.py${NC}"
+    echo -e "${BLUE}Running dataset augmentation...${NC}"
     python utils/dataset/augment_videos.py
 
     if [ $? -ne 0 ]; then
@@ -110,14 +116,14 @@ if [[ "$AUGMENT_RESPONSE" == "y" || "$AUGMENT_RESPONSE" == "yes" ]]; then
     fi
 
     echo -e "${GREEN}✓ Dataset augmentation completed${NC}"
+    echo ""
 else
     echo -e "${RED}⊘ Skipping dataset augmentation${NC}"
+    echo ""
 fi
 
-echo ""
-
-# Step 6: Generate QVED splits (AFTER cleaning and augmentation)
-echo -e "${RED}Step 6: Generating QVED Train/Val/Test Splits${NC}"
+# Step 5: Generate QVED splits (AFTER cleaning and augmentation)
+echo -e "${RED}Step 5: Generating QVED Train/Val/Test Splits${NC}"
 echo -e "${BLUE}Running: python utils/dataset/qved_from_fine_labels.py${NC}"
 python utils/dataset/qved_from_fine_labels.py
 
@@ -136,9 +142,13 @@ echo ""
 echo "Summary of generated files:"
 echo "  - dataset/manifest.json          (downloaded video manifest)"
 echo "  - dataset/ground_truth.json      (filtered ground truth labels)"
-echo "  - dataset/qved_train.json        (training split)"
-echo "  - dataset/qved_val.json          (validation split)"
-echo "  - dataset/qved_test.json         (test split)"
+echo "  - dataset/feedbacks.json         (filtered feedback labels)"
+echo "  - dataset/qved_train.json        (ground truth training split)"
+echo "  - dataset/qved_val.json          (ground truth validation split)"
+echo "  - dataset/qved_test.json         (ground truth test split)"
+echo "  - dataset/feedback_train.json    (feedback training split)"
+echo "  - dataset/feedback_val.json      (feedback validation split)"
+echo "  - dataset/feedback_test.json     (feedback test split)"
 
 if [[ "$CLEAN_RESPONSE" == "y" || "$CLEAN_RESPONSE" == "yes" ]]; then
     echo "  - cleaned_dataset/               (quality-filtered videos)"

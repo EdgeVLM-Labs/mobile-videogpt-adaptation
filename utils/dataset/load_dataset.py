@@ -20,6 +20,7 @@ LOCAL_DIR = Path("dataset")  # local download directory
 MAX_PER_CLASS = 5
 FILE_EXT = ".mp4"
 GROUND_TRUTH_FILE = "fine_grained_labels.json"
+FEEDBACK_FILE = "feedbacks_short_clips.json"
 RANDOM_SEED = 42
 
 
@@ -83,15 +84,15 @@ def sample_and_download(by_class, repo_id, local_dir, max_per_class):
     return manifest
 
 
-def download_ground_truth(repo_id, local_dir, all_files):
-    """Downloads fine_grained_labels.json if present."""
+def download_json_file(repo_id, local_dir, all_files, json_filename):
+    """Downloads a JSON file from the repo if present."""
 
-    candidates = [f for f in all_files if f.endswith(GROUND_TRUTH_FILE)]
+    candidates = [f for f in all_files if f.endswith(json_filename)]
     if not candidates:
-        print(f"⚠️ No {GROUND_TRUTH_FILE} found in repo.")
+        print(f"⚠️ No {json_filename} found in repo.")
         return None
 
-    gt_path = local_dir / GROUND_TRUTH_FILE
+    json_path = local_dir / json_filename
     try:
         hf_hub_download(
             repo_id=repo_id,
@@ -99,10 +100,10 @@ def download_ground_truth(repo_id, local_dir, all_files):
             local_dir=str(local_dir),
             repo_type="dataset",
         )
-        print(f"🧠 Ground truth file downloaded to: {gt_path}")
-        return gt_path
+        print(f"📄 {json_filename} downloaded to: {json_path}")
+        return json_path
     except Exception as e:
-        print(f"⚠️ Failed to download {GROUND_TRUTH_FILE}: {e}")
+        print(f"⚠️ Failed to download {json_filename}: {e}")
         return None
 
 
@@ -130,7 +131,8 @@ def main():
     by_class, all_files = collect_videos(REPO_ID)
     manifest = sample_and_download(by_class, REPO_ID, LOCAL_DIR, max_per_class)
     save_manifest(manifest, LOCAL_DIR)
-    download_ground_truth(REPO_ID, LOCAL_DIR, all_files)
+    download_json_file(REPO_ID, LOCAL_DIR, all_files, GROUND_TRUTH_FILE)
+    download_json_file(REPO_ID, LOCAL_DIR, all_files, FEEDBACK_FILE)
     print("🏁 Dataset download completed.")
 
 
