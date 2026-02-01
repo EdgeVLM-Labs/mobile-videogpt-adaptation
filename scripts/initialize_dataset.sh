@@ -30,10 +30,26 @@ fi
 echo -e "${GREEN}✓ Will download ${VIDEO_COUNT} videos per exercise class${NC}"
 echo ""
 
+# Ask about parallel downloads
+echo -n "Use parallel downloads for faster processing? (y/N): "
+read -r PARALLEL_RESPONSE
+
+PARALLEL_RESPONSE=$(echo "$PARALLEL_RESPONSE" | tr '[:upper:]' '[:lower:]')
+
+PARALLEL_FLAG=""
+if [[ "$PARALLEL_RESPONSE" == "y" || "$PARALLEL_RESPONSE" == "yes" ]]; then
+    PARALLEL_FLAG="--parallel"
+    echo -e "${GREEN}✓ Parallel downloads enabled${NC}"
+else
+    echo -e "${BLUE}ℹ Using sequential downloads (default)${NC}"
+fi
+
+echo ""
+
 # Step 2: Download dataset
 echo -e "${RED}Step 2: Downloading Dataset from HuggingFace${NC}"
-echo -e "${BLUE}Running: python utils/dataset/load_dataset.py ${VIDEO_COUNT}${NC}"
-python utils/dataset/load_dataset.py "$VIDEO_COUNT"
+echo -e "${BLUE}Running: python utils/dataset/load_dataset.py ${VIDEO_COUNT} ${PARALLEL_FLAG}${NC}"
+python utils/dataset/load_dataset.py "$VIDEO_COUNT" $PARALLEL_FLAG
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}Error: Dataset download failed${NC}"
