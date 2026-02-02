@@ -33,8 +33,8 @@ from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from peft import PeftModel
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add workspace root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from mobilevideogpt.utils import preprocess_input
 
