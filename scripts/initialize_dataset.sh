@@ -30,10 +30,26 @@ fi
 echo -e "${GREEN}✓ Will download ${VIDEO_COUNT} videos per exercise class${NC}"
 echo ""
 
+# Ask about parallel downloads
+echo -n "Use parallel downloads for faster processing? (y/N): "
+read -r PARALLEL_RESPONSE
+
+PARALLEL_RESPONSE=$(echo "$PARALLEL_RESPONSE" | tr '[:upper:]' '[:lower:]')
+
+PARALLEL_FLAG=""
+if [[ "$PARALLEL_RESPONSE" == "y" || "$PARALLEL_RESPONSE" == "yes" ]]; then
+    PARALLEL_FLAG="--parallel"
+    echo -e "${GREEN}✓ Parallel downloads enabled${NC}"
+else
+    echo -e "${BLUE}ℹ Using sequential downloads (default)${NC}"
+fi
+
+echo ""
+
 # Step 2: Download dataset
 echo -e "${RED}Step 2: Downloading Dataset from HuggingFace${NC}"
-echo -e "${BLUE}Running: python utils/dataset/load_dataset.py ${VIDEO_COUNT}${NC}"
-python utils/dataset/load_dataset.py "$VIDEO_COUNT"
+echo -e "${BLUE}Running: python utils/dataset/load_dataset.py ${VIDEO_COUNT} ${PARALLEL_FLAG}${NC}"
+python utils/dataset/load_dataset.py "$VIDEO_COUNT" $PARALLEL_FLAG
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}Error: Dataset download failed${NC}"
@@ -43,17 +59,30 @@ fi
 echo -e "${GREEN}✓ Dataset download completed${NC}"
 echo ""
 
-# Step 3: Filter ground truth
-echo -e "${RED}Step 3: Filtering Ground Truth Labels${NC}"
-echo -e "${BLUE}Running: python utils/dataset/filter_ground_truth.py${NC}"
-python utils/dataset/filter_ground_truth.py
+# Step 3: Filter ground truth (Optional)
+echo -e "${RED}Step 3: Filtering Ground Truth Labels (Optional)${NC}"
+echo "Ground truth filtering will process and filter the downloaded labels."
+echo ""
+echo -n "Do you want to filter ground truth labels? (y/N): "
+read -r FILTER_RESPONSE
 
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Error: Ground truth filtering failed${NC}"
-    exit 1
+FILTER_RESPONSE=$(echo "$FILTER_RESPONSE" | tr '[:upper:]' '[:lower:]')
+
+if [[ "$FILTER_RESPONSE" == "y" || "$FILTER_RESPONSE" == "yes" ]]; then
+    echo ""
+    echo -e "${BLUE}Running: python utils/dataset/filter_ground_truth.py${NC}"
+    python utils/dataset/filter_ground_truth.py
+
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Error: Ground truth filtering failed${NC}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ Ground truth filtering completed${NC}"
+else
+    echo -e "${RED}⊘ Skipping ground truth filtering${NC}"
 fi
 
-echo -e "${GREEN}✓ Ground truth filtering completed${NC}"
 echo ""
 
 # Step 4: Ask about dataset cleaning (BEFORE generating splits)
@@ -134,14 +163,21 @@ echo -e "${GREEN}  Dataset Initialization Complete! ✓${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo "Summary of generated files:"
-echo "  - dataset/manifest.json          (downloaded video manifest)"
-echo "  - dataset/ground_truth.json      (filtered ground truth labels)"
-echo "  - dataset/qved_train.json        (training split)"
-echo "  - dataset/qved_val.json          (validation split)"
-echo "  - dataset/qved_test.json         (test split)"
+echo "  - dataset/manifest.json               (downloaded video manifest)"
+
+if [[ "$FILTER_RESPONSE" == "y" || "$FILTER_RESPONSE" == "yes" ]]; then
+    echo "  - dataset/ground_truth.json           (filtered ground truth labels)"
+fi
+
+echo "  - dataset/qved_train.json             (training split - fine-grained labels)"
+echo "  - dataset/qved_val.json               (validation split - fine-grained labels)"
+echo "  - dataset/qved_test.json              (test split - fine-grained labels)"
+echo "  - dataset/qved_feedbacks_train.json   (training split - feedbacks)"
+echo "  - dataset/qved_feedbacks_val.json     (validation split - feedbacks)"
+echo "  - dataset/qved_feedbacks_test.json    (test split - feedbacks)"
 
 if [[ "$CLEAN_RESPONSE" == "y" || "$CLEAN_RESPONSE" == "yes" ]]; then
-    echo "  - cleaned_dataset/               (quality-filtered videos)"
+    echo "  - cleaned_dataset/                    (quality-filtered videos)"
     echo "  - cleaned_dataset/cleaning_report.csv"
 fi
 
@@ -150,5 +186,7 @@ if [[ "$AUGMENT_RESPONSE" == "y" || "$AUGMENT_RESPONSE" == "yes" ]]; then
     echo "  - JSON files updated with augmented video paths"
 fi
 
+echo ""
+echo "Note: Same videos are in the same splits (train/val/test) for both fine-grained labels and feedbacks datasets."
 echo ""
 echo "You can now proceed with model training!"
