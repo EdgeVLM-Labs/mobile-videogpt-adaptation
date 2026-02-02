@@ -16,49 +16,51 @@ export WANDB_PROJECT="mobile-videogpt"
 export WANDB_ENTITY="fyp-21"
 export WANDB_NAME="qved-finetune-$(date +%Y%m%d_%H%M%S)"
 
-# Optional: Set checkpoint path here to skip checkpoint path prompt
-# Leave empty to prompt user for checkpoint path during execution
+# Base LLM - always points to the base model
+BASE_LLM_PATH="Amshaker/Mobile-VideoGPT-0.5B"
+
+# Optional: Set LoRA checkpoint path here to continue training from a previous checkpoint
+# Leave empty to prompt user or to start fresh training
 # Examples:
-#   CHECKPOINT_PATH="results/qved_finetune_mobilevideogpt_0.5B/checkpoint-210"
-#   CHECKPOINT_PATH="EdgeVLM-Labs/qved-finetune-20250128"
-CHECKPOINT_PATH=""
+#   LORA_CHECKPOINT_PATH="results/qved_finetune_mobilevideogpt_0.5B/checkpoint-210"
+#   LORA_CHECKPOINT_PATH="EdgeVLM-Labs/qved-finetune-20250128"
+LORA_CHECKPOINT_PATH=""
 
 echo "========================================="
 echo "Model Loading Configuration"
 echo "========================================="
-echo "1) Load from base LLM (fresh training)"
-echo "2) Load from LoRA checkpoint (continue training)"
+echo "Base LLM: $BASE_LLM_PATH"
+echo ""
+echo "1) Start fresh training (initialize new LoRA adapters)"
+echo "2) Continue training from LoRA checkpoint"
 echo -n "Select option [1 or 2]: "
 read -r LOAD_OPTION
 
 if [ "$LOAD_OPTION" = "2" ]; then
-    # User chose checkpoint - check if CHECKPOINT_PATH is already set
-    if [ -z "$CHECKPOINT_PATH" ]; then
+    # User chose to load checkpoint - check if LORA_CHECKPOINT_PATH is already set
+    if [ -z "$LORA_CHECKPOINT_PATH" ]; then
         # Checkpoint path not set, prompt user
         echo ""
-        echo "Enter the checkpoint path or HuggingFace repo name"
+        echo "Enter the LoRA checkpoint path or HuggingFace repo name"
         echo "Examples:"
         echo "  - Local: results/qved_finetune_mobilevideogpt_0.5B/checkpoint-210"
         echo "  - HuggingFace: EdgeVLM-Labs/qved-finetune-20250128"
-        echo -n "Checkpoint path/repo: "
-        read -r CHECKPOINT_PATH
+        echo -n "LoRA checkpoint path/repo: "
+        read -r LORA_CHECKPOINT_PATH
         
-        if [ -z "$CHECKPOINT_PATH" ]; then
-            echo "ERROR: Checkpoint path cannot be empty!"
+        if [ -z "$LORA_CHECKPOINT_PATH" ]; then
+            echo "ERROR: LoRA checkpoint path cannot be empty!"
             exit 1
         fi
     else
         # Checkpoint path was pre-configured
-        echo "Using pre-configured checkpoint: $CHECKPOINT_PATH"
+        echo "Using pre-configured LoRA checkpoint: $LORA_CHECKPOINT_PATH"
     fi
     
-    BASE_LLM_PATH="$CHECKPOINT_PATH"
-    IS_LORA_CHECKPOINT="True"
-    echo "✓ Will continue training from: $BASE_LLM_PATH"
+    echo "✓ Will continue training from LoRA checkpoint: $LORA_CHECKPOINT_PATH"
 else
-    BASE_LLM_PATH="Amshaker/Mobile-VideoGPT-0.5B"
-    IS_LORA_CHECKPOINT="False"
-    echo "✓ Will start fresh training from base model: $BASE_LLM_PATH"
+    LORA_CHECKPOINT_PATH=""
+    echo "✓ Will start fresh training with new LoRA adapters"
 fi
 
 echo "========================================="
@@ -115,6 +117,7 @@ CONFIG_FILE="$OUTPUT_DIR_PATH/hyperparameters.json"
 cat <<EOF > "$CONFIG_FILE"
 {
   "base_model": "$BASE_LLM_PATH",
+  "lora_checkpoint": "$LORA_CHECKPOINT_PATH",
   "dataset": "QVED",
   "epochs": $EPOCHS,
   "learning_rate": $LR,
@@ -141,7 +144,7 @@ echo "Hyperparameters saved to $CONFIG_FILE"
 deepspeed mobilevideogpt/train/train.py \
   --deepspeed scripts/zero2.json \
   --lora_enable True \
-  --is_lora_checkpoint $IS_LORA_CHECKPOINT \
+  --lora_checkpoint "$LORA_CHECKPOINT_PATH" \
   --lora_r $LORA_R \
   --lora_alpha $LORA_ALPHA \
   --lora_dropout 0.05 \

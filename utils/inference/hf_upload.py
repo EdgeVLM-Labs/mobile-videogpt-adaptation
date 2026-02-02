@@ -107,6 +107,8 @@ This model is a finetuned version of [Amshaker/Mobile-VideoGPT-0.5B](https://hug
 - **Vision Encoder:** VideoMamba + CLIP
 - **Task:** Video-based exercise quality assessment and feedback generation
 - **Dataset:** QVED (Physiotherapy Exercise Videos)
+{'- **Training Type:** Continued from existing LoRA checkpoint' if hyperparams.get('lora_checkpoint') else '- **Training Type:** Fresh training with randomly initialized LoRA adapters'}
+{f"- **LoRA Checkpoint:** {hyperparams.get('lora_checkpoint')}" if hyperparams.get('lora_checkpoint') else ''}
 
 ## Training Details
 
@@ -139,6 +141,7 @@ This model is a finetuned version of [Amshaker/Mobile-VideoGPT-0.5B](https://hug
 - **Framework:** DeepSpeed with ZeRO-2
 - **Mixed Precision:** bfloat16 + TF32
 - **Optimization:** LoRA (Low-Rank Adaptation)
+{f"- **Training Strategy:** Continued training from existing LoRA checkpoint ({hyperparams.get('lora_checkpoint')})" if hyperparams.get('lora_checkpoint') else "- **Training Strategy:** Fresh training with randomly initialized LoRA adapters"}
 
 """
     

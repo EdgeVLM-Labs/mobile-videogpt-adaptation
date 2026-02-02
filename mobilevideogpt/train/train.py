@@ -63,10 +63,6 @@ class ModelArguments:
     mm_use_box_start_end: bool = field(default=False)
     num_select_k_frames_in_chunk: Optional[int] = field(default=None)
     topk: Optional[bool] =  field(default=True)
-    is_lora_checkpoint: bool = field(
-        default=False,
-        metadata={"help": "Set to True if model_name_or_path points to a LoRA checkpoint for continued training"}
-    )
 
 
 @dataclass
@@ -116,6 +112,10 @@ class TrainingArguments(transformers.TrainingArguments):
     lora_dropout: float = 0.05
     lora_weight_path: str = ""
     lora_bias: str = "none"
+    lora_checkpoint: str = field(
+        default="",
+        metadata={"help": "Path to LoRA checkpoint for continued training (optional)"}
+    )
     mm_projector_lr: Optional[float] = None
     group_by_modality_length: bool = field(default=False)
 
@@ -1157,8 +1157,8 @@ def train():
         from peft import LoraConfig, get_peft_model, PeftModel
         import os
         
-        if model_args.is_lora_checkpoint:
-            rank0_print(f"Loading existing LoRA adapters from {model_args.model_name_or_path} for continued training...")
+        if training_args.lora_checkpoint:
+            rank0_print(f"Loading existing LoRA adapters from {training_args.lora_checkpoint} for continued training...")
             
             try:
                 # Convert dtype BEFORE loading adapters
@@ -1171,20 +1171,19 @@ def train():
                 # Load existing LoRA adapters (works for both local and HF repos)
                 model = PeftModel.from_pretrained(
                     model, 
-                    model_args.model_name_or_path,
+                    training_args.lora_checkpoint,
                     is_trainable=True
                 )
                 rank0_print("✓ Existing LoRA adapters loaded successfully for continued training!")
                 
             except Exception as e:
-                # If loading fails when is_lora_checkpoint=True, this is a critical error
+                # If loading fails, this is a critical error
                 raise ValueError(
-                    f"ERROR: is_lora_checkpoint=True but failed to load LoRA adapters from '{model_args.model_name_or_path}'.\n"
+                    f"ERROR: Failed to load LoRA adapters from '{training_args.lora_checkpoint}'.\n"
                     f"Please verify:\n"
                     f"  1. The path/repo is correct\n"
                     f"  2. It contains adapter_config.json and adapter_model files\n"
                     f"  3. For HuggingFace repos, ensure you have internet access\n"
-                    f"  4. If this is a base model (not a LoRA checkpoint), set --is_lora_checkpoint False\n"
                     f"Original error: {str(e)}"
                 )
         else:
