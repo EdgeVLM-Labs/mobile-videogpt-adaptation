@@ -155,8 +155,12 @@ pip install openpyxl scikit-learn sentence-transformers rouge_score scikit-image
 
 pip install git+https://github.com/okankop/vidaug
 
+# --------------------------------------------------
+# 4️⃣ Install LaTeX for matplotlib plotting
+# --------------------------------------------------
+echo "📊 Installing LaTeX packages for high-quality plots..."
 apt-get update
-apt-get install texlive texlive-latex-extra texlive-fonts-recommended dvipng cm-super
+apt-get install -y texlive texlive-latex-extra texlive-fonts-recommended dvipng cm-super
 
 echo "✅ Setup complete!"
 echo "🚀 Mobile-VideoGPT environment is ready."
