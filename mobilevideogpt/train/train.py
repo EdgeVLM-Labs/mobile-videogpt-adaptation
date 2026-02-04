@@ -1156,7 +1156,7 @@ def train():
 
     if training_args.lora_enable:
         from peft import LoraConfig, get_peft_model, PeftModel
-        import os
+        
         
         if training_args.lora_checkpoint:
             rank0_print(f"Loading existing LoRA adapters from {training_args.lora_checkpoint} for continued training...")
