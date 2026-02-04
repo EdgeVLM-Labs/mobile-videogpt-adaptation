@@ -16,6 +16,7 @@ import warnings
 import logging
 import argparse
 import json
+from huggingface_hub import hf_hub_download
 
 os.environ['PYTHONWARNINGS'] = 'ignore'
 
@@ -32,8 +33,8 @@ from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from peft import PeftModel
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add workspace root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from mobilevideogpt.utils import preprocess_input
 
@@ -53,9 +54,19 @@ def load_model(pretrained_path: str, device: str = "cuda", base_model: str = "Am
     # If it's a checkpoint-* directory, it contains LoRA adapters
     if "checkpoint-" in pretrained_path:
         is_lora_checkpoint = True
-    # If it's the base finetuning dir, check for adapter files
+    # If it's a local path, check for adapter files
     elif os.path.exists(os.path.join(pretrained_path, "adapter_config.json")):
         is_lora_checkpoint = True
+    # If it's a HuggingFace repo, check if it contains LoRA adapters
+    else:
+        try:
+            # Try to download adapter_config.json from HF Hub
+            hf_hub_download(pretrained_path, "adapter_config.json")
+            is_lora_checkpoint = True
+            print(f"Detected LoRA adapters in HuggingFace repo: {pretrained_path}")
+        except:
+            # Not a LoRA checkpoint, treat as full model
+            is_lora_checkpoint = False
 
     if is_lora_checkpoint:
         print(f"Loading LoRA adapters from: {adapter_path}")
@@ -76,7 +87,7 @@ def load_model(pretrained_path: str, device: str = "cuda", base_model: str = "Am
     else:
         # Load full model directly
         config = AutoConfig.from_pretrained(pretrained_path)
-        tokenizer = AutoTokenizer.from_pretrained(pretrained_path, use_fast=False)
+        tokenizer = AutoTokenizer.from_pretrained(base_model, use_fast=False)
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_path,
             config=config,

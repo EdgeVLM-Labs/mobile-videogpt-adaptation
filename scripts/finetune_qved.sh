@@ -16,8 +16,82 @@ export WANDB_PROJECT="mobile-videogpt"
 export WANDB_ENTITY="fyp-21"
 export WANDB_NAME="qved-finetune-$(date +%Y%m%d_%H%M%S)"
 
-# Model paths - using pre-trained Mobile-VideoGPT-0.5B checkpoint
+# Base LLM - always points to the base model
 BASE_LLM_PATH="Amshaker/Mobile-VideoGPT-0.5B"
+
+# Optional: Set LoRA checkpoint path here to continue training from a previous checkpoint
+# Leave empty to prompt user or to start fresh training
+# Examples:
+#   LORA_CHECKPOINT_PATH="results/qved_finetune_mobilevideogpt_0.5B/checkpoint-210"
+#   LORA_CHECKPOINT_PATH="EdgeVLM-Labs/qved-finetune-20250128"
+LORA_CHECKPOINT_PATH=""
+
+echo "========================================="
+echo "Model Loading Configuration"
+echo "========================================="
+echo "Base LLM: $BASE_LLM_PATH"
+echo ""
+echo "1) Start fresh training (initialize new LoRA adapters)"
+echo "2) Continue training from LoRA checkpoint"
+echo -n "Select option [1 or 2]: "
+read -r LOAD_OPTION
+
+if [ "$LOAD_OPTION" = "2" ]; then
+    # User chose to load checkpoint - check if LORA_CHECKPOINT_PATH is already set
+    if [ -z "$LORA_CHECKPOINT_PATH" ]; then
+        # Checkpoint path not set, prompt user
+        echo ""
+        echo "Enter the LoRA checkpoint path or HuggingFace repo name"
+        echo "Examples:"
+        echo "  - Local: results/qved_finetune_mobilevideogpt_0.5B/checkpoint-210"
+        echo "  - HuggingFace: EdgeVLM-Labs/qved-finetune-20250128"
+        echo -n "LoRA checkpoint path/repo: "
+        read -r LORA_CHECKPOINT_PATH
+        
+        if [ -z "$LORA_CHECKPOINT_PATH" ]; then
+            echo "ERROR: LoRA checkpoint path cannot be empty!"
+            exit 1
+        fi
+    else
+        # Checkpoint path was pre-configured
+        echo "Using pre-configured LoRA checkpoint: $LORA_CHECKPOINT_PATH"
+    fi
+    
+    echo "✓ Will continue training from LoRA checkpoint: $LORA_CHECKPOINT_PATH"
+else
+    LORA_CHECKPOINT_PATH=""
+    echo "✓ Will start fresh training with new LoRA adapters"
+fi
+
+echo "========================================="
+echo ""
+
+# Confirm dataset JSON files
+echo "========================================="
+echo "Dataset JSON Configuration"
+echo "========================================="
+
+TRAIN_JSON=$(python -c "from mobilevideogpt.config.dataset_config import QVED_TRAIN_JSON; print(QVED_TRAIN_JSON)")
+VAL_JSON=$(python -c "from mobilevideogpt.config.dataset_config import QVED_VAL_JSON; print(QVED_VAL_JSON)")
+TEST_JSON=$(python -c "from mobilevideogpt.config.dataset_config import QVED_TEST_JSON; print(QVED_TEST_JSON)")
+
+echo "Training JSON:   $TRAIN_JSON"
+echo "Validation JSON: $VAL_JSON"
+echo "Test JSON:       $TEST_JSON"
+echo ""
+echo -n "Continue with these dataset files? [y/N]: "
+read -r CONFIRM_DATASET
+
+if [ "$CONFIRM_DATASET" != "y" ] && [ "$CONFIRM_DATASET" != "Y" ]; then
+    echo "Finetuning cancelled."
+    exit 0
+fi
+
+echo "✓ Dataset configuration confirmed"
+echo "========================================="
+echo ""
+
+# Vision tower configuration
 VISION_TOWER="OpenGVLab/VideoMamba"
 IMAGE_VISION_TOWER="openai/clip-vit-base-patch16"
 PROJECTOR_TYPE="etp"
@@ -68,6 +142,7 @@ CONFIG_FILE="$OUTPUT_DIR_PATH/hyperparameters.json"
 cat <<EOF > "$CONFIG_FILE"
 {
   "base_model": "$BASE_LLM_PATH",
+  "lora_checkpoint": "$LORA_CHECKPOINT_PATH",
   "dataset": "QVED",
   "epochs": $EPOCHS,
   "learning_rate": $LR,
@@ -94,6 +169,7 @@ echo "Hyperparameters saved to $CONFIG_FILE"
 deepspeed mobilevideogpt/train/train.py \
   --deepspeed scripts/zero2.json \
   --lora_enable True \
+  --lora_checkpoint "$LORA_CHECKPOINT_PATH" \
   --lora_r $LORA_R \
   --lora_alpha $LORA_ALPHA \
   --lora_dropout 0.05 \

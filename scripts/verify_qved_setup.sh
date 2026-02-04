@@ -27,6 +27,27 @@ else
     echo "✗ dataset/qved_test.json NOT found"
 fi
 
+if [ -f "dataset/qved_feedbacks_train.json" ]; then
+    num_samples=$(python -c "import json; print(len(json.load(open('dataset/qved_feedbacks_train.json'))))" 2>/dev/null || echo "?")
+    echo "✓ dataset/qved_feedbacks_train.json found ($num_samples samples)"
+else
+    echo "✗ dataset/qved_feedbacks_train.json NOT found"
+fi
+
+if [ -f "dataset/qved_feedbacks_val.json" ]; then
+    num_samples=$(python -c "import json; print(len(json.load(open('dataset/qved_feedbacks_val.json'))))" 2>/dev/null || echo "?")
+    echo "✓ dataset/qved_feedbacks_val.json found ($num_samples samples)"
+else
+    echo "✗ dataset/qved_feedbacks_val.json NOT found"
+fi
+
+if [ -f "dataset/qved_feedbacks_test.json" ]; then
+    num_samples=$(python -c "import json; print(len(json.load(open('dataset/qved_feedbacks_test.json'))))" 2>/dev/null || echo "?")
+    echo "✓ dataset/qved_feedbacks_test.json found ($num_samples samples)"
+else
+    echo "✗ dataset/qved_feedbacks_test.json NOT found"
+fi
+
 if [ -f "dataset/manifest.json" ]; then
     echo "✓ dataset/manifest.json found"
 else
@@ -43,20 +64,16 @@ fi
 echo -e "\n[2] Checking video files..."
 
 exercise_dirs=(
-  "alternating_single_leg_glutes_bridge"
-  "cat-cow_pose"
-  "elbow_plank"
-  "glute_hamstring_walkout"
-  "glutes_bridge"
-  "heel_lift"
-  "high_plank"
-  "lunges_leg_out_in_front"
-  "opposite_arm_and_leg_lifts_on_knees"
+  "alternating_forward_lunges"
+  "floor_touches"
+  "high_knees"
+  "jumping_jacks"
+  "mountain-climbers"
+  "plank_taps"
   "pushups"
-  "side_plank"
+  "shoulder_gators"
   "squats"
   "toe_touch"
-  "tricep_stretch"
 )
 
 for dir in "${exercise_dirs[@]}"; do

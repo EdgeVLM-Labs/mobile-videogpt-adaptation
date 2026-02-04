@@ -12,7 +12,7 @@ echo "========================================="
 # Default values
 MODEL_PATH=""
 HF_REPO=""
-TEST_JSON="dataset/qved_test.json"
+TEST_JSON="$(python -c "from mobilevideogpt.config.dataset_config import QVED_TEST_JSON; print(QVED_TEST_JSON)")"
 DATA_PATH="dataset"
 OUTPUT_DIR=""
 DEVICE="cuda"
@@ -190,7 +190,7 @@ if [ -n "$LIMIT" ]; then
     LIMIT_ARG="--limit $LIMIT"
 fi
 
-python utils/test_inference.py \
+python utils/inference/test_inference.py \
     --model_path "$MODEL_PATH" \
     --test_json "$TEST_JSON" \
     --data_path "$DATA_PATH" \
@@ -218,7 +218,7 @@ if [ -n "$INCLUDE_BASE_MODEL" ]; then
     BASE_MODEL_ARGS="$INCLUDE_BASE_MODEL --base-model $BASE_MODEL --test-json $TEST_JSON --data-path $DATA_PATH"
 fi
 
-python utils/generate_test_report.py \
+python utils/inference/generate_test_report.py \
     --predictions "$PREDICTIONS_FILE" \
     --output "$REPORT_FILE" \
     $NO_BERT \
