@@ -121,6 +121,12 @@ QVED_TEST_JSON = "dataset/qved_test.json"
 # QVED_VAL_JSON = "dataset/qved_feedbacks_val.json"
 # QVED_TEST_JSON = "dataset/qved_feedbacks_test.json"
 
+
+QVED_TRAIN = {
+    "annotation_path": QVED_TRAIN_JSON,
+    "data_path": "dataset",
+}
+
 QVED_VAL = {
     "annotation_path": QVED_VAL_JSON,
     "data_path": "dataset",
