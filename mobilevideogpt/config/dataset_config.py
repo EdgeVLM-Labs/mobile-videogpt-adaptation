@@ -107,18 +107,31 @@ ST_PERCEPTIONTEST_30_60_S ={
     "data_path": f"{DATASET_DIR}/instruction_tuning/LLaVA-Video-178K/30_60_s_perceptiontest"
 }
 
-# QVED dataset (train/val/test splits)
+#UnComment the specific dataset you want to use for training
+
+# QVED  JSON dataset 
+
+QVED_TRAIN_JSON = "dataset/qved_train.json"
+QVED_VAL_JSON = "dataset/qved_val.json"
+QVED_TEST_JSON = "dataset/qved_test.json"
+
+#Coach JSON datsets
+
+# QVED_TRAIN_JSON = "dataset/qved_train.json"
+# QVED_VAL_JSON = "dataset/qved_val.json"
+# QVED_TEST_JSON = "dataset/qved_test.json"
+
 QVED_TRAIN = {
-    "annotation_path": "dataset/qved_train.json",
+    "annotation_path": QVED_TRAIN_JSON,
     "data_path": "dataset",
 }
 
 QVED_VAL = {
-    "annotation_path": "dataset/qved_val.json",
+    "annotation_path": QVED_VAL_JSON,
     "data_path": "dataset",
 }
 
 QVED_TEST = {
-    "annotation_path": "dataset/qved_test.json",
+    "annotation_path": QVED_TEST_JSON,
     "data_path": "dataset",
 }

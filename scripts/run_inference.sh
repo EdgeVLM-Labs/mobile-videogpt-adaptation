@@ -12,7 +12,7 @@ echo "========================================="
 # Default values
 MODEL_PATH=""
 HF_REPO=""
-TEST_JSON="dataset/qved_test.json"
+TEST_JSON="$(python -c "from mobilevideogpt.config.dataset_config import QVED_TEST_JSON; print(QVED_TEST_JSON)")"
 DATA_PATH="dataset"
 OUTPUT_DIR=""
 DEVICE="cuda"

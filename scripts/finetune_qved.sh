@@ -66,6 +66,31 @@ fi
 echo "========================================="
 echo ""
 
+# Confirm dataset JSON files
+echo "========================================="
+echo "Dataset JSON Configuration"
+echo "========================================="
+
+TRAIN_JSON=$(python -c "from mobilevideogpt.config.dataset_config import QVED_TRAIN_JSON; print(QVED_TRAIN_JSON)")
+VAL_JSON=$(python -c "from mobilevideogpt.config.dataset_config import QVED_VAL_JSON; print(QVED_VAL_JSON)")
+TEST_JSON=$(python -c "from mobilevideogpt.config.dataset_config import QVED_TEST_JSON; print(QVED_TEST_JSON)")
+
+echo "Training JSON:   $TRAIN_JSON"
+echo "Validation JSON: $VAL_JSON"
+echo "Test JSON:       $TEST_JSON"
+echo ""
+echo -n "Continue with these dataset files? [y/N]: "
+read -r CONFIRM_DATASET
+
+if [ "$CONFIRM_DATASET" != "y" ] && [ "$CONFIRM_DATASET" != "Y" ]; then
+    echo "Finetuning cancelled."
+    exit 0
+fi
+
+echo "✓ Dataset configuration confirmed"
+echo "========================================="
+echo ""
+
 # Vision tower configuration
 VISION_TOWER="OpenGVLab/VideoMamba"
 IMAGE_VISION_TOWER="openai/clip-vit-base-patch16"
