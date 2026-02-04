@@ -18,7 +18,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
-REPO_ID = "EdgeVLM-Labs/QVED-Test-Dataset"
+REPO_ID = "EdgeVLM-Labs/QEVD-fine-grained-feedback-cleaned"
 LOCAL_DIR = Path("dataset")  # local download directory
 MAX_PER_CLASS = 5
 FILE_EXT = ".mp4"
