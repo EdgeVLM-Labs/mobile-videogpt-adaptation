@@ -14,7 +14,8 @@ OUTPUT_TEST_JSON = BASE_DIR / "qved_test.json"
 OUTPUT_FEEDBACKS_TRAIN_JSON = BASE_DIR / "qved_feedbacks_train.json"
 OUTPUT_FEEDBACKS_VAL_JSON = BASE_DIR / "qved_feedbacks_val.json"
 OUTPUT_FEEDBACKS_TEST_JSON = BASE_DIR / "qved_feedbacks_test.json"
-USER_PROMPT_TEMPLATE = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
+# USER_PROMPT_TEMPLATE = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
+USER_PROMPT_TEMPLATE = "Watch the exercise being performed and provide short corrective feedback to help improve the form."
 FEEDBACK_PROMPT_TEMPLATE = "Please evaluate the exercise form shown. What feedback would you provide to improve the performance?"
 
 # Dataset split ratios (adjustable)
@@ -78,19 +79,11 @@ def process_fine_grained_labels(fine_labels_path, filename_to_path, filename_to_
         else:
             relative_video_path = full_video_path
 
-        # Get assistant answer from most descriptive label
-        if 'labels_descriptive' in record and record['labels_descriptive']:
-            assistant_answer = record['labels_descriptive']
-        elif 'labels' in record and record['labels']:
-            assistant_answer = record['labels'][0] if isinstance(record['labels'], list) else record['labels']
+        # Get assistant answer from feedback attribute
+        if 'feedback' in record and record['feedback']:
+            assistant_answer = str(record['feedback']).strip()
         else:
             assistant_answer = "No feedback available."
-
-        # Ensure assistant answer is a single string
-        if isinstance(assistant_answer, list):
-            assistant_answer = '\n'.join(str(item) for item in assistant_answer)
-        else:
-            assistant_answer = str(assistant_answer)
 
         user_prompt = USER_PROMPT_TEMPLATE  # No longer using exercise name in prompt
 
