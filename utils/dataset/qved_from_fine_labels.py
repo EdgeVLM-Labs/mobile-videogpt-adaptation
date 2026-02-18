@@ -79,11 +79,12 @@ def process_fine_grained_labels(fine_labels_path, filename_to_path, filename_to_
         else:
             relative_video_path = full_video_path
 
-        # Get assistant answer from feedback attribute
+        # Get assistant answer in "exercise - feedback" format
         if 'feedback' in record and record['feedback']:
-            assistant_answer = str(record['feedback']).strip()
+            feedback = str(record['feedback']).strip()
+            assistant_answer = f"{exercise} - {feedback}"
         else:
-            assistant_answer = "No feedback available."
+            assistant_answer = f"{exercise} - No feedback available."
 
         user_prompt = USER_PROMPT_TEMPLATE  # No longer using exercise name in prompt
 
