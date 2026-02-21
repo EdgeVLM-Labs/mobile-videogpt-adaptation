@@ -89,7 +89,11 @@ def process_fine_grained_labels(fine_labels_path, filename_to_path, filename_to_
                 ground_truth = '\n'.join(str(item) for item in ground_truth)
             else:
                 ground_truth = str(ground_truth).strip()
-            assistant_answer = f"{exercise} - {ground_truth}"
+            # Prepend exercise name only if not already present
+            if ground_truth.lower().startswith(exercise.lower()):
+                assistant_answer = ground_truth
+            else:
+                assistant_answer = f"{exercise} - {ground_truth}"
         else:
             assistant_answer = f"{exercise} - No feedback available."
 
