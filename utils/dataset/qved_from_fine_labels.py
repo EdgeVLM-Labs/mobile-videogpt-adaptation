@@ -85,14 +85,20 @@ def process_fine_grained_labels(fine_labels_path, filename_to_path, filename_to_
         # Get assistant answer in "exercise - feedback" format
         ground_truth = record.get(GROUND_TRUTH_ATTRIBUTE, '')
         if ground_truth:
+            # Strip exercise prefix from each item and collect unique descriptions
+            prefix = f"{exercise} - ".lower()
             if isinstance(ground_truth, list):
-                ground_truth = '\n'.join(str(item) for item in ground_truth)
+                descriptions = []
+                for item in ground_truth:
+                    item_str = str(item).strip()
+                    if item_str.lower().startswith(prefix):
+                        item_str = item_str[len(prefix):].strip()
+                    descriptions.append(item_str)
+                assistant_answer = f"{exercise} - {', '.join(descriptions)}"
             else:
                 ground_truth = str(ground_truth).strip()
-            # Prepend exercise name only if not already present
-            if ground_truth.lower().startswith(exercise.lower()):
-                assistant_answer = ground_truth
-            else:
+                if ground_truth.lower().startswith(prefix):
+                    ground_truth = ground_truth[len(prefix):].strip()
                 assistant_answer = f"{exercise} - {ground_truth}"
         else:
             assistant_answer = f"{exercise} - No feedback available."
