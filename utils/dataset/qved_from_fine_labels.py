@@ -18,6 +18,9 @@ OUTPUT_FEEDBACKS_TEST_JSON = BASE_DIR / "qved_feedbacks_test.json"
 USER_PROMPT_TEMPLATE = "Watch the exercise being performed and provide short corrective feedback to help improve the form."
 FEEDBACK_PROMPT_TEMPLATE = "Please evaluate the exercise form shown. What feedback would you provide to improve the performance?"
 
+# The JSON attribute to use as the ground truth answer (e.g., "feedback", "labels_descriptive", "coach")
+GROUND_TRUTH_ATTRIBUTE = "labels_descriptive"
+
 # Dataset split ratios (adjustable)
 TRAIN_RATIO = 0.60
 VAL_RATIO = 0.20
@@ -80,9 +83,13 @@ def process_fine_grained_labels(fine_labels_path, filename_to_path, filename_to_
             relative_video_path = full_video_path
 
         # Get assistant answer in "exercise - feedback" format
-        if 'feedback' in record and record['feedback']:
-            feedback = str(record['feedback']).strip()
-            assistant_answer = f"{exercise} - {feedback}"
+        ground_truth = record.get(GROUND_TRUTH_ATTRIBUTE, '')
+        if ground_truth:
+            if isinstance(ground_truth, list):
+                ground_truth = '\n'.join(str(item) for item in ground_truth)
+            else:
+                ground_truth = str(ground_truth).strip()
+            assistant_answer = f"{exercise} - {ground_truth}"
         else:
             assistant_answer = f"{exercise} - No feedback available."
 
