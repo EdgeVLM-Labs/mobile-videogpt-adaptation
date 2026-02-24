@@ -10,6 +10,7 @@ Usage:
     python utils/generate_test_report.py --predictions test_predictions.json --output test_report.xlsx
 """
 
+import os
 import json
 import argparse
 import numpy as np
@@ -24,9 +25,12 @@ from openpyxl.chart.legend import Legend
 from sklearn.metrics.pairwise import cosine_similarity
 import evaluate
 from sentence_transformers import SentenceTransformer
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
 import re
+import torch
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 
 # ROUGE-L Score thresholds (0-1 scale, higher is better)
@@ -92,63 +96,90 @@ def check_exercise_match(ground_truth: str, prediction: str) -> bool:
     return gt_exercise == pred_exercise
 
 
+def extract_feedback_portion(text: str) -> str:
+    """Extract the feedback portion after the dash from text.
+
+    If multiple lines, extract feedback from each line and concatenate.
+    If no dash found, returns empty string (caller should fall back to full text).
+    """
+    if not text:
+        return ""
+
+    lines = [line.strip() for line in text.strip().split('\n') if line.strip()]
+    feedback_parts = []
+    has_dash = False
+
+    for line in lines:
+        if '-' in line:
+            has_dash = True
+            # Take everything after the first dash
+            feedback = line.split('-', 1)[1].strip()
+            if feedback:
+                feedback_parts.append(feedback)
+        else:
+            # Line without dash - include as-is
+            feedback_parts.append(line)
+
+    if not has_dash:
+        return ""
+
+    return '\n'.join(feedback_parts)
+
+
 def load_llm_judge():
-    """Load Mixtral-Instruct-0.1 model for LM-as-judge evaluation."""
-    print("\nLoading LLM Judge (Mixtral-8x7B-Instruct-v0.1)...")
-    print("This may take a few minutes on first run...")
+    """Load Azure OpenAI GPT-4o as LLM judge."""
+    print("\nLoading LLM Judge (Azure OpenAI GPT-4o)...")
 
     try:
-        model_name = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+        from langchain_openai import AzureChatOpenAI
 
-        # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-        # Load model with optimizations
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16,
-            device_map="auto",
-            load_in_8bit=True  # Use 8-bit quantization to reduce memory
+        llm = AzureChatOpenAI(
+            model_name="gpt-4o",
+            temperature=0.0,
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            azure_deployment=os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"],
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            api_version=os.environ["OPENAI_API_VERSION"],
         )
 
-        print("✓ LLM Judge loaded successfully")
-        return tokenizer, model
+        print("✓ LLM Judge loaded successfully (Azure OpenAI GPT-4o)")
+        return llm
 
     except Exception as e:
         print(f"⚠ Warning: Could not load LLM judge: {e}")
         print("  LLM Accuracy scores will be skipped")
-        return None, None
+        return None
 
 
-def compute_llm_accuracy_score(ground_truth: str, prediction: str, tokenizer, model) -> float:
+def compute_llm_accuracy_score(ground_truth: str, prediction: str, llm) -> float:
     """
-    Use Mixtral-Instruct as a judge to score prediction against ground truth.
+    Use Azure OpenAI GPT-4o as a judge to score prediction against ground truth.
     Returns a score from 1-5 for holistic accuracy and usefulness.
 
     Args:
         ground_truth: Reference feedback
         prediction: Model-generated feedback
-        tokenizer: Mixtral tokenizer
-        model: Mixtral model
+        llm: AzureChatOpenAI instance
 
     Returns:
         float: Score from 1.0 to 5.0
     """
-    if not ground_truth or not prediction or tokenizer is None or model is None:
+    if not ground_truth or not prediction or llm is None:
         return 0.0
 
     try:
-        # Create prompt for LM-as-judge
-        prompt = f"""[INST] You are an expert evaluator for exercise feedback quality.
+        from langchain_core.messages import HumanMessage
+
+        prompt = f"""You are an expert evaluator for exercise feedback quality.
 
 Given a ground-truth feedback and a predicted feedback for a physiotherapy exercise video, rate the predicted feedback on a scale of 1-5 for holistic accuracy and usefulness.
 
 Rating Scale:
-5 - Excellent: Predicted feedback is highly accurate, covers all key points, and is very useful
+5 - Excellent: Predicted feedback is highly accurate, covers all key points from the ground truth, and is very useful for the patient
 4 - Good: Predicted feedback is mostly accurate with minor omissions, still quite useful
-3 - Moderate: Predicted feedback has some accuracy but misses important details
-2 - Poor: Predicted feedback has major inaccuracies or missing critical information
-1 - Very Poor: Predicted feedback is largely incorrect or not useful
+3 - Moderate: Predicted feedback has some accuracy but misses important details or adds irrelevant information
+2 - Poor: Predicted feedback has major inaccuracies or is missing critical information from the ground truth
+1 - Very Poor: Predicted feedback is largely incorrect, irrelevant, or not useful
 
 Ground-truth feedback:
 {ground_truth}
@@ -156,34 +187,17 @@ Ground-truth feedback:
 Predicted feedback:
 {prediction}
 
-Provide only a single number (1-5) as your rating. [/INST]
+Respond with ONLY a single number (1-5) as your rating."""
 
-Rating:"""
-
-        # Tokenize
-        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
-        inputs = {k: v.to(model.device) for k, v in inputs.items()}
-
-        # Generate
-        with torch.inference_mode():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=10,
-                do_sample=False,
-                temperature=0.0,
-                pad_token_id=tokenizer.eos_token_id
-            )
-
-        # Decode response
-        response = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+        response = llm.invoke([HumanMessage(content=prompt)])
+        response_text = response.content.strip()
 
         # Extract score (look for first number 1-5)
-        match = re.search(r'\b([1-5])\b', response)
+        match = re.search(r'\b([1-5])\b', response_text)
         if match:
-            score = float(match.group(1))
-            return score
+            return float(match.group(1))
         else:
-            print(f"⚠ Could not parse LLM response: {response[:100]}")
+            print(f"⚠ Could not parse LLM response: {response_text[:100]}")
             return 3.0  # Default to middle score
 
     except Exception as e:
@@ -205,7 +219,8 @@ def compute_cosine_similarity_bert(text1: str, text2: str, model) -> float:
 
 
 def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = True,
-                       base_predictions: List[Dict] = None, use_llm_judge: bool = True):
+                       base_predictions: List[Dict] = None, use_llm_judge: bool = True,
+                       evaluate_exercise_feedback: bool = False):
     """Create an Excel report with formatted results and similarity scores."""
 
     # Create base prediction lookup if provided
@@ -228,10 +243,9 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             use_bert = False
 
     # Load LLM judge if requested
-    llm_tokenizer = None
-    llm_model = None
+    llm_judge = None
     if use_llm_judge:
-        llm_tokenizer, llm_model = load_llm_judge()
+        llm_judge = load_llm_judge()
 
     # Create workbook
     wb = openpyxl.Workbook()
@@ -258,6 +272,10 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         "Ground Truth",
         "Model Prediction",
     ]
+
+    # Add Feedback Only column when evaluating feedback portion
+    if evaluate_exercise_feedback:
+        headers.append("Feedback Only")
 
     # Add base model column if available
     if base_predictions:
@@ -288,6 +306,10 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     ws.column_dimensions['D'].width = 50  # Prediction
 
     col_idx = 5  # Start after D
+
+    if evaluate_exercise_feedback:
+        ws.column_dimensions[get_column_letter(col_idx)].width = 50  # Feedback Only
+        col_idx += 1
 
     if base_predictions:
         ws.column_dimensions[get_column_letter(col_idx)].width = 50  # Base Model Response
@@ -338,6 +360,7 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     exercise_matches = []
     exercise_stats = {}  # Track per-exercise statistics: {exercise_name: {'correct': x, 'total': y}}
 
+    total_results = len(results)
     for idx, result in enumerate(results, start=1):
         row = idx + 1
 
@@ -356,22 +379,36 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             throughput_values.append(throughput)
             generation_times.append(gen_time)
 
+        # Determine text to evaluate for metrics
+        feedback_only_text = ""
+        eval_prediction = prediction
+        eval_ground_truth = ground_truth
+        if evaluate_exercise_feedback:
+            pred_feedback = extract_feedback_portion(prediction)
+            gt_feedback = extract_feedback_portion(ground_truth)
+            if pred_feedback:
+                feedback_only_text = pred_feedback
+                eval_prediction = pred_feedback
+            if gt_feedback:
+                eval_ground_truth = gt_feedback
+
         # Compute similarities
         bert_sim = None
         if use_bert and bert_model:
-            bert_sim = compute_cosine_similarity_bert(ground_truth, prediction, bert_model)
+            bert_sim = compute_cosine_similarity_bert(eval_ground_truth, eval_prediction, bert_model)
             bert_scores.append(bert_sim)
 
-        meteor_sim = compute_meteor_score(ground_truth, prediction, meteor_metric)
+        meteor_sim = compute_meteor_score(eval_ground_truth, eval_prediction, meteor_metric)
         meteor_scores.append(meteor_sim)
 
-        rouge_sim = compute_rouge_score(ground_truth, prediction, rouge_metric)
+        rouge_sim = compute_rouge_score(eval_ground_truth, eval_prediction, rouge_metric)
         rouge_scores.append(rouge_sim)
 
         # Compute LLM accuracy (1-5 scale)
         llm_score = 0.0
-        if use_llm_judge and llm_tokenizer and llm_model:
-            llm_score = compute_llm_accuracy_score(ground_truth, prediction, llm_tokenizer, llm_model)
+        if use_llm_judge and llm_judge:
+            print(f"  LLM Judge: evaluating ({idx}/{total_results})...")
+            llm_score = compute_llm_accuracy_score(eval_ground_truth, eval_prediction, llm_judge)
             llm_accuracy_scores.append(llm_score)
 
         exercise_match = check_exercise_match(ground_truth, prediction)
@@ -397,6 +434,11 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         ws.cell(row=row, column=col).value = prediction
         col += 1
 
+        # Add Feedback Only column if enabled
+        if evaluate_exercise_feedback:
+            ws.cell(row=row, column=col).value = feedback_only_text if feedback_only_text else ""
+            col += 1
+
         # Add base model response if available
         if base_predictions:
             base_pred = base_pred_map.get(video_path, 'N/A')
@@ -420,7 +462,7 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
 
         # LLM Accuracy (1-5 scale)
         llm_col_idx = col
-        if use_llm_judge and llm_score > 0:
+        if use_llm_judge and llm_judge and llm_score > 0:
             ws.cell(row=row, column=col).value = round(llm_score, 2)
         col += 1
 
@@ -863,7 +905,11 @@ def main():
     parser.add_argument("--no-bert", action="store_true",
                         help="Skip BERT similarity (faster, uses only TF-IDF)")
     parser.add_argument("--no-llm-judge", action="store_true",
-                        help="Skip LLM judge evaluation (faster, skips Mixtral scoring)")
+                        help="Skip LLM judge evaluation (default: skipped). Use --llm-judge to enable.")
+    parser.add_argument("--llm-judge", action="store_true",
+                        help="Enable Azure OpenAI GPT-4o LLM judge evaluation")
+    parser.add_argument("--evaluate-exercise-feedback", action="store_true",
+                        help="Evaluate only the feedback portion (after dash) instead of the full output")
     parser.add_argument("--include-base-model", action="store_true",
                         help="Include base model predictions (requires user confirmation)")
     parser.add_argument("--base-model", type=str, default="Amshaker/Mobile-VideoGPT-0.5B",
@@ -932,8 +978,12 @@ def main():
         else:
             print("Skipping base model inference.")
 
+    # Determine LLM judge usage: --llm-judge enables it, --no-llm-judge is default (disabled)
+    use_llm_judge = args.llm_judge and not args.no_llm_judge
+
     # Generate report
     create_excel_report(results, args.output, use_bert=not args.no_bert,
-                       base_predictions=base_predictions, use_llm_judge=not args.no_llm_judge)
+                       base_predictions=base_predictions, use_llm_judge=use_llm_judge,
+                       evaluate_exercise_feedback=args.evaluate_exercise_feedback)
 if __name__ == "__main__":
     main()
