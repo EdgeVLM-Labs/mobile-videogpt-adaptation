@@ -54,6 +54,49 @@ LLM_GREEN_THRESHOLD = 4.0   # >= this value is green (good)
 LLM_YELLOW_THRESHOLD = 3.0  # >= this value is yellow (moderate), below is red
 
 
+DASH_CONTAIN_EXERCISES = [
+    "mountain-climbers",
+]
+
+
+def _split_exercise_feedback(text: str) -> tuple:
+    """Split text into (exercise_name, feedback) handling exercises that contain dashes.
+
+    Returns (exercise_name, feedback) where feedback may be empty if no separator found.
+    """
+    if not text:
+        return ("", "")
+
+    text_lower = text.strip().lower()
+
+    # Check if text starts with a dash-containing exercise name
+    for exercise in DASH_CONTAIN_EXERCISES:
+        if text_lower.startswith(exercise):
+            rest = text.strip()[len(exercise):]
+            # Expect " - feedback" after the exercise name
+            if rest.startswith(' - '):
+                return (exercise, rest[3:].strip())
+            elif rest.startswith(' -'):
+                return (exercise, rest[2:].strip())
+            elif rest.startswith('- '):
+                return (exercise, rest[2:].strip())
+            elif rest.startswith('-'):
+                return (exercise, rest[1:].strip())
+            else:
+                # Exercise name matched but no dash separator after it
+                return (exercise, "")
+
+    # Default: split on first " - " or first "-"
+    if ' - ' in text:
+        parts = text.split(' - ', 1)
+        return (parts[0].strip(), parts[1].strip())
+    elif '-' in text:
+        parts = text.split('-', 1)
+        return (parts[0].strip(), parts[1].strip())
+
+    return (text.strip(), "")
+
+
 def compute_meteor_score(reference: str, hypothesis: str, metric) -> float:
     """Compute METEOR score."""
     if not reference or not hypothesis or metric is None:
@@ -80,13 +123,8 @@ def compute_rouge_score(reference: str, hypothesis: str, metric) -> float:
 
 def extract_exercise_name(text: str) -> str:
     """Extract exercise name from text (before the dash)."""
-    if not text:
-        return ""
-
-    # Find first dash and get text before it
-    if '-' in text:
-        return text.split('-')[0].strip().lower()
-    return text.strip().lower()
+    name, _ = _split_exercise_feedback(text)
+    return name.lower()
 
 
 def check_exercise_match(ground_truth: str, prediction: str) -> bool:
@@ -101,30 +139,28 @@ def check_exercise_match(ground_truth: str, prediction: str) -> bool:
 
 
 def extract_feedback_portion(text: str) -> str:
-    """Extract the feedback portion after the dash from text.
+    """Extract the feedback portion after the exercise name dash from text.
 
     If multiple lines, extract feedback from each line and concatenate.
-    If no dash found, returns empty string (caller should fall back to full text).
+    If no dash separator found, returns empty string (caller should fall back to full text).
+    Handles exercises whose names contain dashes (e.g. mountain-climbers).
     """
     if not text:
         return ""
 
     lines = [line.strip() for line in text.strip().split('\n') if line.strip()]
     feedback_parts = []
-    has_dash = False
+    has_feedback = False
 
     for line in lines:
-        if '-' in line:
-            has_dash = True
-            # Take everything after the first dash
-            feedback = line.split('-', 1)[1].strip()
-            if feedback:
-                feedback_parts.append(feedback)
+        _, feedback = _split_exercise_feedback(line)
+        if feedback:
+            has_feedback = True
+            feedback_parts.append(feedback)
         else:
-            # Line without dash - include as-is
             feedback_parts.append(line)
 
-    if not has_dash:
+    if not has_feedback:
         return ""
 
     return '\n'.join(feedback_parts)
@@ -943,20 +979,17 @@ def main():
 
     args = parser.parse_args()
 
-    # Set default output path to same directory as predictions if not provided
     if args.output is None:
         pred_path = Path(args.predictions)
         args.output = str(pred_path.parent / "test_evaluation_report.xlsx")
         print(f"Output will be saved to: {args.output}")
 
-    # Load predictions
     print(f"Loading predictions from: {args.predictions}")
     with open(args.predictions, 'r') as f:
         results = json.load(f)
 
     print(f"Loaded {len(results)} predictions")
 
-    # Handle base model predictions
     base_predictions = None
     if args.include_base_model:
         print("\n" + "="*60)
@@ -973,7 +1006,6 @@ def main():
             try:
                 from utils.inference.base_model_inference import get_base_model_predictions
 
-                # Load test data
                 if not args.test_json:
                     print("❌ Error: --test-json required for base model inference")
                     return
@@ -981,7 +1013,6 @@ def main():
                 with open(args.test_json, 'r') as f:
                     test_data = json.load(f)
 
-                # Run base model inference
                 base_predictions = get_base_model_predictions(
                     test_data,
                     base_model=args.base_model,
@@ -1001,7 +1032,6 @@ def main():
     # Determine LLM judge usage: --llm-judge enables it, --no-llm-judge is default (disabled)
     use_llm_judge = args.llm_judge and not args.no_llm_judge
 
-    # Generate report
     create_excel_report(results, args.output, use_bert=not args.no_bert,
                        base_predictions=base_predictions, use_llm_judge=use_llm_judge,
                        evaluate_exercise_feedback=args.evaluate_exercise_feedback)
