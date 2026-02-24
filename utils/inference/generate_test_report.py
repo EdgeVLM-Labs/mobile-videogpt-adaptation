@@ -13,21 +13,25 @@ Usage:
 import os
 import json
 import argparse
+import re
 import numpy as np
+import torch
 from pathlib import Path
 from typing import List, Dict
+
+import evaluate
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.chart import BarChart, Reference
-from openpyxl.chart.label import DataLabelList
 from openpyxl.chart.legend import Legend
+from openpyxl.chart.series import DataPoint
+from openpyxl.chart.shapes import GraphicalProperties
 from sklearn.metrics.pairwise import cosine_similarity
-import evaluate
 from sentence_transformers import SentenceTransformer
-import re
-import torch
 from dotenv import load_dotenv
+from langchain_openai import AzureChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env")
@@ -126,13 +130,54 @@ def extract_feedback_portion(text: str) -> str:
     return '\n'.join(feedback_parts)
 
 
+LLM_JUDGE_SYSTEM_PROMPT = """You are an expert evaluator for an AI exercise coaching system. Your task is to judge whether a model's predicted feedback for an exercise video is semantically accurate compared to the ground truth feedback.
+
+You must evaluate SEMANTIC CORRECTNESS - whether the prediction identifies the same exercise issues and gives equivalent coaching advice - NOT surface-level wording similarity.
+
+## Scoring Rubric (1-5)
+
+**Score 5 - Semantically Equivalent**
+The prediction identifies the same exercise AND the same issue(s) as the ground truth. Wording differences are irrelevant.
+Examples of equivalent pairs:
+- GT: "User's hips are moving" -> Pred: "Keep your hips stable and avoid movement" (same issue, different style)
+- GT: "speed=0.50 rps, arms_rom=4.0" -> Pred: "Increase your speed and range of motion" (technical vs coaching, same meaning)
+
+**Score 4 - Mostly Correct**
+The prediction identifies the correct exercise AND captures the primary issue but misses secondary details, or adds a minor inaccuracy.
+
+**Score 3 - Partially Correct**
+The prediction identifies the correct exercise but only captures some issues correctly, misses the main issue, or provides generic feedback.
+
+**Score 2 - Mostly Incorrect**
+The prediction identifies the correct exercise but the feedback content is wrong or contradictory.
+
+**Score 1 - Wrong**
+The prediction identifies the WRONG exercise, OR the feedback is entirely irrelevant.
+
+## Important Evaluation Rules
+
+1. **Style-agnostic**: Technical format ("speed=0.50 rps, arms_rom=4.0") and coaching format ("Speed up a bit and extend your arms more") are equivalent if they describe the same issues.
+2. **Exercise name MUST match**: If the prediction names a different exercise than the ground truth, the maximum score is 1.
+3. **Directional correctness matters**: "User's hips are too high" and "Keep your hips lower" describe the same issue. But "Raise your hips higher" would contradict it.
+4. **Numeric precision is lenient**: "speed=0.50 rps" vs "speed=0.60 rps" should not be heavily penalized.
+5. **"No obvious issue" handling**: If GT says form is fine, prediction should also indicate good form. If prediction flags an error when GT says form is fine, score 2.
+6. **Partial credit for multi-issue GT**: If the ground truth mentions N issues and the prediction correctly captures K of them, score proportionally."""
+
+LLM_JUDGE_USER_TEMPLATE = """Evaluate this exercise feedback prediction.
+
+**Exercise:** {exercise_name}
+**Ground Truth Feedback:** {ground_truth}
+**Model Prediction:** {model_prediction}
+
+Respond in this exact JSON format only:
+{{"score": <1-5>, "justification": "<one sentence explaining your score>"}}"""
+
+
 def load_llm_judge():
     """Load Azure OpenAI GPT-4o as LLM judge."""
     print("\nLoading LLM Judge (Azure OpenAI GPT-4o)...")
 
     try:
-        from langchain_openai import AzureChatOpenAI
-
         llm = AzureChatOpenAI(
             model_name="gpt-4o",
             temperature=0.0,
@@ -154,51 +199,42 @@ def load_llm_judge():
 def compute_llm_accuracy_score(ground_truth: str, prediction: str, llm) -> float:
     """
     Use Azure OpenAI GPT-4o as a judge to score prediction against ground truth.
-    Returns a score from 1-5 for holistic accuracy and usefulness.
-
-    Args:
-        ground_truth: Reference feedback
-        prediction: Model-generated feedback
-        llm: AzureChatOpenAI instance
-
-    Returns:
-        float: Score from 1.0 to 5.0
+    Returns a score from 1-5 based on semantic correctness.
     """
     if not ground_truth or not prediction or llm is None:
         return 0.0
 
     try:
-        from langchain_core.messages import HumanMessage
+        exercise_name = ground_truth.split(' - ')[0].strip() if ' - ' in ground_truth else ground_truth.split()[0]
 
-        prompt = f"""You are an expert evaluator for exercise feedback quality.
+        user_prompt = LLM_JUDGE_USER_TEMPLATE.format(
+            exercise_name=exercise_name,
+            ground_truth=ground_truth,
+            model_prediction=prediction,
+        )
 
-Given a ground-truth feedback and a predicted feedback for a physiotherapy exercise video, rate the predicted feedback on a scale of 1-5 for holistic accuracy and usefulness.
-
-Rating Scale:
-5 - Excellent: Predicted feedback is highly accurate, covers all key points from the ground truth, and is very useful for the patient
-4 - Good: Predicted feedback is mostly accurate with minor omissions, still quite useful
-3 - Moderate: Predicted feedback has some accuracy but misses important details or adds irrelevant information
-2 - Poor: Predicted feedback has major inaccuracies or is missing critical information from the ground truth
-1 - Very Poor: Predicted feedback is largely incorrect, irrelevant, or not useful
-
-Ground-truth feedback:
-{ground_truth}
-
-Predicted feedback:
-{prediction}
-
-Respond with ONLY a single number (1-5) as your rating."""
-
-        response = llm.invoke([HumanMessage(content=prompt)])
+        response = llm.invoke([
+            SystemMessage(content=LLM_JUDGE_SYSTEM_PROMPT),
+            HumanMessage(content=user_prompt),
+        ])
         response_text = response.content.strip()
 
-        # Extract score (look for first number 1-5)
+        # Try parsing as JSON first
+        try:
+            result = json.loads(response_text)
+            score = float(result.get("score", 3))
+            if 1 <= score <= 5:
+                return score
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+        # Fallback: extract first number 1-5
         match = re.search(r'\b([1-5])\b', response_text)
         if match:
             return float(match.group(1))
-        else:
-            print(f"⚠ Could not parse LLM response: {response_text[:100]}")
-            return 3.0  # Default to middle score
+
+        print(f"⚠ Could not parse LLM response: {response_text[:100]}")
+        return 3.0
 
     except Exception as e:
         print(f"⚠ Error computing LLM accuracy: {e}")
@@ -701,11 +737,6 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         bert_chart.width = 12
         bert_chart.height = 8
 
-        # Color the bars: green, yellow, red
-        from openpyxl.chart.series import DataPoint
-        from openpyxl.drawing.fill import PatternFillProperties, ColorChoice
-        from openpyxl.chart.shapes import GraphicalProperties
-
         series = bert_chart.series[0]
         # Green bar
         pt_green = DataPoint(idx=0)
@@ -756,10 +787,6 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         meteor_chart.shape = 4
         meteor_chart.width = 12
         meteor_chart.height = 8
-
-        # Color the bars: green, yellow, red
-        from openpyxl.chart.series import DataPoint
-        from openpyxl.chart.shapes import GraphicalProperties
 
         series = meteor_chart.series[0]
         # Green bar
@@ -813,10 +840,6 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         rouge_chart.shape = 4
         rouge_chart.width = 12
         rouge_chart.height = 8
-
-        # Color the bars: green, yellow, red
-        from openpyxl.chart.series import DataPoint
-        from openpyxl.chart.shapes import GraphicalProperties
 
         series = rouge_chart.series[0]
         # Green bar
@@ -891,7 +914,6 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         print(f"  Mean: {np.mean(llm_accuracy_scores):.2f}")
         print(f"  Median: {np.median(llm_accuracy_scores):.2f}")
         print(f"  Std Dev: {np.std(llm_accuracy_scores):.2f}")
-        print(f"  Accuracy: {exercise_accuracy:.2f}%")
 
     print(f"{'='*60}")
 
@@ -948,10 +970,8 @@ def main():
         response = input("\nProceed with base model inference? (yes/no): ").strip().lower()
 
         if response in ['yes', 'y', 'ok']:
-            # Import base model inference utility
             try:
-                import torch
-                from utils.base_model_inference import get_base_model_predictions
+                from utils.inference.base_model_inference import get_base_model_predictions
 
                 # Load test data
                 if not args.test_json:
