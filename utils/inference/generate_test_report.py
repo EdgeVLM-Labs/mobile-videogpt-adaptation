@@ -29,6 +29,7 @@ from openpyxl.chart.series import DataPoint
 from openpyxl.chart.shapes import GraphicalProperties
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
+from pycocoevalcap.cider.cider import Cider
 from dotenv import load_dotenv
 from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -48,6 +49,10 @@ BERT_YELLOW_THRESHOLD = 0.4  # >= this value is yellow (moderate), below is red
 # METEOR Score thresholds (0-1 scale, higher is better)
 METEOR_GREEN_THRESHOLD = 0.5   # >= this value is green (good)
 METEOR_YELLOW_THRESHOLD = 0.2  # >= this value is yellow (moderate), below is red
+
+# CIDEr Score thresholds (0+ scale, higher is better)
+CIDER_GREEN_THRESHOLD = 0.5
+CIDER_YELLOW_THRESHOLD = 0.2
 
 # LLM Accuracy thresholds (1-5 scale, higher is better)
 LLM_GREEN_THRESHOLD = 4.0   # >= this value is green (good)
@@ -117,6 +122,20 @@ def compute_rouge_score(reference: str, hypothesis: str, metric) -> float:
     try:
         result = metric.compute(predictions=[hypothesis], references=[reference])
         return result['rougeL']
+    except:
+        return 0.0
+
+
+def compute_cider_score(reference: str, hypothesis: str) -> float:
+    """Compute CIDEr score using pycocoevalcap (n=4)."""
+    if not reference or not hypothesis:
+        return 0.0
+
+        cider_scorer = Cider(n=4)
+        gts = {0: [reference]}
+        res = {0: [hypothesis]}
+        score, _ = cider_scorer.compute_score(gts, res)
+        return float(score)
     except:
         return 0.0
 
@@ -357,9 +376,11 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         headers.append("BERT Similarity")
 
     headers.extend([
+        "CIDEr Score",
         "METEOR Score",
         "ROUGE-L Score",
         "LLM Accuracy (1-5)",
+        "Exercise Identification",
     ])
 
     # Write headers
@@ -391,15 +412,11 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         ws.column_dimensions[get_column_letter(col_idx)].width = 15  # BERT Similarity
         col_idx += 1
 
-    ws.column_dimensions[get_column_letter(col_idx)].width = 15      # METEOR Score
-    ws.column_dimensions[get_column_letter(col_idx + 1)].width = 15  # ROUGE-L Score
-    ws.column_dimensions[get_column_letter(col_idx + 2)].width = 18  # LLM Accuracy
-    ws.column_dimensions[get_column_letter(col_idx + 3)].width = 15  # Throughput
-    ws.column_dimensions[get_column_letter(col_idx + 4)].width = 12  # Gen Time
-    ws.column_dimensions[get_column_letter(col_idx + 5)].width = 15  # Generated Tokens
-    ws.column_dimensions[get_column_letter(col_idx + 6)].width = 15  # Exercise Match
-    ws.column_dimensions[get_column_letter(col_idx + 7)].width = 10  # Status
-    ws.column_dimensions[get_column_letter(col_idx + 8)].width = 30  # Error
+    ws.column_dimensions[get_column_letter(col_idx)].width = 15      # CIDEr Score
+    ws.column_dimensions[get_column_letter(col_idx + 1)].width = 15  # METEOR Score
+    ws.column_dimensions[get_column_letter(col_idx + 2)].width = 15  # ROUGE-L Score
+    ws.column_dimensions[get_column_letter(col_idx + 3)].width = 18  # LLM Accuracy
+    ws.column_dimensions[get_column_letter(col_idx + 4)].width = 20  # Exercise Identification
 
     # Freeze header row
     ws.freeze_panes = "A2"
@@ -424,6 +441,7 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         print(f"⚠ Failed to load ROUGE metric: {e}")
 
     bert_scores = []
+    cider_scores = []
     meteor_scores = []
     rouge_scores = []
     llm_accuracy_scores = []
@@ -469,6 +487,9 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         if use_bert and bert_model:
             bert_sim = compute_cosine_similarity_bert(eval_ground_truth, eval_prediction, bert_model)
             bert_scores.append(bert_sim)
+
+        cider_sim = compute_cider_score(eval_ground_truth, eval_prediction)
+        cider_scores.append(cider_sim)
 
         meteor_sim = compute_meteor_score(eval_ground_truth, eval_prediction, meteor_metric)
         meteor_scores.append(meteor_sim)
@@ -524,6 +545,10 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             bert_col_idx = col
             col += 1
 
+        cider_col_idx = col
+        ws.cell(row=row, column=col).value = round(cider_sim, 4)
+        col += 1
+
         meteor_col_idx = col
         ws.cell(row=row, column=col).value = round(meteor_sim, 4)
         col += 1
@@ -532,7 +557,6 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         ws.cell(row=row, column=col).value = round(rouge_sim, 4)
         col += 1
 
-        # LLM Accuracy (1-5 scale)
         llm_col_idx = col
         if use_llm_judge and llm_judge and llm_score > 0:
             ws.cell(row=row, column=col).value = round(llm_score, 2)
@@ -540,11 +564,6 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
 
         exercise_col_idx = col
         ws.cell(row=row, column=col).value = "TRUE" if exercise_match else "FALSE"
-        col += 1
-
-        ws.cell(row=row, column=col).value = status
-        col += 1
-        ws.cell(row=row, column=col).value = error
 
         # Apply formatting
         for c in range(1, col + 1):
@@ -558,6 +577,15 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
                 if score >= BERT_GREEN_THRESHOLD:
                     cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
                 elif score >= BERT_YELLOW_THRESHOLD:
+                    cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+                else:
+                    cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+
+            if c == cider_col_idx:
+                score = cider_sim
+                if score >= CIDER_GREEN_THRESHOLD:
+                    cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+                elif score >= CIDER_YELLOW_THRESHOLD:
                     cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
                 else:
                     cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
@@ -648,6 +676,17 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             [f"Green (≥{BERT_GREEN_THRESHOLD})", bert_green],
             [f"Yellow ({BERT_YELLOW_THRESHOLD}-{BERT_GREEN_THRESHOLD})", bert_yellow],
             [f"Red (<{BERT_YELLOW_THRESHOLD})", bert_red],
+            ["", ""],
+        ])
+
+    if cider_scores:
+        summary_data.extend([
+            ["CIDEr Score", ""],
+            ["Mean", round(np.mean(cider_scores), 4)],
+            ["Median", round(np.median(cider_scores), 4)],
+            ["Std Dev", round(np.std(cider_scores), 4)],
+            ["Min", round(np.min(cider_scores), 4)],
+            ["Max", round(np.max(cider_scores), 4)],
             ["", ""],
         ])
 
@@ -932,6 +971,12 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         print(f"  Mean: {np.mean(bert_scores):.4f}")
         print(f"  Median: {np.median(bert_scores):.4f}")
         print(f"  Std Dev: {np.std(bert_scores):.4f}")
+
+    if cider_scores:
+        print(f"\nCIDEr Score:")
+        print(f"  Mean: {np.mean(cider_scores):.4f}")
+        print(f"  Median: {np.median(cider_scores):.4f}")
+        print(f"  Std Dev: {np.std(cider_scores):.4f}")
 
     if meteor_scores:
         print(f"\nMETEOR Score:")
