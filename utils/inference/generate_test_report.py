@@ -131,6 +131,7 @@ def compute_cider_score(reference: str, hypothesis: str) -> float:
     if not reference or not hypothesis:
         return 0.0
 
+    try:
         cider_scorer = Cider(n=4)
         gts = {0: [reference]}
         res = {0: [hypothesis]}
