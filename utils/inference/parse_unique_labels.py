@@ -1,4 +1,13 @@
-"""Parse unique exercise labels and feedback from prediction results."""
+"""Parse unique exercise labels and feedback from prediction results.
+
+Usage:
+    # Parse labels grouped by exercise (default mode):
+    python parse_unique_labels.py --json_file_path "results/QEVD-Fit-300k Only.json"
+    
+    # Parse labels as flat lists without grouping by exercise:
+    python parse_unique_labels.py --json_file_path "results/Modified Ground Truth (Feedback Only).json" --enable_only_feedback_label_format
+
+"""
 
 import argparse
 import json
