@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """
-Vary Inference - Temperature Sweep Experiment
-
 Runs MobileVideoGPT 0.5B (with LoRA adapters) inference across multiple exercises
 at different temperatures and produces an Excel report with per-video metrics.
 
@@ -40,9 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from mobilevideogpt.utils import preprocess_input
 
-# ---------------------------------------------------------------------------
 # Defaults
-# ---------------------------------------------------------------------------
 DEFAULT_DATASET = "dataset/QEVD-14-CLEANED"
 DEFAULT_BASE_MODEL = "Amshaker/Mobile-VideoGPT-0.5B"
 DEFAULT_LORA_WEIGHTS = "EdgeVLM-Labs/mobile-videogpt-finetune-2000"
@@ -50,7 +46,7 @@ DEFAULT_VIDEOS_PER_EXERCISE = 20
 DEFAULT_TEMPERATURES: List[Optional[float]] = [None, 0.1, 0.2, 0.5, 0.7]  # None = greedy
 PROMPT = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
 
-# Metric thresholds (copied from generate_test_report.py)
+# Metric thresholds
 ROUGE_GREEN_THRESHOLD = 0.5
 ROUGE_YELLOW_THRESHOLD = 0.2
 BERT_GREEN_THRESHOLD = 0.7
@@ -60,47 +56,30 @@ METEOR_YELLOW_THRESHOLD = 0.2
 LLM_GREEN_THRESHOLD = 4.0
 LLM_YELLOW_THRESHOLD = 3.0
 
-# ---------------------------------------------------------------------------
-# LLM Judge prompts (from generate_test_report.py)
-# ---------------------------------------------------------------------------
-LLM_JUDGE_SYSTEM_PROMPT = """You are an expert evaluator for an AI exercise coaching system. Your task is to judge whether a model's predicted feedback for an exercise video is semantically accurate compared to the ground truth feedback.
+# LLM Judge prompts
+LLM_JUDGE_SYSTEM_PROMPT = """You are an intelligent chatbot designed for evaluating feedback sequences provided by a virtual fitness coach to a person.
 
-You must evaluate SEMANTIC CORRECTNESS - whether the prediction identifies the same exercise issues and gives equivalent coaching advice - NOT surface-level wording similarity.
+Your task is to compare the accuracy of the predicted feedback with the ground truth feedback.
+- The predicted feedback must be factually accurate, relevant and align with the ground truth feedback.
+- Consider synonyms or paraphrases as valid matches. Different wording that conveys the same corrective advice is equally correct.
+- Repetition counts can be expressed in numeric form or in words (e.g. "10" and "ten" are equivalent).
+- Encouraging, coaching-style language that addresses the same issue as the ground truth is valid.
 
 ## Scoring Rubric (1-5)
 
-**Score 5 - Semantically Equivalent**
-The prediction identifies the same exercise AND the same issue(s) as the ground truth. Wording differences are irrelevant.
+Score 5: Correctly identifies the exercise AND provides relevant, accurate corrective feedback that aligns with the ground truth. Paraphrases and synonyms are fully acceptable.
+Score 4: Correctly identifies the exercise, feedback is relevant and mostly accurate but could be more specific or misses a minor detail.
+Score 3: Exercise identified correctly, feedback is generic or vague but not factually wrong.
+Score 2: Exercise identified but feedback is irrelevant or contradicts the ground truth.
+Score 1: Wrong exercise identified or completely irrelevant response.
 
-**Score 4 - Mostly Correct**
-The prediction identifies the correct exercise AND captures the primary issue but misses secondary details, or adds a minor inaccuracy.
+Provide your evaluation ONLY as a Python dictionary string with keys 'score' and 'justification'. Do not provide any other output text or explanation."""
 
-**Score 3 - Partially Correct**
-The prediction identifies the correct exercise but only captures some issues correctly, misses the main issue, or provides generic feedback.
+LLM_JUDGE_USER_TEMPLATE = """Evaluate the following predicted feedback:
+- Ground truth feedback: {ground_truth}
+- Predicted feedback: {model_prediction}
 
-**Score 2 - Mostly Incorrect**
-The prediction identifies the correct exercise but the feedback content is wrong or contradictory.
-
-**Score 1 - Wrong**
-The prediction identifies the WRONG exercise, OR the feedback is entirely irrelevant.
-
-## Important Evaluation Rules
-
-1. **Style-agnostic**: Technical format and coaching format are equivalent if they describe the same issues.
-2. **Exercise name MUST match**: If the prediction names a different exercise, the maximum score is 1.
-3. **Directional correctness matters**.
-4. **Numeric precision is lenient**.
-5. **"No obvious issue" handling**: If GT says form is fine, prediction should also indicate good form.
-6. **Partial credit for multi-issue GT**: Score proportionally."""
-
-LLM_JUDGE_USER_TEMPLATE = """Evaluate this exercise feedback prediction.
-
-**Exercise:** {exercise_name}
-**Ground Truth Feedback:** {ground_truth}
-**Model Prediction:** {model_prediction}
-
-Respond in this exact JSON format only:
-{{"score": <1-5>, "justification": "<one sentence explaining your score>"}}"""
+Respond ONLY in this format: {{"score": <1-5>, "justification": "<one sentence>"}}"""
 
 
 def temp_label(t: Optional[float]) -> str:
@@ -110,9 +89,7 @@ def temp_label(t: Optional[float]) -> str:
     return f"temp_{t}"
 
 
-# ---------------------------------------------------------------------------
-# Model loading (adapted from test_inference.py)
-# ---------------------------------------------------------------------------
+# Model loading
 def load_model(base_model: str, lora_path: str, device: str = "cuda"):
     """Load base model and merge LoRA adapters."""
     # Detect if lora_path contains LoRA adapters
@@ -149,9 +126,7 @@ def load_model(base_model: str, lora_path: str, device: str = "cuda"):
     return model, tokenizer
 
 
-# ---------------------------------------------------------------------------
-# Inference (adapted from test_inference.py)
-# ---------------------------------------------------------------------------
+# Inference
 def run_inference(
     model,
     tokenizer,
@@ -161,11 +136,7 @@ def run_inference(
     max_new_tokens: int = 512,
     temperature: Optional[float] = None,
 ) -> str:
-    """Run inference on a single video at the given temperature.
-
-    Args:
-        temperature: None for greedy decoding, else the sampling temperature.
-    """
+    """Run inference on a single video at the given temperature."""
     input_ids, video_frames, context_frames, stop_str = preprocess_input(
         model, tokenizer, video_path, prompt
     )
@@ -193,14 +164,10 @@ def run_inference(
     return output_text
 
 
-# ---------------------------------------------------------------------------
 # Dataset helpers
-# ---------------------------------------------------------------------------
-def load_ground_truths(labels_json: str) -> Dict[str, str]:
-    """Load fine_grained_labels.json and return {video_filename: labels_descriptive}.
+def load_ground_truths(labels_json: str, label_key: str = "labels_descriptive") -> Dict[str, str]:
+    """Load fine_grained_labels.json and return {video_filename: ground_truth_text}."""
 
-    The labels_descriptive list is joined with '; ' when there are multiple labels.
-    """
     with open(labels_json, "r") as f:
         data = json.load(f)
 
@@ -208,16 +175,14 @@ def load_ground_truths(labels_json: str) -> Dict[str, str]:
     for entry in data:
         vp = entry["video_path"]  # e.g. './squats/00032607.mp4'
         filename = os.path.basename(vp)
-        descriptive = entry.get("labels_descriptive", entry.get("labels", []))
-        mapping[filename] = "; ".join(descriptive) if descriptive else ""
+        values = entry.get(label_key, entry.get("labels", []))
+        mapping[filename] = "; ".join(values) if values else ""
     return mapping
 
 
 def collect_videos(dataset_path: str, videos_per_exercise: int) -> List[Dict]:
-    """Walk exercise subfolders and collect video paths with exercise type.
+    """Walk exercise subfolders and collect video paths with exercise type."""
 
-    Returns list of dicts: {video_path, exercise_type, filename}.
-    """
     dataset_dir = Path(dataset_path)
     videos = []
     for subfolder in sorted(dataset_dir.iterdir()):
@@ -236,9 +201,7 @@ def collect_videos(dataset_path: str, videos_per_exercise: int) -> List[Dict]:
     return videos
 
 
-# ---------------------------------------------------------------------------
-# Metric computation (adapted from generate_test_report.py)
-# ---------------------------------------------------------------------------
+# Metric computation
 def compute_meteor_score(reference: str, hypothesis: str, metric) -> float:
     if not reference or not hypothesis or metric is None:
         return 0.0
@@ -298,13 +261,7 @@ def compute_llm_accuracy_score(ground_truth: str, prediction: str, llm) -> float
     try:
         from langchain_core.messages import SystemMessage, HumanMessage
 
-        exercise_name = (
-            ground_truth.split(" - ")[0].strip()
-            if " - " in ground_truth
-            else ground_truth.split()[0]
-        )
         user_prompt = LLM_JUDGE_USER_TEMPLATE.format(
-            exercise_name=exercise_name,
             ground_truth=ground_truth,
             model_prediction=prediction,
         )
@@ -330,9 +287,7 @@ def compute_llm_accuracy_score(ground_truth: str, prediction: str, llm) -> float
         return 0.0
 
 
-# ---------------------------------------------------------------------------
 # Excel report
-# ---------------------------------------------------------------------------
 def _color_fill(value: float, green_t: float, yellow_t: float):
     """Return an openpyxl PatternFill based on threshold."""
     from openpyxl.styles import PatternFill
@@ -345,7 +300,8 @@ def _color_fill(value: float, green_t: float, yellow_t: float):
         return PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
 
-def write_excel(rows: List[Dict], temperatures: List[Optional[float]], output_path: str):
+def write_excel(rows: List[Dict], temperatures: List[Optional[float]], output_path: str,
+                measure_metrics: bool = False):
     """Write results to a formatted Excel workbook."""
     import openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
@@ -369,8 +325,10 @@ def write_excel(rows: List[Dict], temperatures: List[Optional[float]], output_pa
 
     # Fixed columns
     fixed_headers = ["Video Path", "Exercise Type", "Ground Truth"]
-    # Per-temperature columns: prediction + 4 metrics
-    metric_names = ["BERT", "METEOR", "ROUGE-L", "LLM Judge"]
+    # Per-temperature columns
+    metric_names = ["BERT", "METEOR", "ROUGE-L", "LLM Judge"] if measure_metrics else []
+    cols_per_temp = 1 + len(metric_names)  # prediction + metrics
+
     temp_headers = []
     for t in temperatures:
         label = temp_label(t)
@@ -396,58 +354,58 @@ def write_excel(rows: List[Dict], temperatures: List[Optional[float]], output_pa
         col = 4  # start after fixed columns
         for t in temperatures:
             label = temp_label(t)
-            pred_key = f"pred_{label}"
-            ws.cell(row=row_idx, column=col, value=row_data.get(pred_key, "")).alignment = cell_align
+            ws.cell(row=row_idx, column=col, value=row_data.get(f"pred_{label}", "")).alignment = cell_align
             col += 1
 
-            # BERT
-            val = row_data.get(f"bert_{label}", 0.0)
-            c = ws.cell(row=row_idx, column=col, value=round(val, 4))
-            c.fill = _color_fill(val, BERT_GREEN_THRESHOLD, BERT_YELLOW_THRESHOLD)
-            c.alignment = cell_align
-            col += 1
+            if measure_metrics:
+                # BERT
+                val = row_data.get(f"bert_{label}", 0.0)
+                c = ws.cell(row=row_idx, column=col, value=round(val, 4))
+                c.fill = _color_fill(val, BERT_GREEN_THRESHOLD, BERT_YELLOW_THRESHOLD)
+                c.alignment = cell_align
+                col += 1
 
-            # METEOR
-            val = row_data.get(f"meteor_{label}", 0.0)
-            c = ws.cell(row=row_idx, column=col, value=round(val, 4))
-            c.fill = _color_fill(val, METEOR_GREEN_THRESHOLD, METEOR_YELLOW_THRESHOLD)
-            c.alignment = cell_align
-            col += 1
+                # METEOR
+                val = row_data.get(f"meteor_{label}", 0.0)
+                c = ws.cell(row=row_idx, column=col, value=round(val, 4))
+                c.fill = _color_fill(val, METEOR_GREEN_THRESHOLD, METEOR_YELLOW_THRESHOLD)
+                c.alignment = cell_align
+                col += 1
 
-            # ROUGE-L
-            val = row_data.get(f"rouge_{label}", 0.0)
-            c = ws.cell(row=row_idx, column=col, value=round(val, 4))
-            c.fill = _color_fill(val, ROUGE_GREEN_THRESHOLD, ROUGE_YELLOW_THRESHOLD)
-            c.alignment = cell_align
-            col += 1
+                # ROUGE-L
+                val = row_data.get(f"rouge_{label}", 0.0)
+                c = ws.cell(row=row_idx, column=col, value=round(val, 4))
+                c.fill = _color_fill(val, ROUGE_GREEN_THRESHOLD, ROUGE_YELLOW_THRESHOLD)
+                c.alignment = cell_align
+                col += 1
 
-            # LLM Judge
-            val = row_data.get(f"llm_{label}", 0.0)
-            c = ws.cell(row=row_idx, column=col, value=round(val, 2))
-            c.fill = _color_fill(val, LLM_GREEN_THRESHOLD, LLM_YELLOW_THRESHOLD)
-            c.alignment = cell_align
-            col += 1
+                # LLM Judge
+                val = row_data.get(f"llm_{label}", 0.0)
+                c = ws.cell(row=row_idx, column=col, value=round(val, 2))
+                c.fill = _color_fill(val, LLM_GREEN_THRESHOLD, LLM_YELLOW_THRESHOLD)
+                c.alignment = cell_align
+                col += 1
 
         # Apply border to all cells in row
         for c_idx in range(1, col):
             ws.cell(row=row_idx, column=c_idx).border = thin_border
 
-    # ---- Summary row ----
-    summary_row = len(rows) + 3
-    ws.cell(row=summary_row, column=1, value="AVERAGES").font = Font(bold=True, size=12)
+    if measure_metrics:
+        summary_row = len(rows) + 3
+        ws.cell(row=summary_row, column=1, value="AVERAGES").font = Font(bold=True, size=12)
 
-    col = 4
-    for t in temperatures:
-        label = temp_label(t)
-        col += 1  # skip prediction column
+        col = 4
+        for t in temperatures:
+            label = temp_label(t)
+            col += 1  # skip prediction column
 
-        for metric_prefix in ["bert", "meteor", "rouge", "llm"]:
-            key = f"{metric_prefix}_{label}"
-            vals = [r.get(key, 0.0) for r in rows if r.get(key, 0.0) > 0]
-            avg = np.mean(vals) if vals else 0.0
-            c = ws.cell(row=summary_row, column=col, value=round(avg, 4))
-            c.font = Font(bold=True)
-            col += 1
+            for metric_prefix in ["bert", "meteor", "rouge", "llm"]:
+                key = f"{metric_prefix}_{label}"
+                vals = [r.get(key, 0.0) for r in rows if r.get(key, 0.0) > 0]
+                avg = np.mean(vals) if vals else 0.0
+                c = ws.cell(row=summary_row, column=col, value=round(avg, 4))
+                c.font = Font(bold=True)
+                col += 1
 
     # ---- Column widths ----
     ws.column_dimensions[get_column_letter(1)].width = 40  # video path
@@ -460,7 +418,7 @@ def write_excel(rows: List[Dict], temperatures: List[Optional[float]], output_pa
     col = 4
     for _ in temperatures:
         ws.column_dimensions[get_column_letter(col)].width = 50
-        col += 5  # pred + 4 metrics
+        col += cols_per_temp
 
     # Freeze header row and fixed columns
     ws.freeze_panes = "D2"
@@ -470,9 +428,6 @@ def write_excel(rows: List[Dict], temperatures: List[Optional[float]], output_pa
     print(f"\nReport saved to: {output_path}")
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Temperature sweep inference experiment")
     parser.add_argument("--dataset_path", type=str, default=DEFAULT_DATASET,
@@ -483,7 +438,13 @@ def main():
     parser.add_argument("--output", type=str, default="experiments/vary_inference_report.xlsx")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--max_new_tokens", type=int, default=512)
-    parser.add_argument("--no_llm_judge", action="store_true", help="Skip LLM judge metric")
+    parser.add_argument("--label_key", type=str, default="labels_descriptive",
+                        help="Key to extract ground truth from fine_grained_labels.json "
+                             "(e.g. 'labels_descriptive', 'labels')")
+    parser.add_argument("--measure_metrics", action="store_true",
+                        help="Compute evaluation metrics (BERT, METEOR, ROUGE-L, LLM Judge). "
+                             "Off by default; when disabled only predictions are generated.")
+    parser.add_argument("--no_llm_judge", action="store_true", help="Skip LLM judge metric (only relevant with --measure_metrics)")
     args = parser.parse_args()
 
     temperatures = DEFAULT_TEMPERATURES
@@ -493,8 +454,8 @@ def main():
     if not os.path.exists(labels_json):
         print(f"Error: {labels_json} not found")
         sys.exit(1)
-    gt_map = load_ground_truths(labels_json)
-    print(f"Loaded {len(gt_map)} ground truth entries")
+    gt_map = load_ground_truths(labels_json, label_key=args.label_key)
+    print(f"Loaded {len(gt_map)} ground truth entries (key='{args.label_key}')")
 
     # ---- Collect videos ----
     videos = collect_videos(args.dataset_path, args.videos_per_exercise)
@@ -506,24 +467,30 @@ def main():
     print("\nLoading model...")
     model, tokenizer = load_model(args.base_model, args.lora_weights, args.device)
 
-    # ---- Load evaluation tools ----
-    import evaluate
-
-    print("\nLoading evaluation metrics...")
-    meteor_metric = evaluate.load("meteor")
-    rouge_metric = evaluate.load("rouge")
-
+    # ---- Load evaluation tools (only when measuring metrics) ----
+    meteor_metric = None
+    rouge_metric = None
     bert_model = None
-    try:
-        from sentence_transformers import SentenceTransformer
-        bert_model = SentenceTransformer("all-MiniLM-L6-v2")
-        print("BERT model loaded")
-    except Exception as e:
-        print(f"Warning: Could not load BERT model: {e}")
-
     llm_judge = None
-    if not args.no_llm_judge:
-        llm_judge = load_llm_judge()
+
+    if args.measure_metrics:
+        import evaluate
+
+        print("\nLoading evaluation metrics...")
+        meteor_metric = evaluate.load("meteor")
+        rouge_metric = evaluate.load("rouge")
+
+        try:
+            from sentence_transformers import SentenceTransformer
+            bert_model = SentenceTransformer("all-MiniLM-L6-v2")
+            print("BERT model loaded")
+        except Exception as e:
+            print(f"Warning: Could not load BERT model: {e}")
+
+        if not args.no_llm_judge:
+            llm_judge = load_llm_judge()
+    else:
+        print("\nMetrics disabled (use --measure_metrics to enable)")
 
     # ---- Run inference ----
     results: List[Dict] = []
@@ -556,16 +523,17 @@ def main():
 
             row[f"pred_{label}"] = prediction
 
-            # Compute metrics against ground truth
-            row[f"bert_{label}"] = compute_bert_similarity(ground_truth, prediction, bert_model)
-            row[f"meteor_{label}"] = compute_meteor_score(ground_truth, prediction, meteor_metric)
-            row[f"rouge_{label}"] = compute_rouge_score(ground_truth, prediction, rouge_metric)
-            row[f"llm_{label}"] = compute_llm_accuracy_score(ground_truth, prediction, llm_judge)
+            # Compute metrics against ground truth (only if enabled)
+            if args.measure_metrics:
+                row[f"bert_{label}"] = compute_bert_similarity(ground_truth, prediction, bert_model)
+                row[f"meteor_{label}"] = compute_meteor_score(ground_truth, prediction, meteor_metric)
+                row[f"rouge_{label}"] = compute_rouge_score(ground_truth, prediction, rouge_metric)
+                row[f"llm_{label}"] = compute_llm_accuracy_score(ground_truth, prediction, llm_judge)
 
         results.append(row)
 
     # ---- Write report ----
-    write_excel(results, temperatures, args.output)
+    write_excel(results, temperatures, args.output, measure_metrics=args.measure_metrics)
 
     # ---- Print summary ----
     print(f"\n{'='*60}")
@@ -573,23 +541,25 @@ def main():
     print(f"{'='*60}")
     print(f"Videos processed : {len(results)}")
     print(f"Temperatures     : {[temp_label(t) for t in temperatures]}")
+    print(f"Metrics          : {'enabled' if args.measure_metrics else 'disabled'}")
 
-    for t in temperatures:
-        label = temp_label(t)
-        bert_vals = [r[f"bert_{label}"] for r in results if r.get(f"bert_{label}", 0) > 0]
-        meteor_vals = [r[f"meteor_{label}"] for r in results if r.get(f"meteor_{label}", 0) > 0]
-        rouge_vals = [r[f"rouge_{label}"] for r in results if r.get(f"rouge_{label}", 0) > 0]
-        llm_vals = [r[f"llm_{label}"] for r in results if r.get(f"llm_{label}", 0) > 0]
+    if args.measure_metrics:
+        for t in temperatures:
+            label = temp_label(t)
+            bert_vals = [r[f"bert_{label}"] for r in results if r.get(f"bert_{label}", 0) > 0]
+            meteor_vals = [r[f"meteor_{label}"] for r in results if r.get(f"meteor_{label}", 0) > 0]
+            rouge_vals = [r[f"rouge_{label}"] for r in results if r.get(f"rouge_{label}", 0) > 0]
+            llm_vals = [r[f"llm_{label}"] for r in results if r.get(f"llm_{label}", 0) > 0]
 
-        print(f"\n  [{label}]")
-        if bert_vals:
-            print(f"    BERT   mean={np.mean(bert_vals):.4f}")
-        if meteor_vals:
-            print(f"    METEOR mean={np.mean(meteor_vals):.4f}")
-        if rouge_vals:
-            print(f"    ROUGE  mean={np.mean(rouge_vals):.4f}")
-        if llm_vals:
-            print(f"    LLM    mean={np.mean(llm_vals):.2f}")
+            print(f"\n  [{label}]")
+            if bert_vals:
+                print(f"    BERT   mean={np.mean(bert_vals):.4f}")
+            if meteor_vals:
+                print(f"    METEOR mean={np.mean(meteor_vals):.4f}")
+            if rouge_vals:
+                print(f"    ROUGE  mean={np.mean(rouge_vals):.4f}")
+            if llm_vals:
+                print(f"    LLM    mean={np.mean(llm_vals):.2f}")
 
     print(f"\nReport: {args.output}")
     print(f"{'='*60}")
