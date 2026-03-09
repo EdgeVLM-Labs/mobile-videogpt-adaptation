@@ -43,7 +43,7 @@ DEFAULT_DATASET = "dataset/QEVD-14-CLEANED"
 DEFAULT_BASE_MODEL = "Amshaker/Mobile-VideoGPT-0.5B"
 DEFAULT_LORA_WEIGHTS = "EdgeVLM-Labs/mobile-videogpt-finetune-2000"
 DEFAULT_VIDEOS_PER_EXERCISE = 20
-DEFAULT_TEMPERATURES: List[Optional[float]] = [None, 0.1, 0.2, 0.5, 0.7]  # None = greedy
+DEFAULT_TEMPERATURES: List[Optional[float]] = [None, 0.2, 0.5, 0.7]  # None = greedy
 PROMPT = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
 
 # Metric thresholds
@@ -435,7 +435,8 @@ def main():
     parser.add_argument("--base_model", type=str, default=DEFAULT_BASE_MODEL)
     parser.add_argument("--lora_weights", type=str, default=DEFAULT_LORA_WEIGHTS)
     parser.add_argument("--videos_per_exercise", type=int, default=DEFAULT_VIDEOS_PER_EXERCISE)
-    parser.add_argument("--output", type=str, default="experiments/vary_inference_report.xlsx")
+    parser.add_argument("--output", type=str, default=None,
+                        help="Output xlsx path (auto-generated from lora_weights if not provided)")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--max_new_tokens", type=int, default=512)
     parser.add_argument("--label_key", type=str, default="labels_descriptive",
@@ -449,7 +450,11 @@ def main():
 
     temperatures = DEFAULT_TEMPERATURES
 
-    # ---- Load ground truths ----
+    if args.output is None:
+        # Extract repo name from HF link (e.g. "EdgeVLM-Labs/mobile-videogpt-finetune-2000" -> "mobile-videogpt-finetune-2000")
+        lora_name = args.lora_weights.rstrip("/").split("/")[-1]
+        args.output = f"results/vary-inference/vary_inference_report-{lora_name}.xlsx"
+
     labels_json = os.path.join(args.dataset_path, "fine_grained_labels.json")
     if not os.path.exists(labels_json):
         print(f"Error: {labels_json} not found")
@@ -457,17 +462,14 @@ def main():
     gt_map = load_ground_truths(labels_json, label_key=args.label_key)
     print(f"Loaded {len(gt_map)} ground truth entries (key='{args.label_key}')")
 
-    # ---- Collect videos ----
     videos = collect_videos(args.dataset_path, args.videos_per_exercise)
     print(f"Collected {len(videos)} videos across "
           f"{len(set(v['exercise_type'] for v in videos))} exercises "
           f"(max {args.videos_per_exercise} per exercise)")
 
-    # ---- Load model ----
     print("\nLoading model...")
     model, tokenizer = load_model(args.base_model, args.lora_weights, args.device)
 
-    # ---- Load evaluation tools (only when measuring metrics) ----
     meteor_metric = None
     rouge_metric = None
     bert_model = None
@@ -492,7 +494,6 @@ def main():
     else:
         print("\nMetrics disabled (use --measure_metrics to enable)")
 
-    # ---- Run inference ----
     results: List[Dict] = []
     total_inferences = len(videos) * len(temperatures)
     print(f"\nRunning {total_inferences} inferences "
@@ -532,10 +533,8 @@ def main():
 
         results.append(row)
 
-    # ---- Write report ----
     write_excel(results, temperatures, args.output, measure_metrics=args.measure_metrics)
 
-    # ---- Print summary ----
     print(f"\n{'='*60}")
     print("Temperature Sweep Complete")
     print(f"{'='*60}")
