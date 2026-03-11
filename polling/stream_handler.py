@@ -1,7 +1,4 @@
-"""
-Video stream handler for polling-based inference.
-Handles frame extraction from video files and live streams.
-"""
+"""Video stream handler for polling-based inference."""
 
 import os
 import sys
@@ -38,7 +35,7 @@ warnings.filterwarnings('ignore')
 
 @contextmanager
 def suppress_stderr():
-    """Context manager to suppress stderr output (FFmpeg warnings)."""
+    """Suppress stderr (FFmpeg warnings)."""
     stderr_fd = sys.stderr.fileno()
     with open(os.devnull, 'w') as devnull:
         old_stderr = os.dup(stderr_fd)
@@ -52,17 +49,13 @@ def suppress_stderr():
 
 @dataclass
 class FrameData:
-    """Container for frame data with metadata."""
     frame: np.ndarray
     timestamp: float
     frame_index: int
 
 
 class VideoStreamHandler:
-    """
-    Handles video stream input for polling-based inference.
-    Supports both video files and live camera/RTSP streams.
-    """
+    """Handles video file and live stream input for polling inference."""
 
     def __init__(
         self,
@@ -94,13 +87,11 @@ class VideoStreamHandler:
         self._current_frame_idx: int = 0
 
     def open_video_file(self, video_path: str) -> bool:
-        """Open a video file for frame extraction."""
         if not os.path.exists(video_path):
             self.logger.error(f"Video file not found: {video_path}")
             return False
 
         try:
-            # Suppress FFmpeg output (no log files)
             os.environ['FFREPORT'] = 'file=:level=-8'
 
             with suppress_stderr():
@@ -123,9 +114,7 @@ class VideoStreamHandler:
             return False
 
     def open_stream(self, source: str) -> bool:
-        """Open a video stream (camera index or RTSP URL)."""
         try:
-            # Try to parse as camera index
             if source.isdigit():
                 source = int(source)
 
@@ -143,7 +132,6 @@ class VideoStreamHandler:
             return False
 
     def start_stream_capture(self, source: str):
-        """Start background thread to capture frames from stream."""
         if not self.open_stream(source):
             return
 
@@ -153,7 +141,6 @@ class VideoStreamHandler:
         self.logger.info("Started stream capture thread")
 
     def _capture_loop(self):
-        """Background loop to capture frames from stream."""
         frame_interval = 1.0 / self.fps
         last_capture = 0
         frame_idx = 0
@@ -161,30 +148,26 @@ class VideoStreamHandler:
         while self._is_running and self._cap is not None:
             current_time = time.time()
 
-            # Sample at target FPS
             if current_time - last_capture >= frame_interval:
                 ret, frame = self._cap.read()
                 if not ret:
                     self.logger.warning("Failed to read frame from stream")
                     continue
 
-                # Convert BGR to RGB
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                frame_data = FrameData(
+                self.frame_buffer.append(FrameData(
                     frame=frame_rgb,
                     timestamp=current_time,
                     frame_index=frame_idx,
-                )
-                self.frame_buffer.append(frame_data)
+                ))
 
                 frame_idx += 1
                 last_capture = current_time
 
-            time.sleep(0.001)  # Small sleep to prevent CPU spinning
+            time.sleep(0.001)  # Prevent CPU spinning
 
     def stop_stream(self):
-        """Stop the stream capture."""
         self._is_running = False
         if self._stream_thread:
             self._stream_thread.join(timeout=2.0)
@@ -199,34 +182,17 @@ class VideoStreamHandler:
         duration: Optional[float] = None,
         advance_by: Optional[float] = None,
     ) -> Tuple[List[np.ndarray], int]:
-        """
-        Extract frames from video file for a time window.
-
-        Args:
-            start_time: Start time in seconds (None = current position)
-            duration: Duration in seconds (None = num_frames / fps)
-            advance_by: How many seconds to advance position after extraction
-                       (None = same as duration for no overlap)
-
-        Returns:
-            Tuple of (list of frames, number of frames extracted)
-        """
+        """Extract frames for a time window. advance_by < duration creates overlapping windows."""
         if self._video_reader is None:
             self.logger.error("No video file opened")
             return [], 0
 
-        # Calculate frame indices
-        if start_time is not None:
-            start_frame = int(start_time * self._video_fps)
-        else:
-            start_frame = self._current_frame_idx
+        start_frame = int(start_time * self._video_fps) if start_time is not None else self._current_frame_idx
 
-        # Ensure we don't go past video end
         if start_frame >= self._total_frames:
             self.logger.warning(f"Start frame {start_frame} >= total frames {self._total_frames}")
             return [], 0
 
-        # Default duration: enough for num_frames at specified fps
         if duration is None:
             duration = self.num_frames / self.fps
 
@@ -252,79 +218,59 @@ class VideoStreamHandler:
             # Not enough frames, take what we have
             frame_indices = list(range(start_frame, end_frame))
 
-        # Ensure all indices are valid
         frame_indices = [idx for idx in frame_indices if 0 <= idx < self._total_frames]
         if not frame_indices:
             return [], 0
 
         try:
-            # Try to extract frames with suppressed stderr
             with suppress_stderr():
                 frames = self._video_reader.get_batch(frame_indices).asnumpy()
 
-            # Move position forward by advance_by (or duration if not specified)
-            # advance_by < duration creates overlapping windows
             if advance_by is None:
                 advance_by = duration
             self._current_frame_idx = start_frame + int(advance_by * self._video_fps)
-
-            self.logger.debug(f"Extracted {len(frames)} frames from indices {frame_indices[0]}-{frame_indices[-1]}")
+            self.logger.debug(f"Extracted {len(frames)} frames [{frame_indices[0]}-{frame_indices[-1]}]")
             return list(frames), len(frames)
 
         except Exception as e:
-            # If batch extraction fails, use OpenCV as robust fallback
+            # OpenCV fallback - more robust but slower
             self.logger.warning(f"Decord extraction failed, using OpenCV fallback: {e}")
-
             try:
-                # Use OpenCV for sequential frame reading (more robust but slower)
                 cap = cv2.VideoCapture(self._video_path)
                 if not cap.isOpened():
                     raise Exception("Failed to open video with OpenCV")
 
                 frames = []
                 failed_indices = []
-
                 for idx in frame_indices:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
                     ret, frame = cap.read()
                     if ret:
-                        # Convert BGR to RGB
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        frames.append(frame_rgb)
+                        frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                     else:
                         failed_indices.append(idx)
-                        # Pad with last successful frame or black frame
-                        if len(frames) > 0:
-                            frames.append(frames[-1].copy())  # Duplicate last frame
-                        else:
-                            # Create black frame with correct dimensions
-                            black_frame = np.zeros((self.image_resolution, self.image_resolution, 3), dtype=np.uint8)
-                            frames.append(black_frame)
-
+                        frames.append(frames[-1].copy() if frames else
+                                      np.zeros((self.image_resolution, self.image_resolution, 3), dtype=np.uint8))
                 cap.release()
 
                 if len(failed_indices) > 0:
                     self.logger.warning(f"Padded {len(failed_indices)} corrupted frames with duplicates")
 
-                if len(frames) >= self.num_frames // 2:  # Accept if we got at least half the frames
-                    # Advance position
+                if len(frames) >= self.num_frames // 2:
                     if advance_by is None:
                         advance_by = duration
                     self._current_frame_idx = start_frame + int(advance_by * self._video_fps)
-
-                    self.logger.info(f"OpenCV fallback: extracted {len(frames)} frames ({len(frames) - len(failed_indices)} good, {len(failed_indices)} padded)")
                     return frames, len(frames)
                 else:
-                    raise Exception(f"Too many corrupted frames: only {len(frames) - len(failed_indices)}/{len(frame_indices)} readable")
+                    raise Exception(f"Too many corrupted frames: {len(frames) - len(failed_indices)}/{len(frame_indices)} readable")
 
             except Exception as e2:
                 self.logger.error(f"OpenCV fallback also failed: {e2}")
 
-            # If all else fails, advance position and return empty
-            if advance_by is None:
-                advance_by = duration
-            self._current_frame_idx = start_frame + int(advance_by * self._video_fps)
-            return [], 0
+        if advance_by is None:
+            advance_by = duration
+        self._current_frame_idx = start_frame + int(advance_by * self._video_fps)
+        return [], 0
 
     def get_frames_for_inference(
         self,
@@ -334,32 +280,16 @@ class VideoStreamHandler:
         num_context_images: int = 16,
         polling_interval: Optional[float] = None,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor], int]:
-        """
-        Get processed frames ready for model inference.
-
-        For video files: extracts next window of frames
-        For streams: gets frames from buffer
-
-        Args:
-            polling_interval: Polling interval in seconds (controls position advancement)
-
-        Returns:
-            Tuple of (video_frames, context_frames, slice_len)
-        """
-        # Get raw frames
+        """Get processed frames ready for model inference. Returns (video_frames, context_frames, slice_len)."""
         if self._video_reader is not None:
-            # Video file mode - use polling_interval as both duration and advance_by
-            # This ensures we sample from a window equal to polling_interval and advance by the same amount
-            # For continuous non-overlapping polling throughout the entire video
+            # Video file: sample window = polling_interval, advance by same for non-overlapping polls
             raw_frames, slice_len = self.extract_frames_from_file(
                 duration=polling_interval,
                 advance_by=polling_interval
             )
         elif len(self.frame_buffer) > 0:
-            # Stream mode - get frames from buffer
             buffer_frames = list(self.frame_buffer)
             if len(buffer_frames) >= num_video_frames:
-                # Uniform sample from buffer
                 step = len(buffer_frames) // num_video_frames
                 raw_frames = [buffer_frames[i * step].frame for i in range(num_video_frames)]
             else:
@@ -371,7 +301,6 @@ class VideoStreamHandler:
         if not raw_frames:
             return [], [], 0
 
-        # Uniform sample to target counts
         video_frames_raw = self._uniform_sample(raw_frames, min(num_video_frames, len(raw_frames)))
         context_frames_raw = self._uniform_sample(raw_frames, min(num_context_images, len(raw_frames)))
 
@@ -396,27 +325,21 @@ class VideoStreamHandler:
         return video_frames, context_frames, slice_len
 
     def _uniform_sample(self, lst: List, n: int) -> List:
-        """Uniformly sample n items from list."""
         if n >= len(lst):
             return lst
         step = len(lst) // n
         return [lst[i * step] for i in range(n)]
 
     def get_remaining_duration(self) -> float:
-        """Get remaining video duration in seconds."""
         if self._video_reader is None:
-            return float('inf')  # Stream mode
-
-        remaining_frames = self._total_frames - self._current_frame_idx
-        return remaining_frames / self._video_fps
+            return float('inf')
+        return (self._total_frames - self._current_frame_idx) / self._video_fps
 
     def reset(self):
-        """Reset to beginning of video."""
         self._current_frame_idx = 0
         self.frame_buffer.clear()
 
     def close(self):
-        """Close all resources."""
         self.stop_stream()
         if self._video_reader:
             del self._video_reader
@@ -424,21 +347,18 @@ class VideoStreamHandler:
 
     @property
     def is_exhausted(self) -> bool:
-        """Check if video file is exhausted."""
         if self._video_reader is None:
-            return False  # Stream never exhausted
+            return False
         return self._current_frame_idx >= self._total_frames
 
     @property
     def current_position(self) -> float:
-        """Get current position in seconds."""
         if self._video_reader is None:
             return 0.0
         return self._current_frame_idx / self._video_fps
 
     @property
     def total_duration(self) -> float:
-        """Get total video duration in seconds."""
         if self._video_reader is None:
             return float('inf')
         return self._total_frames / self._video_fps

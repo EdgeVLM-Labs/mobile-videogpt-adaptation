@@ -1,7 +1,4 @@
-"""
-Metrics tracking for polling-based streaming inference.
-Tracks latency, time to first token, throughput, and other performance metrics.
-"""
+"""Metrics tracking for polling-based inference."""
 
 import json
 import time
@@ -19,7 +16,7 @@ class InferenceMetrics:
     poll_index: int
     timestamp: float
 
-    # Timing metrics (all in seconds)
+    # Timing metrics (seconds)
     frame_extraction_time: float = 0.0
     preprocessing_time: float = 0.0
     encoding_time: float = 0.0
@@ -70,13 +67,11 @@ class SessionMetrics:
     errors: List[Dict[str, Any]] = field(default_factory=list)
 
     def add_inference(self, metrics: InferenceMetrics):
-        """Add metrics from a single inference."""
         self.inference_metrics.append(metrics)
         self.total_polls += 1
         self.successful_polls += 1
 
     def add_error(self, poll_index: int, error: str, traceback: str = ""):
-        """Record an error."""
         self.errors.append({
             "poll_index": poll_index,
             "timestamp": time.time(),
@@ -137,7 +132,6 @@ class SessionMetrics:
         }
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
         return {
             "session_id": self.session_id,
             "start_time": self.start_time,
@@ -155,9 +149,7 @@ class SessionMetrics:
 
 
 class MetricsTracker:
-    """
-    Tracks and logs metrics for polling-based streaming inference.
-    """
+    """Tracks and logs metrics for polling inference sessions."""
 
     def __init__(self, log_dir: str = "logs/polling", save_metrics: bool = True):
         self.log_dir = log_dir
@@ -172,13 +164,7 @@ class MetricsTracker:
         self._current_inference_start: float = 0.0
         self._current_inference_metrics: Dict[str, float] = {}
 
-    def start_session(
-        self,
-        video_source: str,
-        prompt: str,
-        polling_interval: float,
-        naturalizer_enabled: bool = False
-    ) -> str:
+    def start_session(self, video_source: str, prompt: str, polling_interval: float, naturalizer_enabled: bool = False) -> str:
         """Start a new metrics tracking session."""
         session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -191,8 +177,7 @@ class MetricsTracker:
             naturalizer_enabled=naturalizer_enabled,
         )
 
-        # Create session-specific log file with matching session_id
-        # Remove old handler from root logger if it exists
+        # Remove old session log handler if exists
         if self.session_log_handler:
             root_logger = logging.getLogger()
             root_logger.removeHandler(self.session_log_handler)
@@ -207,7 +192,7 @@ class MetricsTracker:
         )
         self.session_log_handler.setFormatter(log_format)
 
-        # Add handler to root logger so all polling logs go to this file
+        # Add to root logger so all polling logs go to this file
         root_logger = logging.getLogger()
         root_logger.addHandler(self.session_log_handler)
 
@@ -216,7 +201,6 @@ class MetricsTracker:
         return session_id
 
     def start_inference(self, poll_index: int):
-        """Mark the start of an inference."""
         self._current_inference_start = time.time()
         self._current_inference_metrics = {
             "poll_index": poll_index,
@@ -224,20 +208,10 @@ class MetricsTracker:
         }
 
     def record_timing(self, metric_name: str, duration: float):
-        """Record a timing metric for the current inference."""
         self._current_inference_metrics[metric_name] = duration
 
-    def end_inference(
-        self,
-        input_tokens: int,
-        output_tokens: int,
-        frames_processed: int,
-        buffer_size: int,
-        response: str,
-        time_to_first_token: float,
-        naturalizer_response: str = "",
-    ) -> InferenceMetrics:
-        """Complete the current inference and record metrics."""
+    def end_inference(self, input_tokens: int, output_tokens: int, frames_processed: int, buffer_size: int, response: str, time_to_first_token: float, naturalizer_response: str = "") -> InferenceMetrics:
+        """Complete current inference and record metrics."""
         total_time = time.time() - self._current_inference_start
 
         metrics = InferenceMetrics(
@@ -274,7 +248,6 @@ class MetricsTracker:
         return metrics
 
     def record_error(self, poll_index: int, error: str, traceback: str = ""):
-        """Record an error during inference."""
         if self.current_session:
             self.current_session.add_error(poll_index, error, traceback)
         self.logger.error(f"Poll #{poll_index} failed: {error}")
@@ -291,12 +264,16 @@ class MetricsTracker:
         self.logger.info("=" * 60)
         self.logger.info("SESSION SUMMARY")
         self.logger.info("=" * 60)
-        self.logger.info(f"Session ID: {summary['session_id']}")
-        self.logger.info(f"Duration: {summary['duration_seconds']:.2f}s")
-        self.logger.info(f"Total Polls: {summary['total_polls']} ({summary['successful_polls']} successful)")
-        self.logger.info(f"Mean Latency: {summary['latency_ms']['mean']:.2f}ms")
-        self.logger.info(f"Mean TTFT: {summary['time_to_first_token_ms']['mean']:.2f}ms")
-        self.logger.info(f"Mean Tokens/s: {summary['tokens_per_second']['mean']:.2f}")
+        if "error" in summary:
+            self.logger.info(f"Session ID: {self.current_session.session_id}")
+            self.logger.info(f"Result: {summary['error']}")
+        else:
+            self.logger.info(f"Session ID: {summary['session_id']}")
+            self.logger.info(f"Duration: {summary['duration_seconds']:.2f}s")
+            self.logger.info(f"Total Polls: {summary['total_polls']} ({summary['successful_polls']} successful)")
+            self.logger.info(f"Mean Latency: {summary['latency_ms']['mean']:.2f}ms")
+            self.logger.info(f"Mean TTFT: {summary['time_to_first_token_ms']['mean']:.2f}ms")
+            self.logger.info(f"Mean Tokens/s: {summary['tokens_per_second']['mean']:.2f}")
         self.logger.info("=" * 60)
 
         # Save to file
@@ -329,7 +306,6 @@ class MetricsTracker:
         return summary
 
     def get_live_stats(self) -> Dict[str, Any]:
-        """Get current live statistics."""
         if not self.current_session or not self.current_session.inference_metrics:
             return {}
 

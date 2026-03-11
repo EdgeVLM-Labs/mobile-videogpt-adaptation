@@ -1,7 +1,4 @@
-"""
-Polling-based inference engine for Mobile-VideoGPT.
-Loads LoRA adapters and performs inference at configurable intervals.
-"""
+"""Polling-based inference engine for Mobile-VideoGPT with LoRA adapter support."""
 
 import os
 import sys
@@ -45,7 +42,7 @@ from utils.confidence_scoring.calculate_confidence import is_confident
 
 
 class FirstTokenStreamer:
-    """Helper to capture time to first token during generation."""
+    """Captures time-to-first-token during generation."""
 
     def __init__(self):
         self.first_token_time: Optional[float] = None
@@ -67,12 +64,7 @@ class FirstTokenStreamer:
 
 
 class PollingInferenceEngine:
-    """
-    Main engine for polling-based streaming inference.
-
-    Loads the model with LoRA adapters and performs inference
-    at configurable polling intervals on video streams.
-    """
+    """Polling-based streaming inference engine with LoRA adapters."""
 
     def __init__(self, config: PollingConfig):
         self.config = config
@@ -105,53 +97,31 @@ class PollingInferenceEngine:
         self._is_loaded = False
 
     def _setup_logging(self) -> logging.Logger:
-        """Setup logging configuration."""
         logger = logging.getLogger("PollingInference")
         logger.setLevel(getattr(logging, self.config.log_level))
-
-        # Clear existing handlers
         logger.handlers = []
-
-        # Console handler
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.DEBUG)
-        console_format = logging.Formatter(
+        console_handler.setFormatter(logging.Formatter(
             '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        console_handler.setFormatter(console_format)
+        ))
         logger.addHandler(console_handler)
-
-        # Note: File handler is created by MetricsTracker.start_session()
-        # to ensure consistent session_id across all files
-
+        # File handler is created by MetricsTracker.start_session() for consistent session_id
         return logger
 
     def load_model(self) -> bool:
-        """
-        Load the base model with LoRA adapters from HuggingFace.
-
-        Returns:
-            True if model loaded successfully
-        """
-        # Check if model is already loaded
+        """Load base model with LoRA adapters. Returns True on success."""
         if self._is_loaded and self.model is not None:
             self.logger.info("Model already loaded, skipping reload")
             return True
 
-        self.logger.info("=" * 60)
-        self.logger.info("LOADING MODEL WITH LORA ADAPTERS")
-        self.logger.info("=" * 60)
-        self.logger.info(f"Base model: {self.config.base_model_path}")
-        self.logger.info(f"LoRA weights: {self.config.lora_weights_path}")
-
+        self.logger.info(f"Loading model: {self.config.base_model_path} + LoRA: {self.config.lora_weights_path}")
         load_start = time.time()
 
         try:
-            # Import peft for LoRA
             from peft import PeftModel
 
-            # Setup kwargs for model loading
             kwargs = {}
             if self.config.load_8bit:
                 kwargs['load_in_8bit'] = True
@@ -159,23 +129,22 @@ class PollingInferenceEngine:
                 from transformers import BitsAndBytesConfig
                 kwargs['quantization_config'] = BitsAndBytesConfig(
                     load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.bfloat16,  # Use bfloat16 for better precision
+                    bnb_4bit_compute_dtype=torch.bfloat16,
                     bnb_4bit_use_double_quant=True,
                     bnb_4bit_quant_type='nf4'
                 )
                 # Note: Flash Attention incompatible with 4-bit quantization
             else:
-                kwargs['torch_dtype'] = torch.bfloat16  # Use bfloat16 for better stability
+                kwargs['torch_dtype'] = torch.bfloat16
                 try:
-                    kwargs['attn_implementation'] = 'flash_attention_2'  # Enable Flash Attention 2
+                    kwargs['attn_implementation'] = 'flash_attention_2'
                 except:
                     self.logger.warning("Flash Attention 2 not available")
 
             # Load config from base model (LoRA adapters don't have config.json)
-            self.logger.info("Loading model configuration from base model...")
+            self.logger.info("Loading model configuration...")
             model_cfg = AutoConfig.from_pretrained(self.config.base_model_path)
 
-            # Load tokenizer from base model
             self.logger.info("Loading tokenizer...")
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.config.base_model_path,
@@ -183,7 +152,6 @@ class PollingInferenceEngine:
             )
             self.tokenizer.add_tokens(["<image>"], special_tokens=True)
 
-            # Load base model
             self.logger.info("Loading base model...")
             try:
                 self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
@@ -198,7 +166,6 @@ class PollingInferenceEngine:
                 if self.config.load_4bit or self.config.load_8bit:
                     self.logger.warning(f"Quantization failed: {quant_error}")
                     self.logger.info("Retrying without quantization...")
-                    # Fallback to FP16 without quantization
                     kwargs = {'torch_dtype': torch.bfloat16}
                     try:
                         kwargs['attn_implementation'] = 'flash_attention_2'
@@ -229,7 +196,6 @@ class PollingInferenceEngine:
             self.logger.info("Loading non-LoRA trainables...")
             non_lora_path = os.path.join(self.config.lora_weights_path, 'non_lora_trainables.bin')
 
-            # Try to load from HuggingFace hub
             from huggingface_hub import hf_hub_download
             try:
                 non_lora_local = hf_hub_download(
@@ -239,14 +205,13 @@ class PollingInferenceEngine:
                 non_lora_trainables = torch.load(non_lora_local, map_location='cpu')
             except Exception as e:
                 self.logger.warning(f"Could not load non_lora_trainables from hub: {e}")
-                # Try local path
                 if os.path.exists(non_lora_path):
                     non_lora_trainables = torch.load(non_lora_path, map_location='cpu')
                 else:
                     self.logger.warning("No non_lora_trainables found, proceeding without")
                     non_lora_trainables = {}
 
-            # Clean up keys
+            # Clean up keys (strip base_model. and model. prefixes)
             non_lora_trainables = {
                 (k[11:] if k.startswith('base_model.') else k): v
                 for k, v in non_lora_trainables.items()
@@ -259,7 +224,6 @@ class PollingInferenceEngine:
 
             self.model.load_state_dict(non_lora_trainables, strict=False)
 
-            # Load and merge LoRA weights
             self.logger.info("Loading LoRA adapter weights...")
             try:
                 self.model = PeftModel.from_pretrained(self.model, self.config.lora_weights_path)
@@ -271,6 +235,8 @@ class PollingInferenceEngine:
                 self.logger.warning(f"Could not load LoRA adapters: {e}")
                 self.logger.info("Proceeding with base model only")
 
+            self.model = self.model.to(device=self.config.device, dtype=torch.bfloat16)
+
             # Setup special tokens
             mm_use_im_start_end = getattr(self.model.config, "mm_use_im_start_end", False)
             mm_use_im_patch_token = getattr(self.model.config, "mm_use_im_patch_token", True)
@@ -280,21 +246,10 @@ class PollingInferenceEngine:
                 DEFAULT_IM_START_TOKEN,
                 DEFAULT_IM_END_TOKEN
             )
-
-            if mm_use_im_patch_token:
-                self.tokenizer.add_tokens([DEFAULT_IMAGE_PATCH_TOKEN], special_tokens=True)
-            if mm_use_im_start_end:
-                self.tokenizer.add_tokens([DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN], special_tokens=True)
-
-            self.model.resize_token_embeddings(len(self.tokenizer))
-
-            # Move to device
-            self.model.to(self.config.device)
             self.model.eval()
 
             # Compile model for faster inference (PyTorch 2.0+)
             try:
-                self.logger.info("Compiling model with torch.compile()...")
                 self.model = torch.compile(self.model, mode="reduce-overhead")
                 self.logger.info("Model compiled successfully")
             except Exception as e:
@@ -312,8 +267,7 @@ class PollingInferenceEngine:
             self.image_processor = image_vision_tower.image_processor
 
             load_time = time.time() - load_start
-            self.logger.info(f"Model loaded successfully in {load_time:.2f}s")
-            self.logger.info("=" * 60)
+            self.logger.info(f"Model loaded in {load_time:.2f}s")
 
             self._is_loaded = True
             return True
@@ -323,7 +277,6 @@ class PollingInferenceEngine:
             return False
 
     def prepare_prompt(self, prompt: str, slice_len: int) -> torch.Tensor:
-        """Prepare the prompt with image tokens."""
         mm_use_im_start_end = getattr(self.model.config, "mm_use_im_start_end", False)
 
         if mm_use_im_start_end:
@@ -338,7 +291,6 @@ class PollingInferenceEngine:
         conv.append_message(conv.roles[1], None)
         formatted_prompt = conv.get_prompt()
 
-        # Tokenize
         input_ids = tokenizer_image_token(
             formatted_prompt,
             self.tokenizer,
@@ -349,22 +301,13 @@ class PollingInferenceEngine:
         return input_ids, conv.sep
 
     def warmup(self, num_runs: int = 1):
-        """
-        Perform warmup runs to load model into memory and optimize caching.
-
-        Args:
-            num_runs: Number of warmup inference runs
-        """
-        self.logger.info("="*60)
+        """Warmup runs to load model into memory and optimize caching."""
         self.logger.info(f"Starting warmup with {num_runs} run(s)...")
-        self.logger.info("="*60)
 
-        # Create dummy data
         dummy_frames = [
             torch.zeros(
                 (3, self.config.image_resolution, self.config.image_resolution),
-                dtype=torch.bfloat16,
-                device=self.config.device
+                dtype=torch.bfloat16, device=self.config.device
             )
             for _ in range(self.config.num_frames)
         ]
@@ -372,34 +315,22 @@ class PollingInferenceEngine:
         dummy_context = [
             torch.zeros(
                 (3, self.config.image_resolution, self.config.image_resolution),
-                dtype=torch.bfloat16,
-                device=self.config.device
+                dtype=torch.bfloat16, device=self.config.device
             )
             for _ in range(self.config.num_context_images)
         ]
 
-        warmup_prompt = "Analyze this exercise."
-
         for i in range(num_runs):
             start_time = time.time()
-            self.logger.info(f"Warmup run {i+1}/{num_runs}...")
-
             try:
                 _, ttft, _, _ = self.run_single_inference(
-                    dummy_frames,
-                    dummy_context,
-                    warmup_prompt,
-                    self.config.num_frames
+                    dummy_frames, dummy_context, "Analyze this exercise.", self.config.num_frames
                 )
-
-                warmup_time = time.time() - start_time
-                self.logger.info(f"  Completed in {warmup_time:.2f}s (TTFT: {ttft*1000:.1f}ms)")
-
+                self.logger.info(f"  Warmup {i+1}/{num_runs} done in {time.time()-start_time:.2f}s (TTFT: {ttft*1000:.1f}ms)")
             except Exception as e:
                 self.logger.warning(f"  Warmup run {i+1} failed: {e}")
 
         self.logger.info("Warmup complete!")
-        self.logger.info("="*60)
 
     def run_single_inference(
         self,
@@ -408,26 +339,16 @@ class PollingInferenceEngine:
         prompt: str,
         slice_len: int,
     ) -> Tuple[str, float, int, int]:
-        """
-        Run a single inference on the provided frames.
-
-        Returns:
-            Tuple of (response, time_to_first_token, input_tokens, output_tokens)
-        """
-        # Prepare input
+        """Run a single inference. Returns (response, ttft, input_tokens, output_tokens)."""
         input_ids, stop_str = self.prepare_prompt(prompt, slice_len)
 
-        # Prepare frames with bfloat16 to match model dtype
         video_tensor = torch.stack(video_frames, dim=0).to(dtype=torch.bfloat16, device=self.config.device)
         context_tensor = torch.stack(context_frames, dim=0).to(dtype=torch.bfloat16, device=self.config.device)
 
         input_token_count = input_ids.shape[1]
 
-        # Reset first token timer
         self._first_token_streamer.reset()
 
-        # Generate with inference_mode (more efficient than no_grad)
-        # Return scores for confidence calculation if enabled
         with torch.inference_mode():
             output_ids = self.model.generate(
                 input_ids,
@@ -436,15 +357,14 @@ class PollingInferenceEngine:
                 do_sample=self.config.do_sample,
                 num_beams=self.config.num_beams,
                 max_new_tokens=self.config.max_new_tokens,
-                use_cache=True,  # Always use KV cache for faster generation
+                use_cache=True,
                 return_dict_in_generate=self.config.enable_confidence_scoring,
                 output_scores=self.config.enable_confidence_scoring,
             )
 
-        # Record first token time (approximate since we can't hook into generate)
         generation_end = time.time()
 
-        # Extract output_ids from the generation result
+        # Extract output_ids from generation result
         if self.config.enable_confidence_scoring and hasattr(output_ids, 'sequences'):
             # output_ids is a GenerateOutput object
             sequences = output_ids.sequences
@@ -457,14 +377,12 @@ class PollingInferenceEngine:
             sequences_scores = None
             beam_indices = None
 
-        # Decode output
         output_tokens = output_ids.shape[1] - input_token_count
         response = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
 
         if response.endswith(stop_str):
             response = response[:-len(stop_str)].strip()
 
-        # Check confidence if enabled
         if self.config.enable_confidence_scoring and scores is not None:
             try:
                 confident, confidence_metrics = is_confident(
@@ -474,19 +392,18 @@ class PollingInferenceEngine:
                     sequences_scores=sequences_scores,
                     beam_indices=beam_indices,
                 )
-                
+
                 # Log confidence metrics
                 self.logger.debug(f"Confidence metrics: {confidence_metrics}")
-                
+
                 # Append "(NOT CONFIDENT)" if model is not confident
                 if not confident:
                     response = response + " (NOT CONFIDENT)"
-                    self.logger.info("Low confidence detected, appended (NOT CONFIDENT) to response")
+                    self.logger.info("Low confidence detected")
             except Exception as e:
                 self.logger.warning(f"Failed to calculate confidence: {e}")
 
-        # Estimate TTFT (first token is roughly 1/output_tokens of total time)
-        # This is approximate since transformers doesn't expose per-token timing
+        # Estimate TTFT - approximate since transformers doesn't expose per-token timing
         ttft = self._first_token_streamer.time_to_first_token
         if ttft == 0:
             # Estimate: TTFT is typically the encoding time + first decoding step
@@ -501,31 +418,15 @@ class PollingInferenceEngine:
         on_response: Optional[Callable[[int, str, InferenceMetrics], None]] = None,
         max_polls: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """
-        Run the main polling loop on a video source.
-
-        Args:
-            video_source: Path to video file or stream URL
-            prompt: Inference prompt (uses config default if None)
-            on_response: Callback called after each inference (poll_index, response, metrics)
-            max_polls: Maximum number of polls (None = run until video ends or max_duration)
-
-        Returns:
-            Session summary dictionary
-        """
+        """Run polling loop on a video source. Returns session summary."""
         if not self._is_loaded:
             self.logger.error("Model not loaded. Call load_model() first.")
             return {"error": "Model not loaded"}
 
         prompt = prompt or self.config.prompt
 
-        self.logger.info("=" * 60)
-        self.logger.info("STARTING POLLING LOOP")
-        self.logger.info("=" * 60)
-        self.logger.info(f"Video source: {video_source}")
-        self.logger.info(f"Polling interval: {self.config.polling_interval}s")
+        self.logger.info(f"Starting polling: {video_source}, interval={self.config.polling_interval}s")
         self.logger.info(f"Prompt: {prompt[:100]}...")
-        self.logger.info("=" * 60)
 
         # Open video source
         if os.path.isfile(video_source):
@@ -549,7 +450,7 @@ class PollingInferenceEngine:
                 # Check termination conditions
                 elapsed = time.time() - start_time
                 if elapsed >= self.config.max_polling_duration:
-                    self.logger.info(f"Max polling duration ({self.config.max_polling_duration}s) reached")
+                    self.logger.info(f"Max duration ({self.config.max_polling_duration}s) reached")
                     break
 
                 if max_polls is not None and poll_index >= max_polls:
@@ -560,10 +461,7 @@ class PollingInferenceEngine:
                     self.logger.info("Video exhausted")
                     break
 
-                self.logger.info(f"\n{'='*40}")
-                self.logger.info(f"POLL #{poll_index + 1}")
-                self.logger.info(f"Video position: {self.stream_handler.current_position:.2f}s / {self.stream_handler.total_duration:.2f}s")
-                self.logger.info(f"{'='*40}")
+                self.logger.info(f"Poll #{poll_index + 1} | pos={self.stream_handler.current_position:.2f}s / {self.stream_handler.total_duration:.2f}s")
 
                 # Start metrics for this inference
                 self.metrics.start_inference(poll_index)
@@ -586,9 +484,6 @@ class PollingInferenceEngine:
                         break
 
                     self.logger.info(f"Extracted {slice_len} frames in {frame_time*1000:.1f}ms")
-
-                    # Run inference
-                    inference_start = time.time()
                     response, ttft, input_tokens, output_tokens = self.run_single_inference(
                         video_frames, context_frames, prompt, slice_len
                     )
@@ -605,10 +500,8 @@ class PollingInferenceEngine:
                         time_to_first_token=ttft,
                     )
 
-                    # Log response
                     self.logger.info(f"\n📝 Response:\n{response}\n")
 
-                    # Callback
                     if on_response:
                         on_response(poll_index, response, metrics)
 
@@ -619,9 +512,7 @@ class PollingInferenceEngine:
 
                 poll_index += 1
 
-                # Wait for next poll
                 if not self.stream_handler.is_exhausted:
-                    self.logger.info(f"Waiting {self.config.polling_interval}s until next poll...")
                     time.sleep(self.config.polling_interval)
 
         except KeyboardInterrupt:
@@ -636,10 +527,7 @@ class PollingInferenceEngine:
         return summary
 
     def cleanup(self):
-        """Clean up resources."""
         self.stream_handler.close()
-
-        # Unload model and processors
         if self.model is not None:
             del self.model
             self.model = None
@@ -649,11 +537,8 @@ class PollingInferenceEngine:
         if self.image_processor is not None:
             del self.image_processor
             self.image_processor = None
-
-        # Clear CUDA cache
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
-
         self._is_loaded = False
         self.logger.info("Resources cleaned up")

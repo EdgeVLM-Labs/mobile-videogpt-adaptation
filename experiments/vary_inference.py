@@ -176,7 +176,12 @@ def load_ground_truths(labels_json: str, label_key: str = "labels_descriptive") 
         vp = entry["video_path"]  # e.g. './squats/00032607.mp4'
         filename = os.path.basename(vp)
         values = entry.get(label_key, entry.get("labels", []))
-        mapping[filename] = "; ".join(values) if values else ""
+        if isinstance(values, str):
+            mapping[filename] = values
+        elif isinstance(values, list):
+            mapping[filename] = "; ".join(values) if values else ""
+        else:
+            mapping[filename] = str(values) if values else ""
     return mapping
 
 

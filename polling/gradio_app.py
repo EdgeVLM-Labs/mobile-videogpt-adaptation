@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Gradio Interface for Mobile-VideoGPT Polling Inference
-Real-time exercise form evaluation with LoRA adapters
-"""
+"""Gradio interface for Mobile-VideoGPT polling inference."""
 
 import os
 import sys
@@ -34,7 +31,6 @@ from utils.naturalizer.feedback_naturalizer import FeedbackNaturalizer
 
 
 class LogCapture(logging.Handler):
-    """Custom logging handler to capture logs for display"""
     def __init__(self):
         super().__init__()
         self.logs = []
@@ -51,8 +47,6 @@ class LogCapture(logging.Handler):
 
 
 class GradioPollingApp:
-    """Gradio interface for polling inference"""
-
     def __init__(self):
         self.engine: Optional[PollingInferenceEngine] = None
         self.naturalizer: Optional[FeedbackNaturalizer] = None
@@ -71,21 +65,18 @@ class GradioPollingApp:
         logging.getLogger().setLevel(logging.INFO)
 
     def extract_video_segment(self, video_path: str, start_time: float, duration: float) -> str:
-        """Extract video segment starting at specific time using FFmpeg"""
+        """Extract video segment with FFmpeg. Falls back to re-encode if copy fails."""
         try:
-            # Create output path in temp directory
             output_path = os.path.join(self.temp_dir, f"segment_{start_time:.1f}s.mp4")
 
-            # Use FFmpeg to extract segment
             cmd = [
-                'ffmpeg',
-                '-y',  # Overwrite output file
-                '-ss', str(start_time),  # Start time
-                '-i', video_path,  # Input file
-                '-t', str(duration),  # Duration
-                '-c', 'copy',  # Copy codec (fast)
-                '-avoid_negative_ts', 'make_zero',  # Fix timestamp issues
-                '-loglevel', 'error',  # Suppress output
+                'ffmpeg', '-y',
+                '-ss', str(start_time),
+                '-i', video_path,
+                '-t', str(duration),
+                '-c', 'copy',
+                '-avoid_negative_ts', 'make_zero',
+                '-loglevel', 'error',
                 output_path
             ]
 
@@ -95,16 +86,14 @@ class GradioPollingApp:
         except subprocess.CalledProcessError as e:
             logging.warning(f"FFmpeg copy failed, trying re-encode: {e}")
             try:
-                # Fallback: re-encode if copy fails
                 cmd = [
-                    'ffmpeg',
-                    '-y',
+                    'ffmpeg', '-y',
                     '-ss', str(start_time),
                     '-i', video_path,
                     '-t', str(duration),
-                    '-c:v', 'libx264',  # Re-encode video
-                    '-preset', 'ultrafast',  # Fast encoding
-                    '-c:a', 'aac',  # Re-encode audio
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',
+                    '-c:a', 'aac',
                     '-loglevel', 'error',
                     output_path
                 ]
@@ -112,13 +101,12 @@ class GradioPollingApp:
                 return output_path
             except Exception as e2:
                 logging.error(f"Failed to extract segment: {e2}")
-                return video_path  # Return original on failure
+                return video_path
         except Exception as e:
             logging.error(f"Error extracting segment: {e}")
             return video_path
 
     def get_sample_videos(self) -> List[str]:
-        """Get list of videos from sample_videos folder"""
         project_root = Path(__file__).parent.parent
         sample_videos_dir = project_root / "sample_videos"
 
@@ -199,15 +187,12 @@ class GradioPollingApp:
         naturalizer_threshold: float,
         progress=gr.Progress()
     ) -> Generator[Tuple[str, str, str, str, str, str], None, None]:
-        """Run polling inference"""
         try:
-            # Reset state
             self.poll_results = []
             self.metrics_history = []
             self.is_running = True
             self.current_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            # Initialize naturalizer if enabled (reuse existing instance if available)
             if use_naturalizer:
                 if not self.naturalizer:
                     logging.info(f"Initializing Feedback Naturalizer (threshold={naturalizer_threshold})")
@@ -216,16 +201,13 @@ class GradioPollingApp:
                     logging.info("Reusing existing Feedback Naturalizer")
                     self.naturalizer.reset()
             else:
-                # Clean up naturalizer if it exists but is not needed
                 if self.naturalizer:
-                    logging.info("Cleaning up unused Feedback Naturalizer")
                     try:
                         self.naturalizer.cleanup()
                     except:
                         pass
                 self.naturalizer = None
 
-            # Create temp directory for video segments
             if self.temp_dir:
                 try:
                     import shutil
@@ -234,9 +216,8 @@ class GradioPollingApp:
                     pass
             self.temp_dir = tempfile.mkdtemp(prefix="polling_segments_")
 
-            # Determine video path
             if use_webcam:
-                video_path = "0"  # Webcam
+                video_path = "0"
                 self.current_video_path = video_path
                 progress(0, desc="Opening webcam...")
             else:
@@ -257,10 +238,8 @@ class GradioPollingApp:
 
                 progress(0, desc=f"Loading video: {video_source}")
 
-            # Clear previous logs
             self.log_capture.clear()
 
-            # Create config
             config = PollingConfig(
                 base_model_path=base_model,
                 lora_weights_path=lora_weights,
@@ -274,17 +253,16 @@ class GradioPollingApp:
             logging.info(f"Starting inference with video: {video_path}")
             logging.info(f"Config: interval={polling_interval}s, frames={num_frames}, fps={fps}")
 
-            # Initialize or reuse engine
             progress(0.1, desc="Loading model...")
 
-            # Check if we can reuse existing engine
+            # Reuse engine if config matches, else recreate
             if self.engine and self.engine._is_loaded:
                 # Check if config matches
                 if (self.engine.config.base_model_path == base_model and
                     self.engine.config.lora_weights_path == lora_weights):
-                    logging.info("Reusing existing engine (config matches)")
+                    logging.info("Reusing existing engine")
                 else:
-                    logging.info("Config changed, cleaning up old engine and creating new one")
+                    logging.info("Config changed, recreating engine")
                     try:
                         self.engine.cleanup()
                         self.engine.metrics.cleanup()
@@ -292,19 +270,17 @@ class GradioPollingApp:
                         pass
                     self.engine = None
 
-            # Create new engine if needed
             if not self.engine:
                 logging.info("Creating new inference engine")
                 self.engine = PollingInferenceEngine(config)
             else:
-                # Update config for existing engine (update runtime params only)
+                # Update runtime params only
                 self.engine.config.polling_interval = polling_interval
                 self.engine.config.num_frames = num_frames
                 self.engine.config.fps = fps
                 self.engine.config.max_new_tokens = max_new_tokens
                 self.engine.config.prompt = prompt
 
-            # Load model to initialize processors
             if not self.engine.load_model():
                 logging.error("Failed to load model")
                 yield (
@@ -317,7 +293,6 @@ class GradioPollingApp:
                 )
                 return
 
-            # Start metrics session
             self.engine.metrics.start_session(
                 video_source=video_path,
                 prompt=prompt,
@@ -325,15 +300,12 @@ class GradioPollingApp:
                 naturalizer_enabled=use_naturalizer
             )
 
-            # Run warmup
             if warmup_runs > 0:
                 progress(0.2, desc=f"Running {warmup_runs} warmup runs...")
                 self.engine.warmup(warmup_runs)
 
-            # Start polling
             progress(0.3, desc="Starting polling...")
 
-            # Open video
             if not self.engine.stream_handler.open_video_file(video_path):
                 logging.error("Failed to open video source")
                 yield (
@@ -348,11 +320,9 @@ class GradioPollingApp:
 
             logging.info(f"Video opened: duration={self.engine.stream_handler.total_duration:.2f}s")
 
-            # Get total duration first
             total_duration = self.engine.stream_handler.total_duration
             poll_index = 0
 
-            # Yield initial state with video loaded
             yield (
                 video_path,
                 f"**Analysis Position:** 0:00 / {int(total_duration//60)}:{int(total_duration%60):02d}",
@@ -408,12 +378,10 @@ class GradioPollingApp:
                         is_repeat = False
                         repeat_info = ""
 
-                    # Validate token counts (ensure non-negative)
                     input_tokens = max(0, input_tokens) if input_tokens else 0
                     output_tokens = max(0, output_tokens) if output_tokens else 0
                     ttft = max(0.0, ttft) if ttft else 0.0
 
-                    # Record metrics
                     metrics_obj = self.engine.metrics.end_inference(
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
@@ -433,7 +401,6 @@ class GradioPollingApp:
                         'output_tokens': metrics_obj.output_tokens
                     }
 
-                    # Store results
                     result = {
                         'poll': poll_index + 1,
                         'position': f"{position:.2f}",
@@ -443,26 +410,19 @@ class GradioPollingApp:
                     self.poll_results.append(result)
                     self.metrics_history.append(metrics)
 
-                    # Log poll completion
                     logging.info(f"Poll #{poll_index + 1} complete: latency={metrics.get('latency_ms', 0):.1f}ms{repeat_info}")
 
-                    # Format outputs
                     current_response = f"**Poll #{poll_index + 1}** (Position: {position:.2f}s){repeat_info}\n\n{display_response}"
                     current_metrics = self.format_metrics(metrics)
                     all_responses = self.format_all_responses(self.poll_results)
-
-                    # Format timestamp
                     current_min = int(position // 60)
                     current_sec = int(position % 60)
                     total_min = int(total_duration // 60)
                     total_sec = int(total_duration % 60)
                     timestamp = f"**Analysis Position:** {current_min}:{current_sec:02d} / {total_min}:{total_sec:02d} (Poll #{poll_index + 1})"
 
-                    # Extract video segment for this poll
                     segment_path = self.extract_video_segment(
-                        self.current_video_path,
-                        position,
-                        config.polling_interval
+                        self.current_video_path, position, config.polling_interval
                     )
 
                     yield (
@@ -476,7 +436,6 @@ class GradioPollingApp:
 
                     poll_index += 1
 
-                    # Wait for next poll
                     if poll_index < 100:  # Safety limit
                         time.sleep(config.polling_interval)
 
@@ -498,11 +457,9 @@ class GradioPollingApp:
                     )
                     break
 
-            # Final summary
             progress(1.0, desc="Complete!")
             logging.info(f"Polling complete: {poll_index} polls processed")
 
-            # End metrics session and save
             if self.engine:
                 summary = self.engine.metrics.end_session()
                 logging.info("Metrics and summary saved successfully")
@@ -569,13 +526,11 @@ class GradioPollingApp:
                 torch.cuda.empty_cache()
 
     def stop_inference(self):
-        """Stop current inference"""
         self.is_running = False
         return "Stopping inference..."
 
 
 def create_interface():
-    """Create Gradio interface"""
     app = GradioPollingApp()
 
     with gr.Blocks(title="Mobile-VideoGPT Polling Inference", theme=gr.themes.Soft()) as demo:

@@ -1,6 +1,4 @@
-"""
-Utility functions for polling-based streaming inference.
-"""
+"""Utility functions for polling inference."""
 
 import os
 import sys
@@ -13,7 +11,6 @@ import torch
 
 
 def get_gpu_memory_info() -> Dict[str, Any]:
-    """Get current GPU memory usage."""
     if not torch.cuda.is_available():
         return {"error": "CUDA not available"}
 
@@ -29,7 +26,7 @@ def get_gpu_memory_info() -> Dict[str, Any]:
 
 
 def format_duration(seconds: float) -> str:
-    """Format duration in human-readable format."""
+    """Format duration as human-readable string."""
     if seconds < 60:
         return f"{seconds:.1f}s"
     elif seconds < 3600:
@@ -42,28 +39,15 @@ def format_duration(seconds: float) -> str:
         return f"{hours}h {minutes}m"
 
 
-def save_responses_to_file(
-    responses: List[Dict[str, Any]],
-    output_dir: str,
-    session_id: str
-) -> str:
-    """Save all responses from a session to a JSON file."""
+def save_responses_to_file(responses: List[Dict[str, Any]], output_dir: str, session_id: str) -> str:
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, f"responses_{session_id}.json")
-
     with open(output_file, 'w') as f:
         json.dump(responses, f, indent=2)
-
     return output_file
 
 
-def create_response_markdown(
-    responses: List[Dict[str, Any]],
-    output_dir: str,
-    session_id: str,
-    video_source: str,
-) -> str:
-    """Create a markdown report of all responses."""
+def create_response_markdown(responses: List[Dict[str, Any]], output_dir: str, session_id: str, video_source: str) -> str:
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, f"report_{session_id}.md")
 
@@ -87,18 +71,17 @@ def create_response_markdown(
 
 
 class PerformanceProfiler:
-    """Simple performance profiler for measuring code sections."""
+    """Simple performance profiler for timing code sections."""
 
     def __init__(self):
         self.timings: Dict[str, List[float]] = {}
         self._start_times: Dict[str, float] = {}
 
     def start(self, name: str):
-        """Start timing a section."""
         self._start_times[name] = time.perf_counter()
 
     def stop(self, name: str) -> float:
-        """Stop timing a section and record the duration."""
+        """Stop timing a section, record and return the duration."""
         if name not in self._start_times:
             return 0.0
 
@@ -112,7 +95,6 @@ class PerformanceProfiler:
         return duration
 
     def get_summary(self) -> Dict[str, Dict[str, float]]:
-        """Get summary statistics for all recorded timings."""
         import statistics
 
         summary = {}
@@ -131,7 +113,6 @@ class PerformanceProfiler:
         return summary
 
     def print_summary(self):
-        """Print a formatted summary of all timings."""
         summary = self.get_summary()
 
         print("\n" + "="*60)
@@ -157,26 +138,13 @@ def estimate_memory_requirements(
     batch_size: int = 1,
     precision: str = "float16",
 ) -> Dict[str, float]:
-    """
-    Estimate memory requirements for inference.
-
-    Returns memory estimates in GB.
-    """
+    """Estimate memory requirements for inference in GB."""
     bytes_per_element = 2 if precision == "float16" else 4
 
-    # Video frames: B x T x C x H x W
     video_memory = batch_size * num_frames * 3 * 224 * 224 * bytes_per_element
-
-    # Context images: B x N x C x H x W
     context_memory = batch_size * num_context_images * 3 * 224 * 224 * bytes_per_element
-
-    # Model weights (approximate for 0.5B model)
-    model_memory = 0.5e9 * bytes_per_element  # Parameters
-
-    # KV cache (approximate)
-    kv_cache = 0.5e9  # Rough estimate
-
-    # Activation memory (rough estimate)
+    model_memory = 0.5e9 * bytes_per_element
+    kv_cache = 0.5e9
     activation_memory = 1e9
 
     total = video_memory + context_memory + model_memory + kv_cache + activation_memory
@@ -192,7 +160,6 @@ def estimate_memory_requirements(
 
 
 def check_video_file(video_path: str) -> Dict[str, Any]:
-    """Check video file properties without loading the full video."""
     try:
         from decord import VideoReader, cpu
 
@@ -218,7 +185,6 @@ def check_video_file(video_path: str) -> Dict[str, Any]:
 
 
 def warmup_model(model, tokenizer, device: str = "cuda"):
-    """Perform a warmup inference to initialize CUDA kernels."""
     logging.info("Performing model warmup...")
 
     # Create dummy inputs

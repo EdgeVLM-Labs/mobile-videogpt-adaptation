@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Polling Inference with Feedback Naturalizer
-
-Combines real-time video polling with natural feedback generation.
-Detects repetitive corrections and provides varied responses.
+"""Polling inference with feedback naturalization to detect repetitive corrections.
 
 Usage:
     python run_polling_with_naturalizer.py sample_videos/00000340.mp4
@@ -24,13 +20,7 @@ from utils.naturalizer.feedback_naturalizer import FeedbackNaturalizer
 
 
 class NaturalizedPollingEngine:
-    """
-    Wrapper that adds feedback naturalization to polling inference.
-
-    Combines:
-    - PollingInferenceEngine: Real-time video processing
-    - FeedbackNaturalizer: Repetition detection and natural variations
-    """
+    """Combines PollingInferenceEngine with FeedbackNaturalizer for varied responses."""
 
     def __init__(self, config: PollingConfig, naturalizer_threshold: float = 0.70):
         self.engine = PollingInferenceEngine(config)
@@ -39,7 +29,6 @@ class NaturalizedPollingEngine:
         self.results = []
 
     def load(self) -> bool:
-        """Load model and naturalizer."""
         print("\n" + "=" * 60)
         print("Loading Model...")
         print("=" * 60)
@@ -55,23 +44,12 @@ class NaturalizedPollingEngine:
         return True
 
     def run(self, video_source: str, max_polls: int = None) -> dict:
-        """
-        Run polling with naturalized feedback.
-
-        Args:
-            video_source: Path to video file
-            max_polls: Maximum number of polls (None = until video ends)
-
-        Returns:
-            Summary dict with all results
-        """
+        """Run polling with naturalized feedback, returns summary dict."""
         self.results = []
 
         def on_response(poll_index: int, response: str, metrics):
-            # Process through naturalizer
             result = self.naturalizer.process(response)
 
-            # Store result
             self.results.append({
                 'poll': poll_index + 1,
                 'raw_response': response,
@@ -97,7 +75,6 @@ class NaturalizedPollingEngine:
             print(f"Latency: {metrics.total_inference_time * 1000:.1f}ms")
             print("─" * 60)
 
-        # Run polling loop
         summary = self.engine.run_polling_loop(
             video_source=video_source,
             on_response=on_response,
@@ -112,7 +89,6 @@ class NaturalizedPollingEngine:
         return summary
 
     def cleanup(self):
-        """Clean up resources."""
         self.engine.cleanup()
         if self.naturalizer:
             self.naturalizer.reset()
@@ -161,7 +137,6 @@ def main():
         output_dir=args.output_dir,
     )
 
-    # Print settings
     print("📋 Settings:")
     print(f"   Video: {args.video_source}")
     print(f"   Polling Interval: {args.polling_interval}s")
@@ -169,21 +144,17 @@ def main():
     print(f"   Max Polls: {args.max_polls or 'unlimited'}")
     print()
 
-    # Create engine
     engine = NaturalizedPollingEngine(config, naturalizer_threshold=args.threshold)
 
     try:
-        # Load
         if not engine.load():
             print("❌ Failed to load model")
             return 1
 
-        # Warmup
         if args.warmup > 0:
             print(f"\n🔥 Running {args.warmup} warmup run(s)...")
             engine.engine.warmup(num_runs=args.warmup)
 
-        # Run
         print("\n" + "=" * 60)
         print("🎬 Starting Polling with Naturalization")
         print("=" * 60)
@@ -193,7 +164,6 @@ def main():
             max_polls=args.max_polls,
         )
 
-        # Print summary
         if "error" not in summary:
             print("\n" + "=" * 60)
             print("📊 SESSION SUMMARY")
@@ -204,13 +174,11 @@ def main():
             print(f"   Avg Latency: {summary['latency_ms']['mean']:.1f}ms")
             print("=" * 60)
 
-            # Print all results
-            print("\n📝 All Responses:")
+            print(f"\n📝 All Responses:")
             for r in summary['naturalized_results']:
                 status = f"🔄 Repeat #{r['repeat_count']}" if r['is_repeat'] else "✨ New"
                 print(f"   [{r['poll']}] {status}: {r['display'][:60]}...")
 
-            # Save results
             os.makedirs(args.output_dir, exist_ok=True)
             output_file = os.path.join(args.output_dir, f"naturalized_{summary['session_id']}.json")
             with open(output_file, 'w') as f:

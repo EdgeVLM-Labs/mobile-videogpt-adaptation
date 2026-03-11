@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Benchmark script for polling inference.
-Runs comprehensive benchmarks and generates a detailed report.
-"""
+"""Benchmark script for polling inference across different polling intervals."""
 
 import os
 import sys
@@ -31,9 +28,6 @@ def run_benchmark(
     lora_weights: str = "EdgeVLM-Labs/mobile-videogpt-finetune-2000",
     output_dir: str = "results/benchmarks",
 ):
-    """
-    Run benchmarks with different polling intervals.
-    """
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -41,7 +35,6 @@ def run_benchmark(
     print("MOBILE-VIDEOGPT POLLING BENCHMARK")
     print("="*70)
 
-    # Check video
     video_info = check_video_file(video_path)
     if not video_info.get("exists"):
         print(f"Error: Video file not found: {video_path}")
@@ -52,29 +45,25 @@ def run_benchmark(
     print(f"  FPS: {video_info['fps']:.2f}")
     print(f"  Frames: {video_info['total_frames']}")
 
-    # Memory estimates
     mem_est = estimate_memory_requirements()
     print(f"\nEstimated Memory: {mem_est['total_estimated_gb']:.2f} GB")
 
-    # GPU info
     gpu_info = get_gpu_memory_info()
     if "error" not in gpu_info:
         print(f"GPU: {gpu_info['device']}")
         print(f"  Free: {gpu_info['free_memory_gb']:.2f} GB")
 
-    # Create config and engine
     config = PollingConfig(
         base_model_path=base_model,
         lora_weights_path=lora_weights,
-        max_polling_duration=3600,  # 1 hour max for benchmarks
+        max_polling_duration=3600,
         log_dir="logs/benchmarks",
         output_dir=output_dir,
-        log_level="WARNING",  # Reduce logging during benchmark
+        log_level="WARNING",
     )
 
     engine = PollingInferenceEngine(config)
 
-    # Load model once
     print("\nLoading model...")
     load_start = time.time()
     if not engine.load_model():
@@ -83,10 +72,8 @@ def run_benchmark(
     load_time = time.time() - load_start
     print(f"Model loaded in {load_time:.2f}s")
 
-    # Get GPU memory after loading
     gpu_after_load = get_gpu_memory_info()
 
-    # Run benchmarks for each interval
     all_results = []
 
     for interval in polling_intervals:
@@ -99,7 +86,6 @@ def run_benchmark(
         engine.stream_handler.open_video_file(video_path)
         engine.stream_handler.reset()
 
-        # Run polling
         summary = engine.run_polling_loop(
             video_source=video_path,
             max_polls=num_polls_per_interval,
@@ -127,7 +113,6 @@ def run_benchmark(
     # Clean up
     engine.cleanup()
 
-    # Generate report
     benchmark_report = {
         "timestamp": timestamp,
         "video_info": video_info,
@@ -146,7 +131,6 @@ def run_benchmark(
         "results": all_results,
     }
 
-    # Save report
     report_file = os.path.join(output_dir, f"benchmark_{timestamp}.json")
     with open(report_file, 'w') as f:
         json.dump(benchmark_report, f, indent=2)

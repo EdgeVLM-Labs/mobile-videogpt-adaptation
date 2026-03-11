@@ -2,8 +2,6 @@
 
 This module provides real-time video stream analysis using a polling approach, where inference is performed at configurable intervals on video content.
 
-Instead of interrupt-based inference, this module polls the video stream every N seconds (configurable) and runs inference on the most recent frames. This approach is simpler to implement and works well for exercise form evaluation where feedback doesn't need to be instantaneous.
-
 ## Features
 
 - **Configurable polling interval** (default: 3 seconds)
@@ -15,16 +13,19 @@ Instead of interrupt-based inference, this module polls the video stream every N
 
 ## Files
 
-| File                       | Description                               |
-| -------------------------- | ----------------------------------------- |
-| `config.py`                | Configuration dataclass with all settings |
-| `metrics.py`               | Metrics tracking and session statistics   |
-| `stream_handler.py`        | Video/stream frame extraction             |
-| `inference_engine.py`      | Main inference engine with LoRA loading   |
-| `run_polling.py`           | Python entry point script                 |
-| `run_polling_inference.sh` | Shell script wrapper with logging         |
-| `benchmark.py`             | Performance benchmarking script           |
-| `utils.py`                 | Utility functions                         |
+| File                              | Description                                                                   |
+| --------------------------------- | ----------------------------------------------------------------------------- |
+| `config.py`                       | `PollingConfig` dataclass - all settings with `from_env()` support            |
+| `metrics.py`                      | Per-inference and session metrics tracking (`MetricsTracker`)                 |
+| `stream_handler.py`               | Frame extraction from video files and live streams (`VideoStreamHandler`)     |
+| `inference_engine.py`             | Main inference engine with LoRA loading and polling loop                      |
+| `utils.py`                        | GPU memory info, video validation, performance profiling helpers              |
+| `run_polling.py`                  | CLI entry point - runs polling loop on a video file or stream                 |
+| `run_polling_with_naturalizer.py` | CLI entry point with `FeedbackNaturalizer` to avoid repetitive responses      |
+| `gradio_app.py`                   | Gradio web UI for interactive inference with live log/response display        |
+| `benchmark.py`                    | Benchmarks multiple polling intervals and produces a performance report       |
+| `run_polling_inference.sh`        | Shell wrapper for `run_polling.py` with timestamped log file output           |
+| `__init__.py`                     | Package exports (`PollingConfig`, `PollingInferenceEngine`, `MetricsTracker`) |
 
 ## Quick Start
 
@@ -56,13 +57,27 @@ python polling/run_polling.py sample_videos/00000340.mp4 \
     --lora-weights EdgeVLM-Labs/mobile-videogpt-finetune-2000
 ```
 
-### Running Benchmarks
+### With Feedback Naturalizer
+
+Avoids repetitive corrections by detecting similar responses and substituting varied alternatives:
 
 ```bash
-bash polling/run_polling_inference.sh sample_videos/test_stream.mp4 -polling-interval 3 --num-frames 16 --max-new-tokens 64 --warmup-runs 1
+python polling/run_polling_with_naturalizer.py sample_videos/00000340.mp4 \
+    --polling-interval 3 \
+    --threshold 0.70 \
+    --max-polls 10
 ```
 
-### Sample
+### Gradio Web UI
+
+Interactive browser-based interface with live response display and log viewer:
+
+```bash
+python polling/gradio_app.py
+# Then open http://localhost:7860
+```
+
+### Running Benchmarks
 
 ```bash
 python polling/benchmark.py sample_videos/00000340.mp4 \
@@ -86,7 +101,6 @@ python polling/benchmark.py sample_videos/00000340.mp4 \
 | `--lora-weights`     | EdgeVLM-Labs/mobile-videogpt-finetune-2000 | LoRA weights path                        |
 | `--log-level`        | INFO                                       | Logging verbosity                        |
 
-
 ## Metrics Tracked
 
 ### Per-Inference Metrics
@@ -107,9 +121,10 @@ python polling/benchmark.py sample_videos/00000340.mp4 \
 
 Logs and results are saved to:
 
-- `logs/streaming/polling_YYYYMMDD_HHMMSS.log` - Detailed logs
-- `logs/streaming/metrics_YYYYMMDD_HHMMSS.json` - Per-poll metrics
-- `results/streaming/summary_YYYYMMDD_HHMMSS.json` - Session summary
+- `logs/polling/polling_YYYYMMDD_HHMMSS.log` - Detailed logs
+- `logs/polling/metrics_YYYYMMDD_HHMMSS.json` - Per-poll metrics
+- `results/polling/summary_YYYYMMDD_HHMMSS.json` - Session summary
+- `results/polling/naturalized_YYYYMMDD_HHMMSS.json` - Naturalizer output (when using `run_polling_with_naturalizer.py`)
 
 ## Inference Prompt
 
