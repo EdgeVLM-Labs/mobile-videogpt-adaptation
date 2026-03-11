@@ -26,6 +26,7 @@ class PollingConfig:
 
     prompt: str = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
     max_new_tokens: int = 512
+    temperature: float = 0.0  # 0 = greedy decoding
     do_sample: bool = False
     num_beams: int = 1
     use_cache: bool = True

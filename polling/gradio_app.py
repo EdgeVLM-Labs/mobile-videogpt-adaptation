@@ -181,6 +181,7 @@ class GradioPollingApp:
         num_frames: int,
         fps: int,
         max_new_tokens: int,
+        temperature: float,
         warmup_runs: int,
         prompt: str,
         use_naturalizer: bool,
@@ -247,6 +248,7 @@ class GradioPollingApp:
                 num_frames=num_frames,
                 fps=fps,
                 max_new_tokens=max_new_tokens,
+                temperature=temperature,
                 prompt=prompt
             )
 
@@ -279,6 +281,7 @@ class GradioPollingApp:
                 self.engine.config.num_frames = num_frames
                 self.engine.config.fps = fps
                 self.engine.config.max_new_tokens = max_new_tokens
+                self.engine.config.temperature = temperature
                 self.engine.config.prompt = prompt
 
             if not self.engine.load_model():
@@ -616,6 +619,15 @@ def create_interface():
                     info="Maximum tokens to generate"
                 )
 
+                temperature = gr.Slider(
+                    minimum=0.0,
+                    maximum=2.0,
+                    value=0.0,
+                    step=0.1,
+                    label="Temperature",
+                    info="0 = greedy decoding; >0 = sampling (higher = more creative)"
+                )
+
                 warmup_runs = gr.Slider(
                     minimum=0,
                     maximum=5,
@@ -715,6 +727,7 @@ def create_interface():
                 num_frames,
                 fps,
                 max_new_tokens,
+                temperature,
                 warmup_runs,
                 prompt,
                 use_naturalizer,

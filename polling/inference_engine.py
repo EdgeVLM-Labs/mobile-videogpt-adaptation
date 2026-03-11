@@ -350,17 +350,19 @@ class PollingInferenceEngine:
         self._first_token_streamer.reset()
 
         with torch.inference_mode():
-            output_ids = self.model.generate(
-                input_ids,
+            generate_kwargs = dict(
                 images=video_tensor,
                 context_images=context_tensor,
-                do_sample=self.config.do_sample,
+                do_sample=self.config.temperature > 0,
                 num_beams=self.config.num_beams,
                 max_new_tokens=self.config.max_new_tokens,
                 use_cache=True,
                 return_dict_in_generate=self.config.enable_confidence_scoring,
                 output_scores=self.config.enable_confidence_scoring,
             )
+            if self.config.temperature > 0:
+                generate_kwargs['temperature'] = self.config.temperature
+            output_ids = self.model.generate(input_ids, **generate_kwargs)
 
         generation_end = time.time()
 
