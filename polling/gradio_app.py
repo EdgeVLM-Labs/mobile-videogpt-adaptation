@@ -124,15 +124,15 @@ class GradioPollingApp:
         if not metrics:
             return "No metrics available"
 
-        output = []
-        output.append("**Poll Metrics**\n")
-        output.append(f"**Latency:** {metrics.get('latency_ms', 0):.1f} ms\n")
-        output.append(f"**TTFT:** {metrics.get('ttft_ms', 0):.1f} ms\n")
-        output.append(f"**Tokens/s:** {metrics.get('tokens_per_second', 0):.1f}\n")
-        output.append(f"**Frames:** {metrics.get('frames_processed', 0)}\n")
-        output.append(f"**Output Tokens:** {metrics.get('output_tokens', 0)}")
-
-        return "".join(output)
+        lines = [
+            "**Poll Metrics**",
+            f"- **Latency:** {metrics.get('latency_ms', 0):.1f} ms",
+            f"- **TTFT:** {metrics.get('ttft_ms', 0):.1f} ms",
+            f"- **Tokens/s:** {metrics.get('tokens_per_second', 0):.1f}",
+            f"- **Frames:** {metrics.get('frames_processed', 0)}",
+            f"- **Output Tokens:** {metrics.get('output_tokens', 0)}",
+        ]
+        return "\n".join(lines)
 
     def format_session_metrics(self, session_metrics: dict) -> str:
         """Format session-level metrics"""

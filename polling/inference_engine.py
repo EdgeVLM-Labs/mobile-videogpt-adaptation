@@ -377,7 +377,14 @@ class PollingInferenceEngine:
             sequences_scores = None
             beam_indices = None
 
-        output_tokens = output_ids.shape[1] - input_token_count
+        raw_output_len = output_ids.shape[1]
+        # HuggingFace generate normally returns the full sequence (input + output).
+        # Some custom implementations return only new tokens — handle both.
+        if raw_output_len > input_token_count:
+            output_tokens = raw_output_len - input_token_count
+        else:
+            output_tokens = raw_output_len
+        self.logger.debug(f"Token counts: input={input_token_count}, raw_output={raw_output_len}, new={output_tokens}")
         response = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
 
         if response.endswith(stop_str):
@@ -406,8 +413,9 @@ class PollingInferenceEngine:
         # Estimate TTFT - approximate since transformers doesn't expose per-token timing
         ttft = self._first_token_streamer.time_to_first_token
         if ttft == 0:
-            # Estimate: TTFT is typically the encoding time + first decoding step
-            ttft = (generation_end - self._first_token_streamer.start_time) / max(output_tokens, 1) * 2
+            gen_duration = generation_end - self._first_token_streamer.start_time
+            # Estimate: first token ≈ encoding time = total_gen / num_tokens
+            ttft = gen_duration / max(output_tokens, 1)
 
         return response, ttft, input_token_count, output_tokens
 
