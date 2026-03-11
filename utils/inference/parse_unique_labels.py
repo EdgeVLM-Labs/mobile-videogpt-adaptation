@@ -1,18 +1,22 @@
-"""Parse unique exercise labels and feedback from prediction results.
+"""Parse unique exercise labels from JSON dataset
+
+Supports two JSON formats:
+  Format 1 (10 exercises): items have 'exercise', 'labels_descriptive', 'coach', 'feedback'
+  Format 2 (14 exercises): items have 'video_path', 'labels', 'labels_descriptive', 'split'
+
+Three label types can be processed via --label_type:
+  - labels_descriptive(default): Exercise labels with "exercise - description" format (grouped by exercise)
+  - coach: Encouraging phrases/compliments (flat list, no exercise grouping)
+  - feedback: Corrective instructions (flat list, no exercise grouping)
 
 Usage:
-    # Parse labels with default format (Exercise - Feedback)
-    python utils/inference/parse_unique_labels.py --json_file_path "results/QEVD-Fit-300k Only.json"
+    python utils/inference/parse_unique_labels.py --json_file_path "new_jsons/fine_grained_labels_10.json"
 
-    # Parse labels with only feedback format
-    python utils/inference/parse_unique_labels.py --json_file_path "results/Modified Ground Truth (Feedback Only).json" --enable_only_feedback_label_format
+    python utils/inference/parse_unique_labels.py --json_file_path "new_jsons/fine_grained_labels_10.json" --label_type coach
 
-    # Add sentiment analysis column next to each feedback column
-    python utils/inference/parse_unique_labels.py --json_file_path "results/QEVD-Fit-300k Only.json" --enable_feedback_sentiment_analysis
+    python utils/inference/parse_unique_labels.py --json_file_path "new_jsons/fine_grained_labels_10.json" --label_type feedback --enable_feedback_sentiment_analysis
 
-    # Both flags can be combined
-    python utils/inference/parse_unique_labels.py --json_file_path "results/Modified Ground Truth (Feedback Only).json" --enable_only_feedback_label_format --enable_feedback_sentiment_analysis
-
+    python utils/inference/parse_unique_labels.py --json_file_path "new_jsons/fine_grained_labels_14.json" --output results/my_output.xlsx
 """
 
 import argparse
@@ -20,7 +24,7 @@ import json
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 import pandas as pd
 import transformers
 from transformers import pipeline
@@ -111,74 +115,106 @@ def _split_exercise_feedback(text: str) -> Tuple[str, str]:
     return (text.strip(), "")
 
 
-def parse_unique_labels(
-    data: List[Dict[str, str]], 
-    enable_only_feedback_label_format: bool = False
-) -> Dict[str, Any]:
-    """Parse unique labels from prediction data.
+def parse_labels(data: List[Dict[str, Any]], label_type: str = 'labels_descriptive') -> Dict[str, Any]:
+    """Parse unique labels from dataset items.
 
     Args:
-        data: List of dictionaries containing 'ground_truth' and 'prediction' keys.
-        enable_only_feedback_label_format: If True, returns tuples of (exercise, feedback).
-            If False, groups feedbacks by exercise name.
+        data: List of dataset items.
+        label_type: Type of label to process - 'labels_descriptive', 'coach', or 'feedback'.
 
     Returns:
-        Dictionary with 'ground_truths' and 'predictions' keys containing parsed labels.
-        When enable_only_feedback_label_format is True, values are lists of tuples.
-        Otherwise, values are dicts mapping exercise names to lists of feedback strings.
+        Dictionary with:
+            'ground_truths'   – dict mapping exercise name -> sorted list of unique label strings
+                               (for labels_descriptive), or a flat sorted list (for coach/feedback)
+            'total_instances' – total label assignments across all items (counts duplicates)
+            'grouped_by_exercise' – True if grouped by exercise, False otherwise
+    
+    Raises:
+        ValueError: If the label_type field is not found in the dataset.
     """
-    if enable_only_feedback_label_format:
-        ground_truths: Set[str] = set()
-        predictions: Set[str] = set()
-
+    # Guardrail: Check if the label_type field exists in the dataset
+    if not data:
+        raise ValueError("Dataset is empty")
+    
+    field_exists = any(label_type in item for item in data)
+    if not field_exists:
+        available_fields = set()
         for item in data:
-            gt = item['ground_truth']
-            pred = item['prediction']
-            ground_truths.add(gt)
-            predictions.add(pred)
-        
-        return {
-            "ground_truths": sorted(list(ground_truths)),
-            "predictions": sorted(list(predictions))
-        }
-
-    else:
+            available_fields.update(item.keys())
+        raise ValueError(
+            f"Label type '{label_type}' not found in any dataset items. "
+            f"Available fields: {sorted(available_fields)}"
+        )
+    
+    if label_type == 'labels_descriptive':
         ground_truths: Dict[str, Set[str]] = defaultdict(set)
-        predictions: Dict[str, Set[str]] = defaultdict(set)
-        
+        total_instances = 0
+
         for item in data:
-            gt = item['ground_truth']
-            pred = item['prediction']
-            gt_exercise, _ = _split_exercise_feedback(gt)
-            pred_exercise, _ = _split_exercise_feedback(pred)
-            
-            ground_truths[gt_exercise].add(gt)
-            predictions[pred_exercise].add(pred)
-        
+            for label in item.get('labels_descriptive', []):
+                exercise, _ = _split_exercise_feedback(label)
+                ground_truths[exercise].add(label)
+                total_instances += 1
+
         return {
-            "ground_truths": {k: sorted(list(v)) for k, v in ground_truths.items()},
-            "predictions": {k: sorted(list(v)) for k, v in predictions.items()}
+            "ground_truths": {k: sorted(list(v)) for k, v in sorted(ground_truths.items())},
+            "total_instances": total_instances,
+            "grouped_by_exercise": True,
         }
+    
+    elif label_type == 'coach':
+        unique_labels: Set[str] = set()
+        total_instances = 0
+
+        for item in data:
+            coach_list = item.get('coach', [])
+            if isinstance(coach_list, list):
+                for label in coach_list:
+                    unique_labels.add(label)
+                    total_instances += 1
+
+        return {
+            "ground_truths": sorted(list(unique_labels)),
+            "total_instances": total_instances,
+            "grouped_by_exercise": False,
+        }
+    
+    elif label_type == 'feedback':
+        unique_labels: Set[str] = set()
+        total_instances = 0
+
+        for item in data:
+            feedback = item.get('feedback', '')
+            if feedback and isinstance(feedback, str):
+                unique_labels.add(feedback)
+                total_instances += 1
+
+        return {
+            "ground_truths": sorted(list(unique_labels)),
+            "total_instances": total_instances,
+            "grouped_by_exercise": False,
+        }
+    
+    else:
+        raise ValueError(f"Invalid label_type: {label_type}")
+
 
 def _write_sentiment_counts(
     writer: pd.ExcelWriter,
-    gt_sentiments: List[str],
-    pred_sentiments: List[str],
+    sentiments: List[str],
     startrow: int,
 ) -> None:
     """Write a positive/neutral/negative count summary table to the Excel sheet.
 
     Args:
         writer: Active ExcelWriter instance.
-        gt_sentiments: List of sentiment strings for ground truths.
-        pred_sentiments: List of sentiment strings for predictions.
+        sentiments: List of sentiment strings.
         startrow: Zero-based row at which to start writing.
     """
     labels = ["positive", "neutral", "negative"]
     counts_data = {
         "Sentiment": labels,
-        "Ground Truth Count": [gt_sentiments.count(lbl) for lbl in labels],
-        "Prediction Count": [pred_sentiments.count(lbl) for lbl in labels],
+        "Count": [sentiments.count(lbl) for lbl in labels],
     }
     counts_df = pd.DataFrame(counts_data)
     counts_df.to_excel(writer, sheet_name="Summary", index=False, startrow=startrow)
@@ -186,143 +222,109 @@ def _write_sentiment_counts(
 
 def save_to_excel(
     result: Dict[str, Any],
-    enable_only_feedback_label_format: bool = False,
-    output_path: Optional[Path] = None,
+    output_path: Path,
+    label_type: str = 'labels_descriptive',
     enable_feedback_sentiment_analysis: bool = False,
 ) -> None:
     """Save parsed labels to Excel with summary tables.
 
     Args:
-        result: Dictionary containing 'ground_truths' and 'predictions'
-        enable_only_feedback_label_format: Format mode for the output
-        output_path: Path to save the Excel file
-        enable_feedback_sentiment_analysis: When True, appends a sentiment
-            column next to each feedback column.
+        result: Dictionary from parse_labels() containing 'ground_truths' and 'total_instances'.
+        output_path: Path to save the Excel file.
+        label_type: Type of label being processed.
+        enable_feedback_sentiment_analysis: When True, appends a sentiment column
+            next to the label column.
     """
+    ground_truths = result["ground_truths"]
+    grouped_by_exercise = result.get("grouped_by_exercise", True)
+
     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-        if enable_only_feedback_label_format:
-            # --- Labels sheet: main data only ---
-            max_len = max(len(result['ground_truths']), len(result['predictions']))
-            gt_list = result['ground_truths'] + [''] * (max_len - len(result['ground_truths']))
-            pred_list = result['predictions'] + [''] * (max_len - len(result['predictions']))
+        # --- Labels sheet ---
+        data_rows: List[Dict[str, str]] = []
 
-            df_data: Dict[str, List[str]] = {'Ground Truths': gt_list}
-            if enable_feedback_sentiment_analysis:
-                df_data['Ground Truth Sentiment'] = [
-                    analyze_feedback_sentiment(fb) for fb in gt_list
-                ]
-            df_data['Predictions'] = pred_list
-            if enable_feedback_sentiment_analysis:
-                df_data['Prediction Sentiment'] = [
-                    analyze_feedback_sentiment(fb) for fb in pred_list
-                ]
-            data_df = pd.DataFrame(df_data)
-            data_df.to_excel(writer, sheet_name='Labels', index=False, startrow=0)
-
-            # --- Summary sheet ---
-            summary_current_row = 0
-
-            summary_data = {
-                'Metric': ['Total Ground Truths', 'Total Predictions'],
-                'Count': [len(result['ground_truths']), len(result['predictions'])],
-            }
-            summary_df = pd.DataFrame(summary_data)
-            summary_df.to_excel(writer, sheet_name='Summary', index=False, startrow=summary_current_row)
-            summary_current_row += len(summary_df) + 2
-
-            if enable_feedback_sentiment_analysis:
-                gt_sentiments = df_data.get('Ground Truth Sentiment', [])
-                pred_sentiments = df_data.get('Prediction Sentiment', [])
-                _write_sentiment_counts(
-                    writer, gt_sentiments, pred_sentiments, summary_current_row
-                )
-
-        else:
-            # --- Labels sheet: main data only ---
-            data_rows = []
-
-            all_exercises = sorted(set(list(result['ground_truths'].keys()) + list(result['predictions'].keys())))
-
+        if grouped_by_exercise:
+            # For labels_descriptive: grouped by exercise with separators
+            all_exercises = sorted(ground_truths.keys())
+            
             for idx, exercise in enumerate(all_exercises):
-                gt_feedbacks = sorted(result['ground_truths'].get(exercise, []))
-                pred_feedbacks = sorted(result['predictions'].get(exercise, []))
-
-                max_feedbacks = max(len(gt_feedbacks), len(pred_feedbacks))
-
-                for i in range(max_feedbacks):
-                    gt_feedback = gt_feedbacks[i] if i < len(gt_feedbacks) else ''
-                    pred_feedback = pred_feedbacks[i] if i < len(pred_feedbacks) else ''
-
-                    row: Dict[str, str] = {'Ground Truth': gt_feedback}
+                for label in ground_truths[exercise]:
+                    _, feedback_part = _split_exercise_feedback(label)
+                    row: Dict[str, str] = {'Label': label}
                     if enable_feedback_sentiment_analysis:
-                        _, gt_fb_only = _split_exercise_feedback(gt_feedback)
-                        row['Ground Truth Sentiment'] = analyze_feedback_sentiment(gt_fb_only)
-                    row['Prediction'] = pred_feedback
-                    if enable_feedback_sentiment_analysis:
-                        _, pred_fb_only = _split_exercise_feedback(pred_feedback)
-                        row['Prediction Sentiment'] = analyze_feedback_sentiment(pred_fb_only)
+                        row['Sentiment'] = analyze_feedback_sentiment(feedback_part)
                     data_rows.append(row)
 
-                # Add empty row between exercises (except after the last)
-                separator: Dict[str, str] = {'Ground Truth': '', 'Prediction': ''}
-                if enable_feedback_sentiment_analysis:
-                    separator['Ground Truth Sentiment'] = ''
-                    separator['Prediction Sentiment'] = ''
+                # Empty separator row between exercises (except after the last)
                 if idx < len(all_exercises) - 1:
+                    separator: Dict[str, str] = {'Label': ''}
+                    if enable_feedback_sentiment_analysis:
+                        separator['Sentiment'] = ''
                     data_rows.append(separator)
+        else:
+            # For coach/feedback: flat list, no grouping
+            for label in ground_truths:
+                row: Dict[str, str] = {'Label': label}
+                if enable_feedback_sentiment_analysis:
+                    row['Sentiment'] = analyze_feedback_sentiment(label)
+                data_rows.append(row)
 
-            data_df = pd.DataFrame(data_rows)
-            data_df.to_excel(writer, sheet_name='Labels', index=False, startrow=0)
+        data_df = pd.DataFrame(data_rows)
+        data_df.to_excel(writer, sheet_name='Labels', index=False, startrow=0)
 
-            # --- Summary sheet ---
-            summary_current_row = 0
+        # --- Summary sheet ---
+        if grouped_by_exercise:
+            total_unique = sum(len(labels) for labels in ground_truths.values())
+        else:
+            total_unique = len(ground_truths)
+        
+        summary_current_row = 0
 
-            # Total counts table
-            total_gt_count = sum(len(feedbacks) for feedbacks in result['ground_truths'].values())
-            total_pred_count = sum(len(feedbacks) for feedbacks in result['predictions'].values())
-            summary_data = {
-                'Metric': ['Total Ground Truths', 'Total Predictions'],
-                'Count': [total_gt_count, total_pred_count],
-            }
-            summary_df = pd.DataFrame(summary_data)
-            summary_df.to_excel(writer, sheet_name='Summary', index=False, startrow=summary_current_row)
-            summary_current_row += len(summary_df) + 2
+        summary_data = {
+            'Metric': ['Total Label Instances', 'Total Unique Labels'],
+            'Count': [result['total_instances'], total_unique],
+        }
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_excel(writer, sheet_name='Summary', index=False, startrow=summary_current_row)
+        summary_current_row += len(summary_df) + 2
 
-            # Per-exercise count table
-            exercise_counts = []
-            for exercise in all_exercises:
-                exercise_counts.append({
+        # Per-exercise unique label count table (only for labels_descriptive)
+        if grouped_by_exercise:
+            all_exercises = sorted(ground_truths.keys())
+            exercise_counts = [
+                {
                     'Exercise': exercise,
-                    'Ground Truth Count': len(result['ground_truths'].get(exercise, [])),
-                    'Prediction Count': len(result['predictions'].get(exercise, [])),
-                })
+                    'Unique Label Count': len(ground_truths[exercise]),
+                }
+                for exercise in all_exercises
+            ]
             exercise_count_df = pd.DataFrame(exercise_counts)
             exercise_count_df.to_excel(writer, sheet_name='Summary', index=False, startrow=summary_current_row)
             summary_current_row += len(exercise_count_df) + 2
 
-            # Sentiment counts table
-            if enable_feedback_sentiment_analysis:
-                gt_sentiments = [r.get('Ground Truth Sentiment', '') for r in data_rows]
-                pred_sentiments = [r.get('Prediction Sentiment', '') for r in data_rows]
-                _write_sentiment_counts(
-                    writer, gt_sentiments, pred_sentiments, summary_current_row
-                )
+        # Sentiment counts table
+        if enable_feedback_sentiment_analysis:
+            sentiments = [r.get('Sentiment', '') for r in data_rows]
+            _write_sentiment_counts(writer, sentiments, summary_current_row)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Parse unique labels from prediction results JSON file"
+        description="Parse unique labels from a dataset JSON file"
     )
     parser.add_argument(
         "--json_file_path",
         type=str,
         required=True,
-        help="Path to the JSON file containing labels"
     )
     parser.add_argument(
-        "--enable_only_feedback_label_format",
-        action="store_true",
-        help="Enable only feedback label format (returns tuples instead of grouped by exercise)"
+        "--label_type",
+        type=str,
+        default="labels_descriptive",
+        choices=["labels_descriptive", "coach", "feedback"],
+        help=(
+            "Type of label to process: 'labels_descriptive' (grouped by exercise), "
+            "'coach' (encouraging phrases), or 'feedback' (corrective instructions)"
+        ),
     )
     parser.add_argument(
         "--enable_feedback_sentiment_analysis",
@@ -335,7 +337,8 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=str,
-        help="Output Excel file path (default: input filename with _parsed.xlsx suffix)"
+        default=None,
+        help="Output Excel file path (optional; defaults to input filename with _{label_type}_parsed.xlsx suffix)"
     )
 
     args = parser.parse_args()
@@ -359,11 +362,7 @@ def main() -> None:
 
     # Parse labels
     try:
-        result = parse_unique_labels(data, args.enable_only_feedback_label_format)
-        # print(result)
-    except KeyError as e:
-        print(f"Error: Missing required key in data: {e}", file=sys.stderr)
-        sys.exit(1)
+        result = parse_labels(data, args.label_type)
     except Exception as e:
         print(f"Error parsing labels: {e}", file=sys.stderr)
         sys.exit(1)
@@ -372,22 +371,19 @@ def main() -> None:
     if args.output:
         output_path = Path(args.output)
     else:
-        # Create default output filename based on input
-        output_path = input_path.parent / f"{input_path.stem}_parsed.xlsx"
-    
+        if args.enable_feedback_sentiment_analysis:
+            output_path = input_path.parent / f"{input_path.stem}_{args.label_type}_parsed_with_sentiment.xlsx"
+        else:
+            output_path = input_path.parent / f"{input_path.stem}_{args.label_type}_parsed.xlsx"
+
     # Ensure output has .xlsx extension
     if output_path.suffix.lower() != '.xlsx':
         output_path = output_path.with_suffix('.xlsx')
-    
+
     # Save to Excel
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        save_to_excel(
-            result,
-            args.enable_only_feedback_label_format,
-            output_path,
-            args.enable_feedback_sentiment_analysis,
-        )
+        save_to_excel(result, output_path, args.label_type, args.enable_feedback_sentiment_analysis)
         print(f"Results saved to: {output_path}")
     except Exception as e:
         print(f"Error writing output file: {e}", file=sys.stderr)
