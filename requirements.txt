@@ -24,6 +24,7 @@ loguru
 datasets
 sacrebleu
 evaluate
+bert-score
 nltk
 sqlitedict
 tenacity
