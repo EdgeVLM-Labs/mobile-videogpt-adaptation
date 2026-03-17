@@ -42,9 +42,13 @@ load_dotenv(BASE_DIR / ".env")
 ROUGE_GREEN_THRESHOLD = 0.5   # >= this value is green (good)
 ROUGE_YELLOW_THRESHOLD = 0.2  # >= this value is yellow (moderate), below is red
 
-# BERT Similarity thresholds (0-1 scale, higher is better)
-BERT_GREEN_THRESHOLD = 0.7   # >= this value is green (good)
-BERT_YELLOW_THRESHOLD = 0.4  # >= this value is yellow (moderate), below is red
+# Semantic Similarity thresholds (0-1 scale, higher is better)
+SEMANTIC_GREEN_THRESHOLD = 0.7   # >= this value is green (good)
+SEMANTIC_YELLOW_THRESHOLD = 0.4  # >= this value is yellow (moderate), below is red
+
+# BERTScore thresholds (F1, 0-1 scale; bert-base-uncased scores tend to be 0.80-1.0)
+BERT_GREEN_THRESHOLD = 0.90   # >= this value is green (good)
+BERT_YELLOW_THRESHOLD = 0.80  # >= this value is yellow (moderate), below is red
 
 # METEOR Score thresholds (0-1 scale, higher is better)
 METEOR_GREEN_THRESHOLD = 0.5   # >= this value is green (good)
@@ -297,8 +301,8 @@ def compute_llm_accuracy_score(ground_truth: str, prediction: str, llm) -> float
         return 0.0
 
 
-def compute_cosine_similarity_bert(text1: str, text2: str, model) -> float:
-    """Compute cosine similarity using BERT embeddings."""
+def compute_semantic_similarity(text1: str, text2: str, model) -> float:
+    """Compute cosine similarity using sentence-transformers/all-MiniLM-L6-v2 embeddings."""
     if not text1 or not text2:
         return 0.0
 
@@ -310,7 +314,29 @@ def compute_cosine_similarity_bert(text1: str, text2: str, model) -> float:
         return 0.0
 
 
+def compute_bertscore(reference: str, hypothesis: str, metric) -> float:
+    """Compute BERTScore F1 using bert-base-uncased contextual embeddings.
+
+    BERTScore matches tokens via BERT contextual embeddings (precision/recall/F1),
+    making it robust to paraphrasing and synonym use.
+    """
+    if not reference or not hypothesis or metric is None:
+        return 0.0
+
+    try:
+        result = metric.compute(
+            predictions=[hypothesis],
+            references=[reference],
+            lang='en',
+            model_type='bert-base-uncased',
+        )
+        return float(result['f1'][0])
+    except:
+        return 0.0
+
+
 def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = True,
+                       use_bertscore: bool = True,
                        base_predictions: List[Dict] = None, use_llm_judge: bool = True,
                        evaluate_exercise_feedback: bool = False):
     """Create an Excel report with formatted results and similarity scores."""
@@ -322,17 +348,27 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             base_pred_map[bp.get('video', '')] = bp.get('base_prediction', '')
         print(f"✓ Loaded {len(base_pred_map)} base model predictions")
 
-    # Load BERT model if requested
-    bert_model = None
+    # Load sentence-transformers model if requested
+    sentence_model = None
     if use_bert:
-        print("Loading BERT model for semantic similarity...")
+        print("Loading sentence-transformers model (all-MiniLM-L6-v2)...")
         try:
-            bert_model = SentenceTransformer('all-MiniLM-L6-v2')
-            print("✓ BERT model loaded")
+            sentence_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+            print("✓ Sentence-transformers model loaded")
         except Exception as e:
-            print(f"⚠ Failed to load BERT model: {e}")
-            print("  Falling back to TF-IDF similarity")
+            print(f"⚠ Failed to load sentence-transformers model: {e}")
             use_bert = False
+
+    # Load BERTScore metric if requested
+    bertscore_metric = None
+    if use_bertscore:
+        print("Loading BERTScore metric (bert-base-uncased)...")
+        try:
+            bertscore_metric = evaluate.load('bertscore')
+            print("✓ BERTScore metric loaded")
+        except Exception as e:
+            print(f"⚠ Failed to load BERTScore metric: {e}")
+            use_bertscore = False
 
     # Load LLM judge if requested
     llm_judge = None
@@ -374,6 +410,9 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         headers.append("Base Model Response")
 
     if use_bert:
+        headers.append("Semantic Similarity")
+
+    if use_bertscore:
         headers.append("BERT Similarity")
 
     headers.extend([
@@ -410,6 +449,10 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         col_idx += 1
 
     if use_bert:
+        ws.column_dimensions[get_column_letter(col_idx)].width = 15  # Semantic Similarity
+        col_idx += 1
+
+    if use_bertscore:
         ws.column_dimensions[get_column_letter(col_idx)].width = 15  # BERT Similarity
         col_idx += 1
 
@@ -441,6 +484,7 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     except Exception as e:
         print(f"⚠ Failed to load ROUGE metric: {e}")
 
+    semantic_scores = []
     bert_scores = []
     # cider_scores = []
     meteor_scores = []
@@ -484,9 +528,14 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
                 eval_ground_truth = gt_feedback
 
         # Compute similarities
+        semantic_sim = None
+        if use_bert and sentence_model:
+            semantic_sim = compute_semantic_similarity(eval_ground_truth, eval_prediction, sentence_model)
+            semantic_scores.append(semantic_sim)
+
         bert_sim = None
-        if use_bert and bert_model:
-            bert_sim = compute_cosine_similarity_bert(eval_ground_truth, eval_prediction, bert_model)
+        if use_bertscore and bertscore_metric:
+            bert_sim = compute_bertscore(eval_ground_truth, eval_prediction, bertscore_metric)
             bert_scores.append(bert_sim)
 
         # cider_sim = compute_cider_score(eval_ground_truth, eval_prediction)
@@ -540,8 +589,14 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             col += 1
 
         # Track column indices for color coding
+        semantic_col_idx = None
+        if use_bert and semantic_sim is not None:
+            ws.cell(row=row, column=col).value = round(semantic_sim, 4)
+            semantic_col_idx = col
+            col += 1
+
         bert_col_idx = None
-        if use_bert and bert_sim is not None:
+        if use_bertscore and bert_sim is not None:
             ws.cell(row=row, column=col).value = round(bert_sim, 4)
             bert_col_idx = col
             col += 1
@@ -573,7 +628,16 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
             cell.border = border
 
             # Color code similarity scores
-            if bert_col_idx and c == bert_col_idx:  # BERT column
+            if semantic_col_idx and c == semantic_col_idx:  # Semantic Similarity column
+                score = semantic_sim if semantic_sim is not None else 0
+                if score >= SEMANTIC_GREEN_THRESHOLD:
+                    cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+                elif score >= SEMANTIC_YELLOW_THRESHOLD:
+                    cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+                else:
+                    cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+
+            if bert_col_idx and c == bert_col_idx:  # BERT Similarity column
                 score = bert_sim if bert_sim is not None else 0
                 if score >= BERT_GREEN_THRESHOLD:
                     cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
@@ -659,16 +723,35 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         ])
 
     # Track chart data positions
+    semantic_chart_start_row = None
     bert_chart_start_row = None
     meteor_chart_start_row = None
 
-    if use_bert and bert_scores:
+    if use_bert and semantic_scores:
+        semantic_green = sum(1 for s in semantic_scores if s >= SEMANTIC_GREEN_THRESHOLD)
+        semantic_yellow = sum(1 for s in semantic_scores if SEMANTIC_YELLOW_THRESHOLD <= s < SEMANTIC_GREEN_THRESHOLD)
+        semantic_red = sum(1 for s in semantic_scores if s < SEMANTIC_YELLOW_THRESHOLD)
+        semantic_chart_start_row = len(summary_data) + 7  # Row where Green count will be
+        summary_data.extend([
+            ["Semantic Similarity (all-MiniLM-L6-v2)", ""],
+            ["Mean", round(np.mean(semantic_scores), 4)],
+            ["Median", round(np.median(semantic_scores), 4)],
+            ["Std Dev", round(np.std(semantic_scores), 4)],
+            ["Min", round(np.min(semantic_scores), 4)],
+            ["Max", round(np.max(semantic_scores), 4)],
+            [f"Green (≥{SEMANTIC_GREEN_THRESHOLD})", semantic_green],
+            [f"Yellow ({SEMANTIC_YELLOW_THRESHOLD}-{SEMANTIC_GREEN_THRESHOLD})", semantic_yellow],
+            [f"Red (<{SEMANTIC_YELLOW_THRESHOLD})", semantic_red],
+            ["", ""],
+        ])
+
+    if use_bertscore and bert_scores:
         bert_green = sum(1 for s in bert_scores if s >= BERT_GREEN_THRESHOLD)
         bert_yellow = sum(1 for s in bert_scores if BERT_YELLOW_THRESHOLD <= s < BERT_GREEN_THRESHOLD)
         bert_red = sum(1 for s in bert_scores if s < BERT_YELLOW_THRESHOLD)
-        bert_chart_start_row = len(summary_data) + 7  # Row where Green count will be
+        bert_chart_start_row = len(summary_data) + 7
         summary_data.extend([
-            ["BERT Similarity", ""],
+            ["BERT Similarity (BERTScore F1)", ""],
             ["Mean", round(np.mean(bert_scores), 4)],
             ["Median", round(np.median(bert_scores), 4)],
             ["Std Dev", round(np.std(bert_scores), 4)],
@@ -781,39 +864,39 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
     summary_ws.column_dimensions['A'].width = 20
     summary_ws.column_dimensions['B'].width = 15
 
-    if use_bert and bert_scores and bert_chart_start_row:
-        # BERT Similarity Chart
-        bert_chart = BarChart()
-        bert_chart.type = "col"
-        bert_chart.style = 10
-        bert_chart.title = "BERT Similarity Distribution"
-        bert_chart.y_axis.title = "Count"
-        bert_chart.x_axis.title = "Category"
+    if use_bert and semantic_scores and semantic_chart_start_row:
+        # Semantic Similarity Chart
+        semantic_chart = BarChart()
+        semantic_chart.type = "col"
+        semantic_chart.style = 10
+        semantic_chart.title = "Semantic Similarity Distribution"
+        semantic_chart.y_axis.title = "Count"
+        semantic_chart.x_axis.title = "Category"
 
         # Show primary axes
-        bert_chart.x_axis.delete = False
-        bert_chart.y_axis.delete = False
-        bert_chart.x_axis.majorTickMark = "out"
-        bert_chart.y_axis.majorTickMark = "out"
+        semantic_chart.x_axis.delete = False
+        semantic_chart.y_axis.delete = False
+        semantic_chart.x_axis.majorTickMark = "out"
+        semantic_chart.y_axis.majorTickMark = "out"
 
         # Legend position below x-axis
-        bert_chart.legend = Legend()
-        bert_chart.legend.position = "b"
+        semantic_chart.legend = Legend()
+        semantic_chart.legend.position = "b"
 
         # Data reference (values)
-        bert_data = Reference(summary_ws, min_col=2, min_row=bert_chart_start_row,
-                              max_row=bert_chart_start_row + 2)
+        semantic_data = Reference(summary_ws, min_col=2, min_row=semantic_chart_start_row,
+                              max_row=semantic_chart_start_row + 2)
         # Categories reference (labels)
-        bert_cats = Reference(summary_ws, min_col=1, min_row=bert_chart_start_row,
-                              max_row=bert_chart_start_row + 2)
+        semantic_cats = Reference(summary_ws, min_col=1, min_row=semantic_chart_start_row,
+                              max_row=semantic_chart_start_row + 2)
 
-        bert_chart.add_data(bert_data, titles_from_data=False)
-        bert_chart.set_categories(bert_cats)
-        bert_chart.shape = 4
-        bert_chart.width = 12
-        bert_chart.height = 8
+        semantic_chart.add_data(semantic_data, titles_from_data=False)
+        semantic_chart.set_categories(semantic_cats)
+        semantic_chart.shape = 4
+        semantic_chart.width = 12
+        semantic_chart.height = 8
 
-        series = bert_chart.series[0]
+        series = semantic_chart.series[0]
         # Green bar
         pt_green = DataPoint(idx=0)
         pt_green.graphicalProperties = GraphicalProperties()
@@ -830,7 +913,52 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         pt_red.graphicalProperties.solidFill = "FF0000"
         series.data_points.append(pt_red)
 
-        summary_ws.add_chart(bert_chart, "D2")
+        summary_ws.add_chart(semantic_chart, "D2")
+
+    if use_bertscore and bert_scores and bert_chart_start_row:
+        # BERT Similarity (BERTScore F1) Chart
+        bert_chart = BarChart()
+        bert_chart.type = "col"
+        bert_chart.style = 10
+        bert_chart.title = "BERT Similarity Distribution (BERTScore F1)"
+        bert_chart.y_axis.title = "Count"
+        bert_chart.x_axis.title = "Category"
+
+        bert_chart.x_axis.delete = False
+        bert_chart.y_axis.delete = False
+        bert_chart.x_axis.majorTickMark = "out"
+        bert_chart.y_axis.majorTickMark = "out"
+
+        bert_chart.legend = Legend()
+        bert_chart.legend.position = "b"
+
+        bert_data = Reference(summary_ws, min_col=2, min_row=bert_chart_start_row,
+                              max_row=bert_chart_start_row + 2)
+        bert_cats = Reference(summary_ws, min_col=1, min_row=bert_chart_start_row,
+                              max_row=bert_chart_start_row + 2)
+
+        bert_chart.add_data(bert_data, titles_from_data=False)
+        bert_chart.set_categories(bert_cats)
+        bert_chart.shape = 4
+        bert_chart.width = 12
+        bert_chart.height = 8
+
+        series = bert_chart.series[0]
+        pt_green = DataPoint(idx=0)
+        pt_green.graphicalProperties = GraphicalProperties()
+        pt_green.graphicalProperties.solidFill = "00B050"
+        series.data_points.append(pt_green)
+        pt_yellow = DataPoint(idx=1)
+        pt_yellow.graphicalProperties = GraphicalProperties()
+        pt_yellow.graphicalProperties.solidFill = "FFC000"
+        series.data_points.append(pt_yellow)
+        pt_red = DataPoint(idx=2)
+        pt_red.graphicalProperties = GraphicalProperties()
+        pt_red.graphicalProperties.solidFill = "FF0000"
+        series.data_points.append(pt_red)
+
+        bert_chart_pos = "D17" if (use_bert and semantic_scores) else "D2"
+        summary_ws.add_chart(bert_chart, bert_chart_pos)
 
     if meteor_scores and meteor_chart_start_row:
         # METEOR Score Chart
@@ -881,8 +1009,12 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         pt_red.graphicalProperties.solidFill = "FF0000"
         series.data_points.append(pt_red)
 
-        # Position second chart below the first
-        chart_position = "D17" if use_bert else "D2"
+        # Position METEOR chart: count how many earlier charts were placed
+        _preceding_charts = sum([
+            1 if (use_bert and semantic_scores) else 0,
+            1 if (use_bertscore and bert_scores) else 0,
+        ])
+        chart_position = f"D{2 + _preceding_charts * 15}"
         summary_ws.add_chart(meteor_chart, chart_position)
 
     if rouge_scores and rouge_chart_start_row:
@@ -934,13 +1066,13 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         pt_red.graphicalProperties.solidFill = "FF0000"
         series.data_points.append(pt_red)
 
-        # Position third chart
-        if use_bert and meteor_scores:
-            chart_position = "D32"  # Below METEOR chart
-        elif meteor_scores:
-            chart_position = "D17"  # Below METEOR chart
-        else:
-            chart_position = "D2"   # First chart
+        # Position ROUGE chart after all preceding charts
+        _preceding_charts = sum([
+            1 if (use_bert and semantic_scores) else 0,
+            1 if (use_bertscore and bert_scores) else 0,
+            1 if meteor_scores else 0,
+        ])
+        chart_position = f"D{2 + _preceding_charts * 15}"
         summary_ws.add_chart(rouge_chart, chart_position)
 
     # Save workbook
@@ -967,8 +1099,14 @@ def create_excel_report(results: List[Dict], output_path: str, use_bert: bool = 
         print(f"  Median: {np.median(generation_times):.4f}")
         print(f"  Std Dev: {np.std(generation_times):.4f}")
 
-    if use_bert and bert_scores:
-        print(f"\nBERT Similarity:")
+    if use_bert and semantic_scores:
+        print(f"\nSemantic Similarity (all-MiniLM-L6-v2):")
+        print(f"  Mean: {np.mean(semantic_scores):.4f}")
+        print(f"  Median: {np.median(semantic_scores):.4f}")
+        print(f"  Std Dev: {np.std(semantic_scores):.4f}")
+
+    if use_bertscore and bert_scores:
+        print(f"\nBERT Similarity (BERTScore F1, bert-base-uncased):")
         print(f"  Mean: {np.mean(bert_scores):.4f}")
         print(f"  Median: {np.median(bert_scores):.4f}")
         print(f"  Std Dev: {np.std(bert_scores):.4f}")
@@ -1007,7 +1145,9 @@ def main():
     parser.add_argument("--output", type=str, default=None,
                         help="Output Excel file path (default: same directory as predictions)")
     parser.add_argument("--no-bert", action="store_true",
-                        help="Skip BERT similarity (faster, uses only TF-IDF)")
+                        help="Skip semantic similarity using sentence-transformers/all-MiniLM-L6-v2")
+    parser.add_argument("--no-bertscore", action="store_true",
+                        help="Skip BERTScore F1 metric (bert-base-uncased)")
     parser.add_argument("--no-llm-judge", action="store_true",
                         help="Skip LLM judge evaluation (default: skipped). Use --llm-judge to enable.")
     parser.add_argument("--llm-judge", action="store_true",
@@ -1079,6 +1219,7 @@ def main():
     use_llm_judge = args.llm_judge and not args.no_llm_judge
 
     create_excel_report(results, args.output, use_bert=not args.no_bert,
+                       use_bertscore=not args.no_bertscore,
                        base_predictions=base_predictions, use_llm_judge=use_llm_judge,
                        evaluate_exercise_feedback=args.evaluate_exercise_feedback)
 if __name__ == "__main__":
