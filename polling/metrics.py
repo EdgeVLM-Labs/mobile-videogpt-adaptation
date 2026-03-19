@@ -8,6 +8,7 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime
 import statistics
 import os
+import torch
 
 
 @dataclass
@@ -32,6 +33,10 @@ class InferenceMetrics:
     # Frame metrics
     frames_processed: int = 0
     buffer_size: int = 0
+
+    # VRAM metrics (GB)
+    vram_allocated_gb: float = 0.0
+    vram_reserved_gb: float = 0.0
 
     # Response
     response_length: int = 0
@@ -129,6 +134,13 @@ class SessionMetrics:
             # Total tokens
             "total_input_tokens": sum(m.input_tokens for m in self.inference_metrics),
             "total_output_tokens": sum(m.output_tokens for m in self.inference_metrics),
+
+            # VRAM usage (GB)
+            "vram_gb": {
+                "mean_allocated": statistics.mean([m.vram_allocated_gb for m in self.inference_metrics]),
+                "peak_allocated": max(m.vram_allocated_gb for m in self.inference_metrics),
+                "peak_reserved": max(m.vram_reserved_gb for m in self.inference_metrics),
+            },
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -214,6 +226,13 @@ class MetricsTracker:
         """Complete current inference and record metrics."""
         total_time = time.time() - self._current_inference_start
 
+        # Capture VRAM usage
+        vram_allocated = 0.0
+        vram_reserved = 0.0
+        if torch.cuda.is_available():
+            vram_allocated = torch.cuda.memory_allocated() / 1e9
+            vram_reserved = torch.cuda.memory_reserved() / 1e9
+
         metrics = InferenceMetrics(
             poll_index=self._current_inference_metrics.get("poll_index", 0),
             timestamp=self._current_inference_metrics.get("timestamp", 0),
@@ -228,6 +247,8 @@ class MetricsTracker:
             tokens_per_second=output_tokens / total_time if total_time > 0 else 0,
             frames_processed=frames_processed,
             buffer_size=buffer_size,
+            vram_allocated_gb=vram_allocated,
+            vram_reserved_gb=vram_reserved,
             response_length=len(response),
             response_preview=response[:200] + "..." if len(response) > 200 else response,
             naturalizer_response=naturalizer_response[:200] + "..." if len(naturalizer_response) > 200 else naturalizer_response,
@@ -242,7 +263,8 @@ class MetricsTracker:
             f"Latency={metrics.total_inference_time*1000:.1f}ms, "
             f"TTFT={metrics.time_to_first_token*1000:.1f}ms, "
             f"Tokens/s={metrics.tokens_per_second:.1f}, "
-            f"Output={metrics.output_tokens} tokens"
+            f"Output={metrics.output_tokens} tokens, "
+            f"VRAM={metrics.vram_allocated_gb:.2f}GB"
         )
 
         return metrics
@@ -274,6 +296,9 @@ class MetricsTracker:
             self.logger.info(f"Mean Latency: {summary['latency_ms']['mean']:.2f}ms")
             self.logger.info(f"Mean TTFT: {summary['time_to_first_token_ms']['mean']:.2f}ms")
             self.logger.info(f"Mean Tokens/s: {summary['tokens_per_second']['mean']:.2f}")
+            vram = summary.get('vram_gb', {})
+            if vram:
+                self.logger.info(f"VRAM: {vram['mean_allocated']:.2f}GB avg, {vram['peak_allocated']:.2f}GB peak")
         self.logger.info("=" * 60)
 
         # Save to file

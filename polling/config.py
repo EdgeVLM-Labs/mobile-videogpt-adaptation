@@ -31,7 +31,7 @@ class PollingConfig:
     num_beams: int = 1
     use_cache: bool = True
 
-    load_4bit: bool = False  # 4-bit incompatible with custom model architecture
+    load_4bit: bool = False  # 4-bit quantization via bitsandbytes (NF4)
     load_8bit: bool = False
     num_select_k_frames_in_chunk: int = 4
     topk: bool = True

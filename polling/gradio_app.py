@@ -102,6 +102,7 @@ class GradioPollingApp:
             f"- **TTFT:** {metrics.get('ttft_ms', 0):.1f} ms",
             f"- **Tokens/s:** {metrics.get('tokens_per_second', 0):.1f}",
             f"- **Output Tokens:** {metrics.get('output_tokens', 0)}",
+            f"- **VRAM:** {metrics.get('vram_allocated_gb', 0):.2f} GB",
         ]
         return "\n".join(lines)
 
@@ -124,6 +125,14 @@ class GradioPollingApp:
             output.append(f"  Median: {latency_ms.get('median', 0):.1f}")
             output.append(f"  Min: {latency_ms.get('min', 0):.1f}")
             output.append(f"  Max: {latency_ms.get('max', 0):.1f}")
+
+        vram = session_metrics.get('vram_gb', {})
+        if vram:
+            output.append("")
+            output.append("**VRAM Usage (GB):**")
+            output.append(f"  Avg Allocated: {vram.get('mean_allocated', 0):.2f}")
+            output.append(f"  Peak Allocated: {vram.get('peak_allocated', 0):.2f}")
+            output.append(f"  Peak Reserved: {vram.get('peak_reserved', 0):.2f}")
 
         return "\n".join(output)
 
@@ -163,6 +172,7 @@ class GradioPollingApp:
         separate_exercise: bool,
         use_naturalizer: bool,
         naturalizer_threshold: float,
+        load_4bit: bool,
         progress=gr.Progress()
     ) -> Generator[Tuple[str, str, str, str, str], None, None]:
         try:
@@ -233,7 +243,8 @@ class GradioPollingApp:
                 fps=fps,
                 max_new_tokens=max_new_tokens,
                 temperature=temperature,
-                prompt=prompt
+                prompt=prompt,
+                load_4bit=load_4bit,
             )
 
             logging.info(f"Starting inference with video: {video_path}")
@@ -244,7 +255,8 @@ class GradioPollingApp:
             # Reuse engine if config matches, else recreate
             if self.engine and self.engine._is_loaded:
                 if (self.engine.config.base_model_path == base_model and
-                    self.engine.config.lora_weights_path == lora_weights):
+                    self.engine.config.lora_weights_path == lora_weights and
+                    self.engine.config.load_4bit == load_4bit):
                     logging.info("Reusing existing engine")
                 else:
                     logging.info("Config changed, recreating engine")
@@ -385,7 +397,8 @@ class GradioPollingApp:
                         'ttft_ms': metrics_obj.time_to_first_token * 1000,
                         'tokens_per_second': metrics_obj.tokens_per_second,
                         'frames_processed': metrics_obj.frames_processed,
-                        'output_tokens': metrics_obj.output_tokens
+                        'output_tokens': metrics_obj.output_tokens,
+                        'vram_allocated_gb': metrics_obj.vram_allocated_gb,
                     }
 
                     result = {
@@ -568,7 +581,7 @@ def create_interface():
                 lora_weights = gr.Dropdown(
                     choices=[
                         "EdgeVLM-Labs/mobile-videogpt-finetune-2000",
-                        "EdgeVLM-Labs/mobile-videogpt-qved-finetune-20260317_124726",
+                        "EdgeVLM-Labs/mvgpt-14_1000-pool-exercise_feedback-20260317_124726",
                         "EdgeVLM-Labs/qved-finetune-20260110_155349",
                         "EdgeVLM-Labs/mobile-videogpt-finetune-20260208_082050",
                         "EdgeVLM-Labs/mvgpt-1000-fit-300k-20260223_032309",
@@ -631,6 +644,14 @@ def create_interface():
                     value="Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?",
                     lines=3,
                     info="Evaluation prompt"
+                )
+
+                gr.Markdown("### Quantization")
+
+                load_4bit = gr.Checkbox(
+                    label="Load in 4-bit (NF4)",
+                    value=False,
+                    info="Reduces VRAM usage via bitsandbytes 4-bit quantization"
                 )
 
                 gr.Markdown("### Feedback Naturalizer")
@@ -705,8 +726,8 @@ def create_interface():
         input_controls = [
             use_webcam, video_dropdown, base_model, lora_weights,
             polling_interval, fps, max_new_tokens, temperature, warmup_runs,
-            prompt, separate_exercise, use_naturalizer, naturalizer_threshold,
-            start_btn
+            prompt, load_4bit, separate_exercise, use_naturalizer,
+            naturalizer_threshold, start_btn
         ]
 
         def disable_inputs():
@@ -741,7 +762,8 @@ def create_interface():
                 prompt,
                 separate_exercise,
                 use_naturalizer,
-                naturalizer_threshold
+                naturalizer_threshold,
+                load_4bit
             ],
             outputs=[
                 video_player,

@@ -133,6 +133,7 @@ class PollingInferenceEngine:
                     bnb_4bit_use_double_quant=True,
                     bnb_4bit_quant_type='nf4'
                 )
+                kwargs['device_map'] = 'auto'
                 # Note: Flash Attention incompatible with 4-bit quantization
             else:
                 kwargs['torch_dtype'] = torch.bfloat16
@@ -153,10 +154,11 @@ class PollingInferenceEngine:
             self.tokenizer.add_tokens(["<image>"], special_tokens=True)
 
             self.logger.info("Loading base model...")
+            is_quantized = self.config.load_4bit or self.config.load_8bit
             try:
                 self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
                     self.config.base_model_path,
-                    low_cpu_mem_usage=False,
+                    low_cpu_mem_usage=is_quantized,
                     config=model_cfg,
                     num_select_k_frames_in_chunk=self.config.num_select_k_frames_in_chunk,
                     topk=self.config.topk,
@@ -225,17 +227,26 @@ class PollingInferenceEngine:
             self.model.load_state_dict(non_lora_trainables, strict=False)
 
             self.logger.info("Loading LoRA adapter weights...")
+            is_quantized = self.config.load_4bit or self.config.load_8bit
             try:
                 self.model = PeftModel.from_pretrained(self.model, self.config.lora_weights_path)
 
-                self.logger.info("Merging LoRA weights...")
-                self.model = self.model.merge_and_unload()
-                self.logger.info("LoRA adapters loaded and merged successfully")
+                if is_quantized:
+                    self.logger.info("Skipping merge_and_unload (incompatible with quantized model)")
+                else:
+                    self.logger.info("Merging LoRA weights...")
+                    self.model = self.model.merge_and_unload()
+                    self.logger.info("LoRA adapters loaded and merged successfully")
             except Exception as e:
                 self.logger.warning(f"Could not load LoRA adapters: {e}")
                 self.logger.info("Proceeding with base model only")
 
-            self.model = self.model.to(device=self.config.device, dtype=torch.bfloat16)
+            if is_quantized:
+                # Move non-quantized submodules to device without dtype cast
+                # (quantized params handle .to(device) as no-op)
+                self.model = self.model.to(device=self.config.device)
+            else:
+                self.model = self.model.to(device=self.config.device, dtype=torch.bfloat16)
 
             # Setup special tokens
             mm_use_im_start_end = getattr(self.model.config, "mm_use_im_start_end", False)
@@ -249,12 +260,15 @@ class PollingInferenceEngine:
             self.model.eval()
 
             # Compile model for faster inference (PyTorch 2.0+)
-            try:
-                self.model = torch.compile(self.model, mode="reduce-overhead")
-                self.logger.info("Model compiled successfully")
-            except Exception as e:
-                self.logger.warning(f"torch.compile() not available or failed: {e}")
-                self.logger.info("Proceeding without compilation")
+            if is_quantized:
+                self.logger.info("Skipping torch.compile (incompatible with quantized model)")
+            else:
+                try:
+                    self.model = torch.compile(self.model, mode="reduce-overhead")
+                    self.logger.info("Model compiled successfully")
+                except Exception as e:
+                    self.logger.warning(f"torch.compile() not available or failed: {e}")
+                    self.logger.info("Proceeding without compilation")
 
             # Setup vision processors
             self.logger.info("Setting up vision processors...")
