@@ -3,7 +3,6 @@
 
 import os
 import sys
-import json
 import time
 import glob
 import logging
@@ -12,10 +11,8 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import List, Tuple, Optional, Generator
-import threading
 
 import gradio as gr
-import numpy as np
 import torch
 
 # Add parent directory to path
@@ -23,8 +20,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from polling.config import PollingConfig
 from polling.inference_engine import PollingInferenceEngine
-from polling.stream_handler import VideoStreamHandler
-from polling.metrics import MetricsTracker
 from utils.naturalizer.feedback_naturalizer import FeedbackNaturalizer
 
 
@@ -132,7 +127,7 @@ class GradioPollingApp:
 
         return "\n".join(output)
 
-    def format_all_responses(self, results: List[dict]) -> str:
+    def format_all_responses(self, results: List[dict], separate_exercise: bool = False) -> str:
         """Format all poll responses"""
         if not results:
             return "No responses yet"
@@ -142,8 +137,14 @@ class GradioPollingApp:
         output.append("=" * 60 + "\n")
 
         for i, result in enumerate(results, 1):
-            output.append(f"**Poll #{i}** (Position: {result.get('position', 'N/A')}s)")
-            output.append(f"_{result.get('response', 'No response')}_\n")
+            response = result.get('response', 'No response')
+            if separate_exercise and " - " in response:
+                exercise_part, feedback_part = response.split(" - ", 1)
+                output.append(f"**Poll #{i}** (Position: {result.get('position', 'N/A')}s) — {exercise_part.strip()}")
+                output.append(f"_{feedback_part.strip()}_\n")
+            else:
+                output.append(f"**Poll #{i}** (Position: {result.get('position', 'N/A')}s)")
+                output.append(f"_{response}_\n")
 
         return "\n".join(output)
 
@@ -170,6 +171,15 @@ class GradioPollingApp:
             self.metrics_history = []
             self.is_running = True
             self.current_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Reset UI at start
+            yield (
+                None,
+                "**Analysis Position:** 0:00 / 0:00",
+                "Initializing...",
+                "No metrics yet",
+                "No responses yet",
+            )
 
             if use_naturalizer:
                 if not self.naturalizer:
@@ -233,7 +243,6 @@ class GradioPollingApp:
 
             # Reuse engine if config matches, else recreate
             if self.engine and self.engine._is_loaded:
-                # Check if config matches
                 if (self.engine.config.base_model_path == base_model and
                     self.engine.config.lora_weights_path == lora_weights):
                     logging.info("Reusing existing engine")
@@ -261,7 +270,7 @@ class GradioPollingApp:
             if not self.engine.load_model():
                 logging.error("Failed to load model")
                 yield (
-                    video_path if use_webcam else video_path,
+                    video_path,
                     "**Error**",
                     "Failed to load model",
                     "Error: Could not load model",
@@ -276,9 +285,13 @@ class GradioPollingApp:
                 naturalizer_enabled=use_naturalizer
             )
 
+            # Warmup with per-run progress
             if warmup_runs > 0:
-                progress(0.2, desc=f"Running {warmup_runs} warmup runs...")
-                self.engine.warmup(warmup_runs)
+                for i in range(warmup_runs):
+                    warmup_pct = 0.1 + (i / warmup_runs) * 0.1
+                    progress(warmup_pct, desc=f"Warmup {i + 1}/{warmup_runs}...")
+                    self.engine.warmup(1)
+                progress(0.2, desc="Warmup complete")
 
             progress(0.3, desc="Starting polling...")
 
@@ -397,7 +410,7 @@ class GradioPollingApp:
                     current_metrics = self.format_metrics(metrics)
                     if exercise_label:
                         current_metrics = exercise_label + "\n\n" + current_metrics
-                    all_responses = self.format_all_responses(self.poll_results)
+                    all_responses = self.format_all_responses(self.poll_results, separate_exercise)
                     current_min = int(position // 60)
                     current_sec = int(position % 60)
                     total_min = int(total_duration // 60)
@@ -434,27 +447,32 @@ class GradioPollingApp:
                         timestamp,
                         f"Error in poll #{poll_index + 1}: {str(e)}",
                         "Error occurred",
-                        self.format_all_responses(self.poll_results),
+                        self.format_all_responses(self.poll_results, separate_exercise),
                     )
                     break
 
             progress(1.0, desc="Complete!")
             logging.info(f"Polling complete: {poll_index} polls processed")
 
+            # Session summary
+            session_summary = ""
             if self.engine:
                 summary = self.engine.metrics.end_session()
                 logging.info("Metrics and summary saved successfully")
+                if summary:
+                    session_summary = self.format_session_metrics(summary)
 
             total_min = int(total_duration // 60)
             total_sec = int(total_duration % 60)
             timestamp = f"**Complete:** {total_min}:{total_sec:02d} / {total_min}:{total_sec:02d} ({poll_index} polls)"
+            final_metrics = session_summary if session_summary else f"**Final Stats:**\n{poll_index} polls completed"
 
             yield (
                 video_path,  # Keep video loaded
                 timestamp,
                 f"**Polling Complete**\n\nProcessed {poll_index} polls successfully",
-                f"**Final Stats:**\n{poll_index} polls completed",
-                self.format_all_responses(self.poll_results),
+                final_metrics,
+                self.format_all_responses(self.poll_results, separate_exercise),
             )
 
         except Exception as e:
@@ -550,6 +568,7 @@ def create_interface():
                 lora_weights = gr.Dropdown(
                     choices=[
                         "EdgeVLM-Labs/mobile-videogpt-finetune-2000",
+                        "EdgeVLM-Labs/mobile-videogpt-qved-finetune-20260317_124726",
                         "EdgeVLM-Labs/qved-finetune-20260110_155349",
                         "EdgeVLM-Labs/mobile-videogpt-finetune-20260208_082050",
                         "EdgeVLM-Labs/mvgpt-1000-fit-300k-20260223_032309",
@@ -634,7 +653,8 @@ def create_interface():
                     value=0.70,
                     step=0.05,
                     label="Similarity Threshold",
-                    info="Higher = stricter repeat detection (0.70 recommended)"
+                    info="Higher = stricter repeat detection (0.70 recommended)",
+                    visible=False
                 )
 
                 with gr.Row():
@@ -681,8 +701,32 @@ def create_interface():
                     elem_classes=["all-responses-box"]
                 )
 
-        # Event handlers
+        # Collect all input controls for disable/enable during inference
+        input_controls = [
+            use_webcam, video_dropdown, base_model, lora_weights,
+            polling_interval, fps, max_new_tokens, temperature, warmup_runs,
+            prompt, separate_exercise, use_naturalizer, naturalizer_threshold,
+            start_btn
+        ]
+
+        def disable_inputs():
+            return [gr.update(interactive=False)] * len(input_controls)
+
+        def enable_inputs():
+            return [gr.update(interactive=True)] * len(input_controls)
+
+        # Toggle naturalizer threshold visibility
+        use_naturalizer.change(
+            fn=lambda enabled: gr.update(visible=enabled),
+            inputs=use_naturalizer,
+            outputs=naturalizer_threshold
+        )
+
+        # Event handlers: disable controls -> run inference -> re-enable controls
         start_btn.click(
+            fn=disable_inputs,
+            outputs=input_controls
+        ).then(
             fn=app.run_inference,
             inputs=[
                 video_dropdown,
@@ -706,6 +750,9 @@ def create_interface():
                 current_metrics,
                 all_responses,
             ]
+        ).then(
+            fn=enable_inputs,
+            outputs=input_controls
         )
 
         stop_btn.click(
