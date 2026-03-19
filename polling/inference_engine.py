@@ -15,6 +15,9 @@ from dataclasses import dataclass
 os.environ['PYTHONWARNINGS'] = 'ignore'
 warnings.filterwarnings("ignore")
 
+# Reduce CUDA allocator fragmentation on memory-constrained devices (Jetson 8GB)
+os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+
 import torch
 from transformers import AutoTokenizer, AutoConfig
 
@@ -159,17 +162,20 @@ class PollingInferenceEngine:
                 from transformers import BitsAndBytesConfig
                 kwargs['quantization_config'] = BitsAndBytesConfig(
                     load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.bfloat16,  # Use bfloat16 for better precision
+                    bnb_4bit_compute_dtype=torch.float16,
                     bnb_4bit_use_double_quant=True,
-                    bnb_4bit_quant_type='nf4'
+                    bnb_4bit_quant_type='nf4',
+                    llm_int8_skip_modules=['lm_head'],
                 )
                 # Note: Flash Attention incompatible with 4-bit quantization
             else:
-                kwargs['torch_dtype'] = torch.bfloat16  # Use bfloat16 for better stability
+                kwargs['torch_dtype'] = torch.float16  # Use float16 (matches model config)
                 try:
-                    kwargs['attn_implementation'] = 'flash_attention_2'  # Enable Flash Attention 2
-                except:
-                    self.logger.warning("Flash Attention 2 not available")
+                    import flash_attn  # noqa: F401
+                    kwargs['attn_implementation'] = 'flash_attention_2'
+                except ImportError:
+                    kwargs['attn_implementation'] = 'sdpa'  # PyTorch native SDPA fallback
+                    self.logger.warning("Flash Attention 2 not available, using SDPA")
 
             # Load config from base model (LoRA adapters don't have config.json)
             self.logger.info("Loading model configuration from base model...")
@@ -184,36 +190,35 @@ class PollingInferenceEngine:
             self.tokenizer.add_tokens(["<image>"], special_tokens=True)
 
             # Load base model
+            # On Jetson (8GB unified), use device_map="auto" with max_memory
+            # so accelerate splits the model between CUDA and CPU as needed.
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                free_mem = torch.cuda.mem_get_info()[0]
+                # On Jetson, CPU and CUDA share the same physical RAM.
+                # Budget 40% of free memory for model weights on CUDA,
+                # leaving 60% for inference activations (VideoMamba, Qwen).
+                # CLIP runs on CPU separately so doesn't need CUDA budget.
+                cuda_budget = max(int(free_mem * 0.4), 512 * 1024 * 1024)
+                max_memory = {0: cuda_budget, "cpu": "2GiB"}
+                self.logger.info(f"CUDA budget: {cuda_budget / 1e9:.2f}GB (free: {free_mem / 1e9:.2f}GB)")
+            else:
+                max_memory = None
+
             self.logger.info("Loading base model...")
-            try:
-                self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
-                    self.config.base_model_path,
-                    low_cpu_mem_usage=False,
-                    config=model_cfg,
-                    num_select_k_frames_in_chunk=self.config.num_select_k_frames_in_chunk,
-                    topk=self.config.topk,
-                    **kwargs
-                )
-            except Exception as quant_error:
-                if self.config.load_4bit or self.config.load_8bit:
-                    self.logger.warning(f"Quantization failed: {quant_error}")
-                    self.logger.info("Retrying without quantization...")
-                    # Fallback to FP16 without quantization
-                    kwargs = {'torch_dtype': torch.bfloat16}
-                    try:
-                        kwargs['attn_implementation'] = 'flash_attention_2'
-                    except:
-                        pass
-                    self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
-                        self.config.base_model_path,
-                        low_cpu_mem_usage=False,
-                        config=model_cfg,
-                        num_select_k_frames_in_chunk=self.config.num_select_k_frames_in_chunk,
-                        topk=self.config.topk,
-                        **kwargs
-                    )
-                else:
-                    raise
+            self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
+                self.config.base_model_path,
+                low_cpu_mem_usage=True,
+                device_map="auto",
+                max_memory=max_memory,
+                offload_folder="offload",
+                config=model_cfg,
+                num_select_k_frames_in_chunk=self.config.num_select_k_frames_in_chunk,
+                topk=self.config.topk,
+                **kwargs
+            )
 
             # Resize token embeddings
             token_num, token_dim = self.model.lm_head.out_features, self.model.lm_head.in_features
@@ -288,18 +293,10 @@ class PollingInferenceEngine:
 
             self.model.resize_token_embeddings(len(self.tokenizer))
 
-            # Move to device
-            self.model.to(self.config.device)
+            # Model placed by device_map="auto" — clean up and set eval mode
+            gc.collect()
+            torch.cuda.empty_cache()
             self.model.eval()
-
-            # Compile model for faster inference (PyTorch 2.0+)
-            try:
-                self.logger.info("Compiling model with torch.compile()...")
-                self.model = torch.compile(self.model, mode="reduce-overhead")
-                self.logger.info("Model compiled successfully")
-            except Exception as e:
-                self.logger.warning(f"torch.compile() not available or failed: {e}")
-                self.logger.info("Proceeding without compilation")
 
             # Setup vision processors
             self.logger.info("Setting up vision processors...")
@@ -363,7 +360,7 @@ class PollingInferenceEngine:
         dummy_frames = [
             torch.zeros(
                 (3, self.config.image_resolution, self.config.image_resolution),
-                dtype=torch.bfloat16,
+                dtype=torch.float16,
                 device=self.config.device
             )
             for _ in range(self.config.num_frames)
@@ -372,7 +369,7 @@ class PollingInferenceEngine:
         dummy_context = [
             torch.zeros(
                 (3, self.config.image_resolution, self.config.image_resolution),
-                dtype=torch.bfloat16,
+                dtype=torch.float16,
                 device=self.config.device
             )
             for _ in range(self.config.num_context_images)
@@ -418,8 +415,8 @@ class PollingInferenceEngine:
         input_ids, stop_str = self.prepare_prompt(prompt, slice_len)
 
         # Prepare frames with bfloat16 to match model dtype
-        video_tensor = torch.stack(video_frames, dim=0).to(dtype=torch.bfloat16, device=self.config.device)
-        context_tensor = torch.stack(context_frames, dim=0).to(dtype=torch.bfloat16, device=self.config.device)
+        video_tensor = torch.stack(video_frames, dim=0).to(dtype=torch.float16, device=self.config.device)
+        context_tensor = torch.stack(context_frames, dim=0).to(dtype=torch.float16, device=self.config.device)
 
         input_token_count = input_ids.shape[1]
 

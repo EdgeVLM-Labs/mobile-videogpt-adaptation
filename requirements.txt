@@ -8,7 +8,7 @@ pydantic
 markdown2[all]
 opencv-contrib-python
 imageio
-decord
+# decord
 mmengine
 scikit-learn
 gradio

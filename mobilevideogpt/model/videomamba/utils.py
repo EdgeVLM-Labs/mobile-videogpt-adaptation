@@ -38,30 +38,31 @@ def setup_videomamba(config:dict):
     model_without_ddp = model
     
     # Rename the name of the parameters to align with Mobile-VideoGPT
-    if config.vision_encoder.pretrained.startswith("hf://"):
-        repo_id = "OpenGVLab/VideoMamba"
-        filename = "videomamba_m16_25M_f8_res224.pth"
-        local_checkpoint_path = hf_hub_download(repo_id=repo_id, filename=filename)
-    else:
-        local_checkpoint_path = config.vision_encoder.pretrained
-    if os.path.isfile(local_checkpoint_path):
-        checkpoint = torch.load(local_checkpoint_path, map_location="cpu")
-        try:
-            if "model" in checkpoint.keys():
-                state_dict = checkpoint["model"]
-            else:
-                state_dict = checkpoint["module"]  # This is a deepspeed stage 1 model
-        except:
-            state_dict = checkpoint
-       
-        new_state_dict = {}
-        for k, v in state_dict.items():
-            if not k.startswith('vision_encoder'):
-                new_key = f'vision_encoder.{k}'
-            else:
-                new_key = k
-            new_state_dict[new_key] = v
-        msg = model_without_ddp.load_state_dict(new_state_dict, strict=False)
+    if config.vision_encoder.pretrained is not None:
+        if config.vision_encoder.pretrained.startswith("hf://"):
+            repo_id = "OpenGVLab/VideoMamba"
+            filename = "videomamba_m16_25M_f8_res224.pth"
+            local_checkpoint_path = hf_hub_download(repo_id=repo_id, filename=filename)
+        else:
+            local_checkpoint_path = config.vision_encoder.pretrained
+        if os.path.isfile(local_checkpoint_path):
+            checkpoint = torch.load(local_checkpoint_path, map_location="cpu")
+            try:
+                if "model" in checkpoint.keys():
+                    state_dict = checkpoint["model"]
+                else:
+                    state_dict = checkpoint["module"]  # This is a deepspeed stage 1 model
+            except:
+                state_dict = checkpoint
+
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if not k.startswith('vision_encoder'):
+                    new_key = f'vision_encoder.{k}'
+                else:
+                    new_key = k
+                new_state_dict[new_key] = v
+            msg = model_without_ddp.load_state_dict(new_state_dict, strict=False)
         
     if config.use_bf16:
         model_without_ddp = model_without_ddp.to(torch.bfloat16)

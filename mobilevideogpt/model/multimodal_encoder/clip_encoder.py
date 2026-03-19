@@ -26,7 +26,12 @@ class CLIPVisionTower(nn.Module):
     def load_model(self):
         self.image_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
         self.image_eval_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
-        self.vision_tower = CLIPVisionModel.from_pretrained(self.vision_tower_name).to('cuda')
+        # Keep CLIP on CPU to save CUDA memory for main model inference
+        self.vision_tower = CLIPVisionModel.from_pretrained(
+            self.vision_tower_name,
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.float16,
+        )
         self.vision_tower.requires_grad_(False)
 
         self.is_loaded = True

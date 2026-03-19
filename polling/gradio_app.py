@@ -22,6 +22,7 @@ from io import StringIO
 import gradio as gr
 import numpy as np
 import torch
+from PIL import Image
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -66,9 +67,75 @@ class GradioPollingApp:
         self.temp_dir = None
         self.current_video_path = None
 
+        # Browser webcam state
+        self._browser_frame: Optional[np.ndarray] = None
+        self._use_browser_webcam = False
+
         # Add log capture to root logger
         logging.getLogger().addHandler(self.log_capture)
         logging.getLogger().setLevel(logging.INFO)
+
+    def update_browser_frame(self, frame: Optional[np.ndarray]) -> None:
+        """Update the browser frame from Gradio's streaming webcam component.
+
+        This is called continuously when browser webcam is streaming.
+        """
+        if frame is not None and isinstance(frame, np.ndarray):
+            self._browser_frame = frame
+            # Log occasionally to avoid spam
+            if not hasattr(self, '_frame_log_counter'):
+                self._frame_log_counter = 0
+            self._frame_log_counter += 1
+            if self._frame_log_counter % 30 == 0:  # Log every ~30 frames
+                logging.debug(f"Browser webcam frame updated: shape={frame.shape}")
+
+    def get_latest_webcam_frame(self) -> Optional[np.ndarray]:
+        """Get the latest frame from webcam buffer for preview."""
+        # For browser webcam mode, return the browser frame
+        if self._use_browser_webcam and self._browser_frame is not None:
+            return self._browser_frame
+        # For direct webcam mode, get from buffer
+        if self.engine and self.engine.stream_handler and len(self.engine.stream_handler.frame_buffer) > 0:
+            latest_frame_data = self.engine.stream_handler.frame_buffer[-1]
+            return latest_frame_data.frame  # Already RGB
+        return None
+
+    @staticmethod
+    def get_available_cameras() -> List[Tuple[str, int]]:
+        """Get list of available cameras with their names and indices.
+
+        Returns:
+            List of tuples (display_name, video_index)
+        """
+        cameras = []
+
+        # Try to get camera info from /dev/v4l/by-id/ (Linux)
+        try:
+            v4l_path = Path("/dev/v4l/by-id/")
+            if v4l_path.exists():
+                for symlink in v4l_path.iterdir():
+                    if symlink.is_symlink():
+                        # Get the actual video device it points to
+                        target = symlink.resolve()
+                        video_num = int(target.name.replace('video', ''))
+
+                        # Parse camera name from symlink
+                        name_parts = symlink.name.replace('usb-', '').replace('_', ' ').split('-video-index')[0]
+                        # Clean up the name
+                        name = ' '.join(name_parts.split()).title()
+
+                        # Only add video-index0 (main video stream, not metadata)
+                        if 'video-index0' in symlink.name:
+                            cameras.append((f"{name} (video{video_num})", video_num))
+        except Exception as e:
+            logging.warning(f"Could not read /dev/v4l/by-id/: {e}")
+
+        # Fallback: try numeric indices 0-5
+        if not cameras:
+            for i in range(6):
+                cameras.append((f"Camera {i} (video{i})", i))
+
+        return cameras
 
     def extract_video_segment(self, video_path: str, start_time: float, duration: float) -> str:
         """Extract video segment starting at specific time using FFmpeg"""
@@ -186,7 +253,9 @@ class GradioPollingApp:
     def run_inference(
         self,
         video_source: str,
-        use_webcam: bool,
+        webcam_mode: str,
+        camera_name: str,
+        browser_frame: Optional[np.ndarray],
         base_model: str,
         lora_weights: str,
         polling_interval: float,
@@ -200,12 +269,22 @@ class GradioPollingApp:
         progress=gr.Progress()
     ) -> Generator[Tuple[str, str, str, str, str, str], None, None]:
         """Run polling inference"""
+
+        # Determine mode
+        use_browser_webcam = webcam_mode == "Browser Webcam"
+        use_direct_webcam = webcam_mode == "Direct Webcam (Linux only)"
+        use_webcam = use_browser_webcam or use_direct_webcam
+
         try:
             # Reset state
             self.poll_results = []
             self.metrics_history = []
             self.is_running = True
             self.current_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Store browser frame for browser webcam mode
+            self._browser_frame = browser_frame
+            self._use_browser_webcam = use_browser_webcam
 
             # Initialize naturalizer if enabled (reuse existing instance if available)
             if use_naturalizer:
@@ -234,12 +313,62 @@ class GradioPollingApp:
                     pass
             self.temp_dir = tempfile.mkdtemp(prefix="polling_segments_")
 
-            # Determine video path
-            if use_webcam:
-                video_path = "0"  # Webcam
+            # Determine video path based on mode
+            if use_browser_webcam:
+                # Browser webcam mode - frames come from Gradio's webcam component
+                if browser_frame is None:
+                    yield (
+                        None,
+                        "❌ **Browser Webcam Error**",
+                        "**No frame from browser webcam!**\n\nMake sure to:\n1. Allow camera access in your browser\n2. Click the webcam preview to start capturing",
+                        "Enable browser webcam",
+                        "",
+                        self.log_capture.get_logs()
+                    )
+                    return
+
+                video_path = "browser_webcam"
                 self.current_video_path = video_path
-                progress(0, desc="Opening webcam...")
+                logging.info("Using browser webcam mode (frames from Gradio)")
+                progress(0.05, desc="Browser webcam ready...")
+
+            elif use_direct_webcam:
+                # Direct webcam mode - use V4L2/ffmpeg (Linux only)
+                import re
+                match = re.search(r'video(\d+)', camera_name)
+                if match:
+                    camera_index = int(match.group(1))
+                else:
+                    camera_index = 0  # Fallback
+
+                video_path = str(camera_index)
+                self.current_video_path = video_path
+                progress(0, desc=f"Testing {camera_name}...")
+
+                # Test webcam before proceeding
+                logging.info(f"Testing {camera_name} (index {camera_index})...")
+                if not VideoStreamHandler.test_webcam_availability(camera_index):
+                    error_msg = (
+                        f"⚠️ **{camera_name} detected but cannot access frames**\n\n"
+                        f"**This appears to be a virtual/USB-forwarded camera (vhci_hcd)**\n\n"
+                        f"**On WSL2, use 'Browser Webcam' mode instead!**\n\n"
+                        f"Direct webcam only works on native Linux.\n"
+                    )
+                    logging.error(error_msg)
+                    yield (
+                        None,
+                        "❌ **Direct Webcam Error**",
+                        error_msg,
+                        "Cannot access webcam - try Browser Webcam mode",
+                        "",
+                        self.log_capture.get_logs()
+                    )
+                    return
+
+                logging.info(f"{camera_name} test successful!")
+                progress(0.05, desc="Opening webcam...")
             else:
+                # Video file mode
                 project_root = Path(__file__).parent.parent
                 video_path = str(project_root / "sample_videos" / video_source)
                 self.current_video_path = video_path
@@ -333,29 +462,67 @@ class GradioPollingApp:
             # Start polling
             progress(0.3, desc="Starting polling...")
 
-            # Open video
-            if not self.engine.stream_handler.open_video_file(video_path):
-                logging.error("Failed to open video source")
-                yield (
-                    video_path,
-                    "**Error**",
-                    "Failed to open video",
-                    "Error: Could not open video source",
-                    "",
-                    self.log_capture.get_logs()
-                )
-                return
+            # Open video or stream
+            if use_browser_webcam:
+                # Browser webcam mode - frames come from Gradio component
+                logging.info("Using browser webcam mode - frames streamed from browser")
+                logging.info("Make sure browser has camera access and webcam is visible in the UI")
+                if self._browser_frame is not None:
+                    logging.info(f"Initial browser frame shape: {self._browser_frame.shape}")
+                else:
+                    logging.warning("No browser frame received yet - click 'Start Webcam' in the browser component")
+                total_duration = float('inf')
 
-            logging.info(f"Video opened: duration={self.engine.stream_handler.total_duration:.2f}s")
+            elif use_direct_webcam:
+                # Direct webcam mode - use V4L2/ffmpeg
+                self.engine.stream_handler.start_stream_capture(video_path)
 
-            # Get total duration first
-            total_duration = self.engine.stream_handler.total_duration
+                # Check if stream opened successfully (for non-ffmpeg mode)
+                if not self.engine.stream_handler._use_ffmpeg_capture:
+                    if not self.engine.stream_handler._cap or not self.engine.stream_handler._cap.isOpened():
+                        logging.error("Failed to open webcam stream")
+                        yield (
+                            None,
+                            "**Error**",
+                            "Failed to open webcam",
+                            "Error: Could not open webcam. Try 'Browser Webcam' mode instead.",
+                            "",
+                            self.log_capture.get_logs()
+                        )
+                        return
+
+                logging.info(f"Direct webcam stream started (FPS: {self.engine.stream_handler._video_fps:.2f})")
+                total_duration = float('inf')  # Infinite duration for webcam
+            else:
+                # For video files, open file
+                if not self.engine.stream_handler.open_video_file(video_path):
+                    logging.error("Failed to open video source")
+                    yield (
+                        video_path,
+                        "**Error**",
+                        "Failed to open video",
+                        "Error: Could not open video source",
+                        "",
+                        self.log_capture.get_logs()
+                    )
+                    return
+
+                logging.info(f"Video opened: duration={self.engine.stream_handler.total_duration:.2f}s")
+                total_duration = self.engine.stream_handler.total_duration
+
             poll_index = 0
 
             # Yield initial state with video loaded
+            if use_webcam:
+                timestamp_display = "**Live Webcam** - Ready to analyze"
+                initial_video = None  # No video player for webcam
+            else:
+                timestamp_display = f"**Analysis Position:** 0:00 / {int(total_duration//60)}:{int(total_duration%60):02d}"
+                initial_video = video_path
+
             yield (
-                video_path,
-                f"**Analysis Position:** 0:00 / {int(total_duration//60)}:{int(total_duration%60):02d}",
+                initial_video,
+                timestamp_display,
                 "Starting polling...",
                 "Initializing...",
                 "",
@@ -363,31 +530,72 @@ class GradioPollingApp:
             )
 
             while self.is_running:
-                # Check if video exhausted
-                if self.engine.stream_handler.current_position >= total_duration:
+                # Check if video exhausted (only for video files)
+                if not use_webcam and self.engine.stream_handler.current_position >= total_duration:
                     break
 
-                # Update progress
-                position = self.engine.stream_handler.current_position
-                progress_pct = 0.3 + (position / total_duration) * 0.6
-                progress(progress_pct, desc=f"Poll #{poll_index + 1} at {position:.1f}s / {total_duration:.1f}s")
+                # Update progress (only for video files)
+                if not use_webcam:
+                    position = self.engine.stream_handler.current_position
+                    progress_pct = 0.3 + (position / total_duration) * 0.6
+                    progress(progress_pct, desc=f"Poll #{poll_index + 1} at {position:.1f}s / {total_duration:.1f}s")
+                else:
+                    # For webcam, just calculate elapsed time without progress bar update
+                    session_start = self.engine.metrics.current_session.start_time if self.engine.metrics.current_session else time.time()
+                    position = time.time() - session_start
 
                 # Start metrics
                 self.engine.metrics.start_inference(poll_index)
 
                 try:
-                    # Extract frames
-                    video_frames, context_frames, slice_len = self.engine.stream_handler.get_frames_for_inference(
-                        self.engine.image_processor,
-                        self.engine.video_processor,
-                        num_video_frames=config.num_frames,
-                        num_context_images=config.num_context_images,
-                        polling_interval=config.polling_interval,
-                    )
+                    # Extract frames - different paths for different modes
+                    if use_browser_webcam:
+                        # Browser webcam mode - get frames from browser
+                        if self._browser_frame is not None:
+                            # Convert browser frame to model input
+                            # Browser frame is a numpy array (H, W, 3) in RGB
+                            frame = self._browser_frame
+                            if isinstance(frame, np.ndarray) and len(frame.shape) == 3:
+                                # Convert to PIL Image for processing
+                                pil_frame = Image.fromarray(frame)
+
+                                # Replicate single frame to create video input
+                                raw_frames = [pil_frame] * config.num_frames
+                                context_frames_raw = [pil_frame] * config.num_context_images
+
+                                # Process for video encoder
+                                video_frames = self.engine.video_processor.preprocess(raw_frames)['pixel_values']
+
+                                # Process for image encoder
+                                context_frames = [
+                                    self.engine.image_processor.preprocess(f, return_tensors='pt')['pixel_values'][0]
+                                    for f in context_frames_raw
+                                ]
+
+                                slice_len = 1  # Single frame from browser
+                            else:
+                                logging.warning(f"Invalid browser frame format: type={type(frame)}, shape={getattr(frame, 'shape', 'N/A')}")
+                                video_frames, context_frames, slice_len = [], [], 0
+                        else:
+                            logging.debug("Browser frame is None - waiting for webcam stream")
+                            video_frames, context_frames, slice_len = [], [], 0
+                    else:
+                        # Video file or direct webcam mode - use stream handler
+                        video_frames, context_frames, slice_len = self.engine.stream_handler.get_frames_for_inference(
+                            self.engine.image_processor,
+                            self.engine.video_processor,
+                            num_video_frames=config.num_frames,
+                            num_context_images=config.num_context_images,
+                            polling_interval=config.polling_interval,
+                        )
 
                     if slice_len == 0:
                         # Log and skip this poll, but continue to next position
-                        logging.warning(f"Poll #{poll_index + 1}: No frames extracted, skipping")
+                        if use_browser_webcam:
+                            logging.warning(f"Poll #{poll_index + 1}: No browser frame available, skipping")
+                        else:
+                            buffer_size = len(self.engine.stream_handler.frame_buffer) if self.engine.stream_handler else 0
+                            logging.warning(f"Poll #{poll_index + 1}: No frames extracted (buffer size: {buffer_size}), skipping")
                         poll_index += 1
                         time.sleep(config.polling_interval)
                         continue
@@ -452,21 +660,30 @@ class GradioPollingApp:
                     all_responses = self.format_all_responses(self.poll_results)
 
                     # Format timestamp
-                    current_min = int(position // 60)
-                    current_sec = int(position % 60)
-                    total_min = int(total_duration // 60)
-                    total_sec = int(total_duration % 60)
-                    timestamp = f"**Analysis Position:** {current_min}:{current_sec:02d} / {total_min}:{total_sec:02d} (Poll #{poll_index + 1})"
+                    if use_webcam:
+                        elapsed_min = int(position // 60)
+                        elapsed_sec = int(position % 60)
+                        timestamp = f"**Live Webcam** - Elapsed: {elapsed_min}:{elapsed_sec:02d} (Poll #{poll_index + 1})"
+                        segment_path = None  # No video segment for webcam
+                    else:
+                        current_min = int(position // 60)
+                        current_sec = int(position % 60)
+                        total_min = int(total_duration // 60)
+                        total_sec = int(total_duration % 60)
+                        timestamp = f"**Analysis Position:** {current_min}:{current_sec:02d} / {total_min}:{total_sec:02d} (Poll #{poll_index + 1})"
 
-                    # Extract video segment for this poll
-                    segment_path = self.extract_video_segment(
-                        self.current_video_path,
-                        position,
-                        config.polling_interval
-                    )
+                        # Extract video segment for this poll (video files only)
+                        segment_path = self.extract_video_segment(
+                            self.current_video_path,
+                            position,
+                            config.polling_interval
+                        )
+
+                    # For webcam, show live frame; for video, show segment
+                    video_display = self.get_latest_webcam_frame() if use_webcam else segment_path
 
                     yield (
-                        segment_path,  # Show segment at poll position
+                        video_display,
                         timestamp,
                         current_response,
                         current_metrics,
@@ -482,14 +699,22 @@ class GradioPollingApp:
 
                 except Exception as e:
                     logging.error(f"Error in poll #{poll_index + 1}: {str(e)}")
-                    current_min = int(position // 60) if 'position' in locals() else 0
-                    current_sec = int(position % 60) if 'position' in locals() else 0
-                    total_min = int(total_duration // 60)
-                    total_sec = int(total_duration % 60)
-                    timestamp = f"**Error at:** {current_min}:{current_sec:02d} / {total_min}:{total_sec:02d}"
+
+                    if use_webcam:
+                        elapsed_min = int(position // 60) if 'position' in locals() else 0
+                        elapsed_sec = int(position % 60) if 'position' in locals() else 0
+                        timestamp = f"**Error at:** {elapsed_min}:{elapsed_sec:02d}"
+                        error_video = None
+                    else:
+                        current_min = int(position // 60) if 'position' in locals() else 0
+                        current_sec = int(position % 60) if 'position' in locals() else 0
+                        total_min = int(total_duration // 60)
+                        total_sec = int(total_duration % 60)
+                        timestamp = f"**Error at:** {current_min}:{current_sec:02d} / {total_min}:{total_sec:02d}"
+                        error_video = video_path
 
                     yield (
-                        video_path,  # Reload video
+                        error_video,
                         timestamp,
                         f"Error in poll #{poll_index + 1}: {str(e)}",
                         "Error occurred",
@@ -502,17 +727,30 @@ class GradioPollingApp:
             progress(1.0, desc="Complete!")
             logging.info(f"Polling complete: {poll_index} polls processed")
 
+            # Stop webcam stream if active
+            if use_webcam:
+                self.engine.stream_handler.stop_stream()
+                logging.info("Webcam stream stopped")
+
             # End metrics session and save
             if self.engine:
                 summary = self.engine.metrics.end_session()
                 logging.info("Metrics and summary saved successfully")
 
-            total_min = int(total_duration // 60)
-            total_sec = int(total_duration % 60)
-            timestamp = f"**Complete:** {total_min}:{total_sec:02d} / {total_min}:{total_sec:02d} ({poll_index} polls)"
+            if use_webcam:
+                timestamp = f"**Complete:** {poll_index} polls from webcam"
+                final_video = None
+            else:
+                total_min = int(total_duration // 60)
+                total_sec = int(total_duration % 60)
+                timestamp = f"**Complete:** {total_min}:{total_sec:02d} / {total_min}:{total_sec:02d} ({poll_index} polls)"
+                final_video = video_path
+
+            # Show final webcam frame for webcam mode, video for file mode
+            final_display = self.get_latest_webcam_frame() if use_webcam else final_video
 
             yield (
-                video_path,  # Keep video loaded
+                final_display,
                 timestamp,
                 f"**Polling Complete**\n\nProcessed {poll_index} polls successfully",
                 f"**Final Stats:**\n{poll_index} polls completed",
@@ -527,11 +765,11 @@ class GradioPollingApp:
             if self.engine:
                 try:
                     self.engine.metrics.end_session()
-                except Exception as e2:
-                    logging.error(f"Failed to save metrics: {e2}")
+                except Exception as metrics_error:
+                    logging.error(f"Failed to save metrics: {metrics_error}")
 
             yield (
-                video_path if 'video_path' in locals() else None,  # Keep video loaded
+                video_path if 'video_path' in locals() else None,
                 "**Fatal Error**",
                 f"**Error:** {str(e)}",
                 "Error occurred during inference",
@@ -542,8 +780,12 @@ class GradioPollingApp:
         finally:
             self.is_running = False
 
-            if self.engine:
+            # Stop webcam stream if active
+            if self.engine and hasattr(self.engine, 'stream_handler'):
                 try:
+                    if hasattr(self.engine.stream_handler, '_is_running') and self.engine.stream_handler._is_running:
+                        self.engine.stream_handler.stop_stream()
+                        logging.info("Webcam stream stopped in cleanup")
                     self.engine.stream_handler.close()
                 except Exception as e:
                     logging.error(f"Error closing stream: {e}")
@@ -571,6 +813,16 @@ class GradioPollingApp:
     def stop_inference(self):
         """Stop current inference"""
         self.is_running = False
+
+        # Stop webcam stream if active
+        if self.engine and hasattr(self.engine, 'stream_handler'):
+            try:
+                if hasattr(self.engine.stream_handler, '_is_running') and self.engine.stream_handler._is_running:
+                    self.engine.stream_handler.stop_stream()
+                    logging.info("Webcam stream stopped via stop button")
+            except Exception as e:
+                logging.error(f"Error stopping stream: {e}")
+
         return "Stopping inference..."
 
 
@@ -588,10 +840,40 @@ def create_interface():
             with gr.Column(scale=1):
                 gr.Markdown("### Video Source")
 
-                use_webcam = gr.Checkbox(
-                    label="Use Webcam",
-                    value=False,
-                    info="Check to use webcam instead of video file"
+                gr.Markdown("""
+                **📹 Webcam Options:**
+                - **Browser Webcam**: Works on WSL2! Captures via browser.
+                - **Direct Webcam**: For native Linux only (not WSL2).
+                """)
+
+                webcam_mode = gr.Radio(
+                    choices=["Video File", "Browser Webcam", "Direct Webcam (Linux only)"],
+                    value="Video File",
+                    label="Input Mode",
+                    info="Browser Webcam recommended for WSL2"
+                )
+
+                # Browser webcam input (captures from browser, works on Windows/WSL2)
+                browser_webcam = gr.Image(
+                    sources=["webcam"],
+                    type="numpy",
+                    label="Browser Webcam (click to capture)",
+                    visible=False,
+                    streaming=True,
+                    mirror_webcam=True
+                )
+
+                # Get available cameras for direct mode
+                available_cameras = app.get_available_cameras()
+                camera_choices = {name: idx for name, idx in available_cameras}
+                camera_labels = [name for name, _ in available_cameras]
+
+                camera_selector = gr.Dropdown(
+                    choices=camera_labels,
+                    label="Select Camera (Direct Mode)",
+                    value=camera_labels[0] if camera_labels else None,
+                    visible=False,
+                    info="For native Linux only - won't work on WSL2"
                 )
 
                 video_dropdown = gr.Dropdown(
@@ -649,7 +931,7 @@ def create_interface():
                     value=1,
                     step=1,
                     label="FPS",
-                    info="Frames per second sampling rate"
+                    info="Frames per second sampling rate (use 30 for webcam)"
                 )
 
                 max_new_tokens = gr.Slider(
@@ -749,11 +1031,39 @@ def create_interface():
                 )
 
         # Event handlers
+        # Toggle visibility based on webcam mode selection
+        def toggle_webcam_mode(mode):
+            is_browser_webcam = mode == "Browser Webcam"
+            is_direct_webcam = mode == "Direct Webcam (Linux only)"
+            is_video_file = mode == "Video File"
+
+            return (
+                gr.update(visible=is_browser_webcam),  # browser_webcam
+                gr.update(visible=is_direct_webcam),   # camera_selector
+                gr.update(visible=is_video_file),      # video_dropdown
+                gr.update(value=30 if (is_browser_webcam or is_direct_webcam) else 1)  # fps slider
+            )
+
+        webcam_mode.change(
+            fn=toggle_webcam_mode,
+            inputs=[webcam_mode],
+            outputs=[browser_webcam, camera_selector, video_dropdown, fps]
+        )
+
+        # Handle browser webcam streaming frames
+        browser_webcam.stream(
+            fn=app.update_browser_frame,
+            inputs=[browser_webcam],
+            outputs=[]
+        )
+
         start_btn.click(
             fn=app.run_inference,
             inputs=[
                 video_dropdown,
-                use_webcam,
+                webcam_mode,
+                camera_selector,
+                browser_webcam,
                 base_model,
                 lora_weights,
                 polling_interval,
@@ -838,6 +1148,22 @@ def create_interface():
 
 
 if __name__ == "__main__":
+    # Show detected cameras at startup
+    print("\n" + "="*60)
+    print("Mobile-VideoGPT Polling Inference")
+    print("="*60)
+
+    app_instance = GradioPollingApp()
+    cameras = app_instance.get_available_cameras()
+
+    if cameras:
+        print("\n Detected Cameras:")
+        for name, idx in cameras:
+            print(f"  • {name}")
+    else:
+        print("\n  No cameras detected via /dev/v4l/by-id/")
+        print("   Will show generic camera indices")
+
     demo = create_interface()
     demo.launch(
         server_name="0.0.0.0",
