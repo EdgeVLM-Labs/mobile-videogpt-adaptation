@@ -13,8 +13,6 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Tuple, Optional, Generator
 import threading
-import queue
-from io import StringIO
 
 import gradio as gr
 import numpy as np
@@ -30,22 +28,6 @@ from polling.metrics import MetricsTracker
 from utils.naturalizer.feedback_naturalizer import FeedbackNaturalizer
 
 
-class LogCapture(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.logs = []
-
-    def emit(self, record):
-        log_entry = self.format(record)
-        self.logs.append(log_entry)
-
-    def get_logs(self):
-        return "\n".join(self.logs[-100:])  # Last 100 lines
-
-    def clear(self):
-        self.logs = []
-
-
 class GradioPollingApp:
     def __init__(self):
         self.engine: Optional[PollingInferenceEngine] = None
@@ -54,14 +36,9 @@ class GradioPollingApp:
         self.current_session_id = None
         self.poll_results = []
         self.metrics_history = []
-        self.log_capture = LogCapture()
-        self.log_capture.setLevel(logging.INFO)
-        self.log_capture.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s'))
         self.temp_dir = None
         self.current_video_path = None
 
-        # Add log capture to root logger
-        logging.getLogger().addHandler(self.log_capture)
         logging.getLogger().setLevel(logging.INFO)
 
     def extract_video_segment(self, video_path: str, start_time: float, duration: float) -> str:
@@ -129,7 +106,6 @@ class GradioPollingApp:
             f"- **Latency:** {metrics.get('latency_ms', 0):.1f} ms",
             f"- **TTFT:** {metrics.get('ttft_ms', 0):.1f} ms",
             f"- **Tokens/s:** {metrics.get('tokens_per_second', 0):.1f}",
-            f"- **Frames:** {metrics.get('frames_processed', 0)}",
             f"- **Output Tokens:** {metrics.get('output_tokens', 0)}",
         ]
         return "\n".join(lines)
@@ -178,17 +154,18 @@ class GradioPollingApp:
         base_model: str,
         lora_weights: str,
         polling_interval: float,
-        num_frames: int,
         fps: int,
         max_new_tokens: int,
         temperature: float,
         warmup_runs: int,
         prompt: str,
+        separate_exercise: bool,
         use_naturalizer: bool,
         naturalizer_threshold: float,
         progress=gr.Progress()
-    ) -> Generator[Tuple[str, str, str, str, str, str], None, None]:
+    ) -> Generator[Tuple[str, str, str, str, str], None, None]:
         try:
+            num_frames = 16
             self.poll_results = []
             self.metrics_history = []
             self.is_running = True
@@ -233,13 +210,10 @@ class GradioPollingApp:
                         "❌ Video file not found",
                         "Error: Video file does not exist",
                         "",
-                        self.log_capture.get_logs()
                     )
                     return
 
                 progress(0, desc=f"Loading video: {video_source}")
-
-            self.log_capture.clear()
 
             config = PollingConfig(
                 base_model_path=base_model,
@@ -292,7 +266,6 @@ class GradioPollingApp:
                     "Failed to load model",
                     "Error: Could not load model",
                     "",
-                    self.log_capture.get_logs()
                 )
                 return
 
@@ -317,7 +290,6 @@ class GradioPollingApp:
                     "Failed to open video",
                     "Error: Could not open video source",
                     "",
-                    self.log_capture.get_logs()
                 )
                 return
 
@@ -332,7 +304,6 @@ class GradioPollingApp:
                 "Starting polling...",
                 "Initializing...",
                 "",
-                self.log_capture.get_logs()
             )
 
             while self.is_running:
@@ -415,8 +386,17 @@ class GradioPollingApp:
 
                     logging.info(f"Poll #{poll_index + 1} complete: latency={metrics.get('latency_ms', 0):.1f}ms{repeat_info}")
 
+                    # Handle separate exercise mode
+                    exercise_label = ""
+                    if separate_exercise and " - " in display_response:
+                        exercise_part, feedback_part = display_response.split(" - ", 1)
+                        exercise_label = f"\n**Exercise:** {exercise_part.strip()}"
+                        display_response = feedback_part.strip()
+
                     current_response = f"**Poll #{poll_index + 1}** (Position: {position:.2f}s){repeat_info}\n\n{display_response}"
                     current_metrics = self.format_metrics(metrics)
+                    if exercise_label:
+                        current_metrics = exercise_label + "\n\n" + current_metrics
                     all_responses = self.format_all_responses(self.poll_results)
                     current_min = int(position // 60)
                     current_sec = int(position % 60)
@@ -434,7 +414,6 @@ class GradioPollingApp:
                         current_response,
                         current_metrics,
                         all_responses,
-                        self.log_capture.get_logs()
                     )
 
                     poll_index += 1
@@ -456,7 +435,6 @@ class GradioPollingApp:
                         f"Error in poll #{poll_index + 1}: {str(e)}",
                         "Error occurred",
                         self.format_all_responses(self.poll_results),
-                        self.log_capture.get_logs()
                     )
                     break
 
@@ -477,7 +455,6 @@ class GradioPollingApp:
                 f"**Polling Complete**\n\nProcessed {poll_index} polls successfully",
                 f"**Final Stats:**\n{poll_index} polls completed",
                 self.format_all_responses(self.poll_results),
-                self.log_capture.get_logs()
             )
 
         except Exception as e:
@@ -496,7 +473,6 @@ class GradioPollingApp:
                 f"**Error:** {str(e)}",
                 "Error occurred during inference",
                 "",
-                self.log_capture.get_logs()
             )
 
         finally:
@@ -530,7 +506,7 @@ class GradioPollingApp:
 
     def stop_inference(self):
         self.is_running = False
-        return "Stopping inference..."
+        return None, "Stopping inference..."
 
 
 def create_interface():
@@ -574,7 +550,10 @@ def create_interface():
                 lora_weights = gr.Dropdown(
                     choices=[
                         "EdgeVLM-Labs/mobile-videogpt-finetune-2000",
-                        "EdgeVLM-Labs/qved-finetune-20260110_155349"
+                        "EdgeVLM-Labs/qved-finetune-20260110_155349",
+                        "EdgeVLM-Labs/mobile-videogpt-finetune-20260208_082050",
+                        "EdgeVLM-Labs/mvgpt-1000-fit-300k-20260223_032309",
+                        "EdgeVLM-Labs/mvgpt-1000-generated-exercise-fb-20260220_110059",
                     ],
                     label="LoRA Weights",
                     value="EdgeVLM-Labs/mobile-videogpt-finetune-2000",
@@ -590,15 +569,6 @@ def create_interface():
                     step=0.5,
                     label="Polling Interval (seconds)",
                     info="Time between polls"
-                )
-
-                num_frames = gr.Slider(
-                    minimum=8,
-                    maximum=32,
-                    value=16,
-                    step=8,
-                    label="Number of Frames",
-                    info="Frames per poll (must be multiple of 8)"
                 )
 
                 fps = gr.Slider(
@@ -631,7 +601,7 @@ def create_interface():
                 warmup_runs = gr.Slider(
                     minimum=0,
                     maximum=5,
-                    value=1,
+                    value=2,
                     step=1,
                     label="Warmup Runs",
                     info="Number of warmup iterations"
@@ -645,6 +615,12 @@ def create_interface():
                 )
 
                 gr.Markdown("### Feedback Naturalizer")
+
+                separate_exercise = gr.Checkbox(
+                    label="Separate Exercise",
+                    value=False,
+                    info="If output is 'exercise - feedback', show them separately"
+                )
 
                 use_naturalizer = gr.Checkbox(
                     label="Enable Naturalizer",
@@ -705,16 +681,6 @@ def create_interface():
                     elem_classes=["all-responses-box"]
                 )
 
-                gr.Markdown("### Live Logs")
-                live_logs = gr.Textbox(
-                    value="No logs yet",
-                    lines=15,
-                    max_lines=20,
-                    elem_classes=["logs-box"],
-                    interactive=False,
-                    show_label=False
-                )
-
         # Event handlers
         start_btn.click(
             fn=app.run_inference,
@@ -724,12 +690,12 @@ def create_interface():
                 base_model,
                 lora_weights,
                 polling_interval,
-                num_frames,
                 fps,
                 max_new_tokens,
                 temperature,
                 warmup_runs,
                 prompt,
+                separate_exercise,
                 use_naturalizer,
                 naturalizer_threshold
             ],
@@ -739,13 +705,12 @@ def create_interface():
                 current_response,
                 current_metrics,
                 all_responses,
-                live_logs
             ]
         )
 
         stop_btn.click(
             fn=app.stop_inference,
-            outputs=current_response
+            outputs=[video_player, current_response]
         )
 
         # Custom CSS
@@ -785,21 +750,6 @@ def create_interface():
             color: #e0e0e0 !important;
         }
 
-        .logs-box {
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            background-color: #1e1e1e;
-            color: #d4d4d4 !important;
-            padding: 10px;
-            border-radius: 8px;
-            overflow-y: auto;
-        }
-
-        .logs-box textarea {
-            background-color: #1e1e1e !important;
-            color: #d4d4d4 !important;
-            font-family: 'Courier New', monospace !important;
-        }
         """
 
     return demo
