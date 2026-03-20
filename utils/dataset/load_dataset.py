@@ -18,7 +18,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
-REPO_ID = "EdgeVLM-Labs/QEVD-fine-grained-feedback-cleaned"
+REPO_ID = "EdgeVLM-Labs/QEVD-CLEANED-14"
 LOCAL_DIR = Path("dataset")  # local download directory
 MAX_PER_CLASS = 5
 FILE_EXT = ".mp4"
@@ -86,6 +86,11 @@ def sample_and_download(by_class, repo_id, local_dir, max_per_class, parallel=Fa
         for rel_path in sample:
             filename = os.path.basename(rel_path)
             target_path = class_dir / filename
+            if target_path.exists():
+                print(f"⏭ Skipping {filename} (already exists)")
+                manifest[str(target_path)] = cls
+                total_downloaded += 1
+                continue
             download_tasks.append((repo_id, rel_path, target_path, cls))
 
     if parallel:
