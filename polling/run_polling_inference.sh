@@ -28,9 +28,9 @@ MAX_DURATION="${MAX_DURATION:-300}"            # maximum total duration in secon
 MAX_POLLS="${MAX_POLLS:-}"                     # maximum number of polls (empty = unlimited)
 
 # Video processing
-NUM_FRAMES="${NUM_FRAMES:-16}"                 # frames per inference (must be >= 8, match num_context_images)
+NUM_FRAMES="${NUM_FRAMES:-16}"                 # frames per inference (model requires 16: 2 chunks × 4 topK)
 FPS="${FPS:-1}"                                # frame sampling rate
-MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-512}"        # max generation tokens
+MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-128}"        # max generation tokens
 WARMUP_RUNS="${WARMUP_RUNS:-0}"                # number of warmup runs
 
 # Inference prompt

@@ -20,8 +20,8 @@ class PollingConfig:
     max_polling_duration: float = 300.0  # Maximum total polling duration (5 minutes default)
 
     # Video processing
-    num_frames: int = 16  # Number of frames to sample per inference
-    num_context_images: int = 16  # Number of context images
+    num_frames: int = 16  # Number of frames (model architecture requires 16: 2 chunks × 4 topK = 8 for VideoMamba)
+    num_context_images: int = 16  # Number of context images (must match num_frames)
     chunk_size: int = 8  # VideoMamba chunk size
     fps: int = 1  # Frame sampling rate
     image_resolution: int = 224  # Frame resolution
@@ -32,7 +32,7 @@ class PollingConfig:
 
     # Inference configuration
     prompt: str = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
-    max_new_tokens: int = 512
+    max_new_tokens: int = 128  # Reduced from 512 — exercise feedback is 2-3 sentences
     do_sample: bool = False
     num_beams: int = 1
     use_cache: bool = True
