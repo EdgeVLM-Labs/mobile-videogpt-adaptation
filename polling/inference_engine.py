@@ -31,6 +31,36 @@ if torch.cuda.is_available():
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# ---------------------------------------------------------------------------
+# Monkey-patch mamba_ssm to work with causal_conv1d >= 1.5.0
+# In newer versions, causal_conv1d_cuda.causal_conv1d_fwd requires a pre-allocated
+# output tensor (8 args) instead of returning it (7 args).
+# This patch is applied in our repo so fresh clones don't need to edit site-packages.
+# ---------------------------------------------------------------------------
+def _patch_mamba_causal_conv1d():
+    try:
+        import causal_conv1d_cuda
+        import mamba_ssm.ops.selective_scan_interface as ssi
+        import inspect
+
+        source = inspect.getsource(ssi.MambaInnerFn.forward)
+        # Check if already using 8-arg API (has torch.empty_like before the call)
+        if 'torch.empty_like' not in source and 'causal_conv1d_cuda.causal_conv1d_fwd' in source:
+            _orig_fwd = causal_conv1d_cuda.causal_conv1d_fwd
+
+            def _patched_fwd(x, weight, bias, seq_idx=None, initial_states=None,
+                             final_states_out=None, activation=True):
+                out = torch.empty_like(x)
+                _orig_fwd(x, weight, bias, seq_idx, initial_states, out, final_states_out, activation)
+                return out
+
+            causal_conv1d_cuda.causal_conv1d_fwd = _patched_fwd
+            logging.getLogger(__name__).info("Patched mamba_ssm for causal_conv1d >= 1.5 API")
+    except (ImportError, Exception):
+        pass  # mamba_ssm or causal_conv1d not installed, skip
+
+_patch_mamba_causal_conv1d()
+
 from mobilevideogpt.model import MobileVideoGPTQwenForCausalLM
 from mobilevideogpt.mm_utils import tokenizer_image_token
 from mobilevideogpt.conversation import conv_templates
