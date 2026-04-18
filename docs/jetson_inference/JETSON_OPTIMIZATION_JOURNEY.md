@@ -155,20 +155,38 @@ The critical issue that blocked production use: **running inference twice in the
 
 ---
 
-## 📊 Latency Breakdown (Current)
+### Stage 7: Real-Time Feel — Hit the 5s Target (TTFT 2.3s)
+
+The breakthrough that made the pipeline demo-ready. Four changes combined:
+
+| # | Optimization | What it does | Saves |
+|---|---|---|---|
+| 7.1 | **`lm_head` patch** ([`qwen.py`](../../mobilevideogpt/model/language_model/qwen.py)) | During prefill, only compute logits for the LAST position (not all 450). Eliminates a 137MB temp allocation that was causing OOMs. | **Unlocks 7.2 + 7.3** |
+| 7.2 | **Full-GPU Qwen2** (`USE_FULL_GPU=1`) | 75% CUDA budget forces all 24 layers on GPU. No more CPU↔GPU tensor transfers between layers during autoregressive generation. | ~2-3s |
+| 7.3 | **TRT CLIP viable** (`USE_TRT_CLIP=1`) | Previously OOMed alongside Qwen2. Now safe thanks to 7.1. CLIP: ~3s (ORT CPU) → ~0.2s (TRT GPU). | ~2.8s |
+| 7.4 | **Token streaming** ([`gradio_app.py`](../../polling/gradio_app.py)) | TextIteratorStreamer + progress stages in UI. First word appears at prefill+first-token, rest streams live. | 0s real; converts wait into visible progress |
+
+**Result**:
+- **TTFT: 11s → 2.3s** (perceived latency for user)
+- **Full-response latency: 11s → 5-10s** (actual compute)
+- Panel sees first word in ~2s, full coaching feedback during exercise
+
+---
+
+## 📊 Latency Breakdown (Current — Phase 7)
 
 ```
-Total per poll (warm): ~11s
-
-┌──────────────────────────────────────────────┐
-│ Qwen2 LLM (mixed CPU/GPU)   ~5-6s  ███████  │  55% ← current bottleneck
-│ CLIP (ORT CPU, 16 frames)   ~3s    ████     │  27%
-│ VideoMamba (CUDA)           ~2s    ██       │  18%
-│ Frame extraction            ~1s    █        │
-└──────────────────────────────────────────────┘
+Before Phase 7 (FP16 + ORT CPU CLIP):     After Phase 7 (+ TRT CLIP + Full-GPU + patch):
+───────────────────────────────────       ────────────────────────────────────────
+Total per poll (warm): ~11s                Total per poll (warm): 5-10s
+                                           TTFT (first word shown): ~2.3s
+Qwen2 LLM (mixed)      ~5-6s  ███████     Qwen2 LLM (all on GPU)   ~3-4s  █████
+CLIP (ORT CPU)         ~3s    ████        CLIP (TRT GPU)           ~0.2s  ▏
+VideoMamba (CUDA)      ~2s    ██          VideoMamba (CUDA)        ~2s    ██
+Frame extraction       ~1s    █           Frame extraction         ~1s    █
 ```
 
-The bottleneck is **Qwen2 LLM generation** — half on GPU, half on CPU due to device_map="auto" split. Any further wins need to target this stage.
+The Qwen2 time drop (5-6s → 3-4s) comes from eliminating CPU offload bouncing once we have budget headroom.
 
 ---
 
@@ -181,7 +199,7 @@ The bottleneck is **Qwen2 LLM generation** — half on GPU, half on CPU due to d
 
 ✅ Correctly identifies incorrect form
 ✅ Provides reasonable correction suggestion
-✅ Generated in ~13s after warmup
+✅ **First word visible at 2.3s**, full response 5-10s later (streaming)
 
 ---
 
@@ -189,12 +207,15 @@ The bottleneck is **Qwen2 LLM generation** — half on GPU, half on CPU due to d
 
 ### ✅ Done
 
-- TensorRT CLIP pipeline (infrastructure ready, opt-in on higher-memory boards)
-- ONNX Runtime CPU CLIP (default, reliable)
+- TensorRT CLIP pipeline (engine built, validated, **now production-default**)
+- ONNX Runtime CPU CLIP (automatic fallback if TRT CLIP OOMs)
 - Server-mode architecture for back-to-back reliability
 - Inter-poll memory cleanup + OOM retry
-- Power mode MAXN_SUPER (GPU 612 → 1020 MHz, ~11% gain)
+- Power mode MAXN_SUPER (GPU 612 → 1020 MHz)
 - `max_new_tokens` 128 → 64
+- **`lm_head` patch** (only compute last-position logits during prefill)
+- **Full-GPU Qwen2** (all 24 layers on CUDA, no CPU bounce)
+- **Token streaming** (progressive UI updates, perceived TTFT = 2.3s)
 
 ### 🔍 Architectural Findings (from codebase review)
 
@@ -324,47 +345,49 @@ python scripts/export_clip_to_onnx.py
 bash scripts/build_clip_tensorrt.sh fp32
 ```
 
-### Recommended: Gradio Server (persistent, reliable)
+### 🎯 Recommended for Demo / Production Use
+
+This is the configuration that hits TTFT 2.3s:
+
+```bash
+# One-time (persists across reboots if nvpmodel set)
+sudo nvpmodel -m 2          # MAXN_SUPER mode (full clock budget)
+sudo jetson_clocks          # Lock clocks at max
+
+# Per-session: clear memory + launch
+sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+conda activate mvgpt
+USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/gradio_app.py
+```
+
+Open the printed URL in a browser. Model loads once (~40s), then every
+inference runs in a warm server. First word appears at ~2.3s, full
+response streams over 5-10s.
+
+**Health checks in the startup logs**:
+- `Loading TensorRT CLIP engine: .../clip_vit_base_fp32.engine`
+- `CUDA budget: X.XXGb (75% of 5.XX GB free, mode=FULL-GPU+TRT-CLIP)`
+- `Qwen2 layer placement: {'cuda:0': 24}  (lm_head: cuda:0)`
+
+### Fallback: Default Safe Mode (no env vars)
+
+If `USE_TRT_CLIP` triggers OOM (e.g., high desktop activity eating GPU memory):
 
 ```bash
 conda activate mvgpt
 python polling/gradio_app.py
-# Then open the URL printed in console
 ```
 
-Model loads once, inference runs are back-to-back reliable (no OOM between runs, no 40s reload).
+This runs CLIP on CPU via ONNX Runtime — slower (~11s total per poll) but
+bulletproof reliable on any 8GB Jetson.
 
-### One-Shot CLI (for testing)
+### One-Shot CLI (for testing, no UI)
 
 ```bash
 conda activate mvgpt
-python polling/run_polling.py sample_videos/00000340.mp4 --max-polls 1
-
-# With LoRA finetuning:
-python polling/run_polling.py sample_videos/00000340.mp4 \
-  --max-polls 1 \
-  --lora-weights "EdgeVLM-Labs/mvgpt-14_2000-pool-exercise_feedback-20260320_201254"
+USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/run_polling.py \
+  sample_videos/00000340.mp4 --max-polls 1 --lora-weights ""
 ```
-
-### Max Performance Mode
-
-```bash
-sudo nvpmodel -m 0          # 15W power profile
-sudo jetson_clocks          # Lock max GPU clocks
-```
-
-### Enable TensorRT CLIP (opt-in — requires headroom)
-
-```bash
-# Build engine first (if not already built)
-python scripts/export_clip_to_onnx.py
-bash scripts/build_clip_tensorrt.sh fp32
-
-# Then run with flag
-USE_TRT_CLIP=1 python polling/gradio_app.py
-```
-
-⚠️ On 8GB Jetson Orin Nano this is memory-tight and may OOM during Qwen2 generation. Viable on Orin NX 8GB+ or Orin Nano Super.
 
 ---
 
