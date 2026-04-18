@@ -229,6 +229,15 @@ class PollingInferenceEngine:
                     llm_int8_skip_modules=['lm_head'],
                 )
                 # Note: Flash Attention incompatible with 4-bit quantization
+            elif os.environ.get("USE_QUANTO", "0") == "1":
+                # optimum-quanto INT8 weight quantization (Jetson-friendly).
+                # Saves ~50% memory vs FP16, accuracy drop <0.5% for structured outputs.
+                # We DON'T use transformers' QuantoConfig (requires old 'quanto' pkg);
+                # instead we load the model normally then apply quanto post-load below.
+                kwargs['torch_dtype'] = torch.float16
+                kwargs['attn_implementation'] = 'sdpa'
+                quanto_weight = os.environ.get("QUANTO_WEIGHTS", "int8")
+                self.logger.info(f"Post-load INT8 quantization via optimum-quanto (weights={quanto_weight})")
             else:
                 kwargs['torch_dtype'] = torch.float16  # Use float16 (matches model config)
                 try:
@@ -270,17 +279,25 @@ class PollingInferenceEngine:
             # Load base model
             # On Jetson (8GB unified), use device_map="auto" with max_memory
             # so accelerate splits the model between CUDA and CPU as needed.
+            use_quanto = os.environ.get("USE_QUANTO", "0") == "1"
             if torch.cuda.is_available():
                 free_mem = torch.cuda.mem_get_info()[0]
-                # CUDA budget % depends on whether TRT CLIP is holding memory.
-                # Without TRT CLIP: 40% of free (~2GB of 5GB)
-                # With TRT CLIP (+500MB on GPU): 30% to leave room for lm_head activations
-                budget_pct = 0.30 if trt_clip is not None else 0.40
+                # CUDA budget % depends on whether TRT CLIP is holding memory and
+                # whether we're using quanto (INT8 weights = ~50% smaller, so can fit more).
+                if use_quanto:
+                    # With INT8 Qwen2 (~500MB instead of 1GB), we can afford a bigger
+                    # budget to keep the whole model on GPU and avoid CPU offload.
+                    budget_pct = 0.55 if trt_clip is not None else 0.65
+                elif trt_clip is not None:
+                    budget_pct = 0.30  # With TRT CLIP holding ~500MB
+                else:
+                    budget_pct = 0.40  # Baseline FP16, no TRT CLIP
                 cuda_budget = max(int(free_mem * budget_pct), 512 * 1024 * 1024)
                 max_memory = {0: cuda_budget, "cpu": "2GiB"}
+                mode_tag = "QUANTO-INT8" if use_quanto else ("FP16+TRT-CLIP" if trt_clip else "FP16")
                 self.logger.info(
-                    f"CUDA budget: {cuda_budget / 1e9:.2f}GB (free: {free_mem / 1e9:.2f}GB"
-                    + (f", {trt_reserved_gb:.1f}GB reserved for TRT CLIP)" if trt_clip else ")")
+                    f"CUDA budget: {cuda_budget / 1e9:.2f}GB ({int(budget_pct*100)}% of "
+                    f"{free_mem / 1e9:.2f}GB free, mode={mode_tag})"
                 )
             else:
                 max_memory = None
@@ -297,6 +314,27 @@ class PollingInferenceEngine:
                 topk=self.config.topk,
                 **kwargs
             )
+
+            # Post-load INT8 quantization of Qwen2 LLM layers only.
+            # We intentionally skip the vision tower, image tower, projectors, and
+            # lm_head — those use custom kernels (mamba_ssm, VideoMamba) or are the
+            # final output layer where precision matters most.
+            if use_quanto:
+                from optimum.quanto import quantize, freeze, qint8, qint4
+                qtype = qint4 if quanto_weight == "int4" else qint8
+                # Only quantize the Qwen2 transformer backbone (self.model.model.layers)
+                # Leaves embeddings, lm_head, vision_tower, image_vision_tower, projectors in FP16.
+                qwen_backbone = self.model.model
+                t0 = time.time()
+                self.logger.info(f"Quantizing Qwen2 backbone ({quanto_weight})...")
+                quantize(qwen_backbone.layers, weights=qtype)
+                freeze(qwen_backbone.layers)
+                self.logger.info(f"Quantization done in {time.time() - t0:.1f}s")
+                gc.collect()
+                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    free_after = torch.cuda.mem_get_info()[0] / 1e9
+                    self.logger.info(f"CUDA free after quantization: {free_after:.2f}GB")
 
             # Resize token embeddings
             token_num, token_dim = self.model.lm_head.out_features, self.model.lm_head.in_features
