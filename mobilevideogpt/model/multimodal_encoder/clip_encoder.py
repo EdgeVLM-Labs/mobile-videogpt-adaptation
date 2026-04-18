@@ -1,7 +1,12 @@
+import logging
 import torch
 import torch.nn as nn
 import math
 from transformers import CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig
+
+from mobilevideogpt.model.multimodal_encoder.clip_trt import try_load_trt_clip
+
+logger = logging.getLogger(__name__)
 
 
 class CLIPVisionTower(nn.Module):
@@ -24,15 +29,29 @@ class CLIPVisionTower(nn.Module):
             self.cfg_only = CLIPVisionConfig.from_pretrained(self.vision_tower_name)
 
     def load_model(self):
+        import os
         self.image_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
         self.image_eval_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
-        # Keep CLIP on CPU to save CUDA memory for main model inference
-        self.vision_tower = CLIPVisionModel.from_pretrained(
-            self.vision_tower_name,
-            low_cpu_mem_usage=True,
-            torch_dtype=torch.float16,
-        )
-        self.vision_tower.requires_grad_(False)
+
+        # Try TensorRT engine on GPU only when explicitly enabled (USE_TRT_CLIP=1).
+        # See clip_trt.py + inference_engine.py for details on memory trade-offs.
+        trt_model = None
+        if os.environ.get("USE_TRT_CLIP", "0") == "1":
+            trt_model = try_load_trt_clip()
+
+        if trt_model is not None:
+            logger.info("CLIP: Using TensorRT engine on GPU")
+            self.vision_tower = trt_model
+            self._backend = "tensorrt"
+        else:
+            logger.info("CLIP: Using PyTorch FP16 on CPU")
+            self.vision_tower = CLIPVisionModel.from_pretrained(
+                self.vision_tower_name,
+                low_cpu_mem_usage=True,
+                torch_dtype=torch.float16,
+            )
+            self.vision_tower.requires_grad_(False)
+            self._backend = "pytorch_cpu"
 
         self.is_loaded = True
 

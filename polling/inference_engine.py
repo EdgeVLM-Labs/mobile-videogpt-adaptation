@@ -21,6 +21,37 @@ os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
 import torch
 from transformers import AutoTokenizer, AutoConfig
 
+# Patch Triton's autotuner cache-flush buffer — default 256MB fails on fragmented
+# Jetson memory. A tiny buffer keeps autotuning functional; the only cost is
+# slightly noisier benchmark timings on the first call (no accuracy impact).
+def _install_triton_patch():
+    try:
+        import triton
+        # Patch the active driver instance
+        try:
+            driver = triton.runtime.driver.active
+            def _tiny(*args, **kwargs):
+                return torch.empty(1024, dtype=torch.int, device='cuda')
+            driver.get_empty_cache_for_benchmark = _tiny
+        except Exception:
+            pass
+
+        # Also patch the class so any future instances get the tiny version
+        try:
+            from triton.backends.nvidia import driver as _trtdrv
+            for name in dir(_trtdrv):
+                cls = getattr(_trtdrv, name)
+                if isinstance(cls, type) and hasattr(cls, "get_empty_cache_for_benchmark"):
+                    cls.get_empty_cache_for_benchmark = lambda self: torch.empty(
+                        1024, dtype=torch.int, device='cuda'
+                    )
+        except Exception:
+            pass
+    except Exception:
+        pass  # Triton not installed — safe to skip
+
+_install_triton_patch()
+
 # PyTorch optimizations for faster inference
 torch.set_float32_matmul_precision('high')  # Use TF32 on Ampere+ GPUs
 if torch.cuda.is_available():
@@ -219,21 +250,38 @@ class PollingInferenceEngine:
             )
             self.tokenizer.add_tokens(["<image>"], special_tokens=True)
 
-            # Load base model
-            # On Jetson (8GB unified), use device_map="auto" with max_memory
-            # so accelerate splits the model between CUDA and CPU as needed.
+            # Optionally preload TensorRT CLIP engine BEFORE the main model.
+            # Enable with: USE_TRT_CLIP=1 in environment.
+            # Disabled by default because TRT CLIP + Qwen2 don't reliably fit on 8GB
+            # Jetson Orin Nano — the lm_head during generation OOMs.
+            # Works fine on boards with more memory (Orin NX 8GB+, etc.)
             import gc
             gc.collect()
             torch.cuda.empty_cache()
+            trt_clip = None
+            if os.environ.get("USE_TRT_CLIP", "0") == "1":
+                from mobilevideogpt.model.multimodal_encoder.clip_trt import preload_trt_clip
+                trt_clip = preload_trt_clip()
+                if trt_clip is not None:
+                    self.logger.info("TensorRT CLIP preloaded on GPU (USE_TRT_CLIP=1)")
+                else:
+                    self.logger.info("TensorRT CLIP preload failed — using PyTorch CPU")
+
+            # Load base model
+            # On Jetson (8GB unified), use device_map="auto" with max_memory
+            # so accelerate splits the model between CUDA and CPU as needed.
             if torch.cuda.is_available():
                 free_mem = torch.cuda.mem_get_info()[0]
-                # On Jetson, CPU and CUDA share the same physical RAM.
-                # Budget 40% of free memory for model weights on CUDA.
-                # Leaves 60% for inference activations (VideoMamba, Qwen, lm_head).
-                # CLIP runs on CPU separately so doesn't need CUDA budget.
-                cuda_budget = max(int(free_mem * 0.40), 512 * 1024 * 1024)
+                # CUDA budget % depends on whether TRT CLIP is holding memory.
+                # Without TRT CLIP: 40% of free (~2GB of 5GB)
+                # With TRT CLIP (+500MB on GPU): 30% to leave room for lm_head activations
+                budget_pct = 0.30 if trt_clip is not None else 0.40
+                cuda_budget = max(int(free_mem * budget_pct), 512 * 1024 * 1024)
                 max_memory = {0: cuda_budget, "cpu": "2GiB"}
-                self.logger.info(f"CUDA budget: {cuda_budget / 1e9:.2f}GB (free: {free_mem / 1e9:.2f}GB)")
+                self.logger.info(
+                    f"CUDA budget: {cuda_budget / 1e9:.2f}GB (free: {free_mem / 1e9:.2f}GB"
+                    + (f", {trt_reserved_gb:.1f}GB reserved for TRT CLIP)" if trt_clip else ")")
+                )
             else:
                 max_memory = None
 

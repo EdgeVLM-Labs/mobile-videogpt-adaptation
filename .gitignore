@@ -160,3 +160,11 @@ sample_videos/manifest_*.txt
 sample_videos/video_list.txt
 sample_videos/Elbow Plank.mp4
 sample_videos/Lunges.mp4
+
+# Jetson inference — TensorRT models and engines (too large, built locally)
+models/tensorrt/*.engine
+models/tensorrt/*.onnx
+offload/
+
+# Transient inference logs
+scripts/logs.txt
