@@ -662,11 +662,27 @@ class PollingInferenceEngine:
 
                     self.logger.info(f"Extracted {slice_len} frames in {frame_time*1000:.1f}ms")
 
-                    # Run inference
+                    # Run inference with one OOM-retry for reliability on
+                    # memory-constrained devices. First CUDA OOM we clear cache
+                    # and try again — usually succeeds after defragmentation.
                     inference_start = time.time()
-                    response, ttft, input_tokens, output_tokens = self.run_single_inference(
-                        video_frames, context_frames, prompt, slice_len
-                    )
+                    try:
+                        response, ttft, input_tokens, output_tokens = self.run_single_inference(
+                            video_frames, context_frames, prompt, slice_len
+                        )
+                    except RuntimeError as oom_err:
+                        if 'out of memory' in str(oom_err).lower() or 'NVML_SUCCESS' in str(oom_err):
+                            self.logger.warning(f"Inference OOM — clearing cache and retrying once")
+                            import gc
+                            gc.collect()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                                torch.cuda.synchronize()
+                            response, ttft, input_tokens, output_tokens = self.run_single_inference(
+                                video_frames, context_frames, prompt, slice_len
+                            )
+                        else:
+                            raise
                     inference_time = time.time() - inference_start
                     self.metrics.record_timing("generation_time", inference_time)
 
@@ -693,6 +709,13 @@ class PollingInferenceEngine:
                     self.logger.error(f"Inference failed: {e}", exc_info=True)
 
                 poll_index += 1
+
+                # Free CUDA tensor cache between polls — prevents fragmentation
+                # that causes OOM on the lm_head projection during generate().
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
                 # Wait for next poll
                 if not self.stream_handler.is_exhausted:

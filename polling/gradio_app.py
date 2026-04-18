@@ -449,6 +449,18 @@ class GradioPollingApp:
                 )
                 return
 
+            # Aggressive memory cleanup before starting a new session.
+            # Previous sessions can leave the CUDA caching allocator fragmented,
+            # which causes OOM on the 2nd+ inference. Reset state here.
+            import gc
+            gc.collect()
+            gc.collect()  # 2 passes: first collects refs, second collects what those referenced
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                free_mb = torch.cuda.mem_get_info()[0] / (1024 * 1024)
+                logging.info(f"Pre-session CUDA free: {free_mb:.0f}MB")
+
             # Start metrics session
             self.engine.metrics.start_session(
                 video_source=video_path,
