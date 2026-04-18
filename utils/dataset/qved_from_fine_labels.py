@@ -14,8 +14,12 @@ OUTPUT_TEST_JSON = BASE_DIR / "qved_test.json"
 OUTPUT_FEEDBACKS_TRAIN_JSON = BASE_DIR / "qved_feedbacks_train.json"
 OUTPUT_FEEDBACKS_VAL_JSON = BASE_DIR / "qved_feedbacks_val.json"
 OUTPUT_FEEDBACKS_TEST_JSON = BASE_DIR / "qved_feedbacks_test.json"
-USER_PROMPT_TEMPLATE = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
+# USER_PROMPT_TEMPLATE = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
+USER_PROMPT_TEMPLATE = "Watch the exercise being performed and provide short corrective feedback to help improve the form."
 FEEDBACK_PROMPT_TEMPLATE = "Please evaluate the exercise form shown. What feedback would you provide to improve the performance?"
+
+# The JSON attribute to use as the ground truth answer (e.g., "feedback", "labels_descriptive", "coach")
+GROUND_TRUTH_ATTRIBUTE = "labels_descriptive"
 
 # Dataset split ratios (adjustable)
 TRAIN_RATIO = 0.60
@@ -78,19 +82,26 @@ def process_fine_grained_labels(fine_labels_path, filename_to_path, filename_to_
         else:
             relative_video_path = full_video_path
 
-        # Get assistant answer from most descriptive label
-        if 'labels_descriptive' in record and record['labels_descriptive']:
-            assistant_answer = record['labels_descriptive']
-        elif 'labels' in record and record['labels']:
-            assistant_answer = record['labels'][0] if isinstance(record['labels'], list) else record['labels']
+        # Get assistant answer in "exercise - feedback" format
+        ground_truth = record.get(GROUND_TRUTH_ATTRIBUTE, '')
+        if ground_truth:
+            # Strip exercise prefix from each item and collect unique descriptions
+            prefix = f"{exercise} - ".lower()
+            if isinstance(ground_truth, list):
+                descriptions = []
+                for item in ground_truth:
+                    item_str = str(item).strip()
+                    if item_str.lower().startswith(prefix):
+                        item_str = item_str[len(prefix):].strip()
+                    descriptions.append(item_str)
+                assistant_answer = f"{exercise} - {', '.join(descriptions)}"
+            else:
+                ground_truth = str(ground_truth).strip()
+                if ground_truth.lower().startswith(prefix):
+                    ground_truth = ground_truth[len(prefix):].strip()
+                assistant_answer = f"{exercise} - {ground_truth}"
         else:
-            assistant_answer = "No feedback available."
-
-        # Ensure assistant answer is a single string
-        if isinstance(assistant_answer, list):
-            assistant_answer = '\n'.join(str(item) for item in assistant_answer)
-        else:
-            assistant_answer = str(assistant_answer)
+            assistant_answer = f"{exercise} - No feedback available."
 
         user_prompt = USER_PROMPT_TEMPLATE  # No longer using exercise name in prompt
 

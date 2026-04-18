@@ -168,3 +168,5 @@ offload/
 
 # Transient inference logs
 scripts/logs.txt
+/.vscode
+/.claude

@@ -24,6 +24,7 @@ loguru
 datasets
 sacrebleu
 evaluate
+bert-score
 nltk
 sqlitedict
 tenacity
@@ -36,3 +37,9 @@ opencv-python
 deepspeed
 peft==0.10.0
 wandb
+langchain
+langgraph
+langchain_openai
+langchain_community
+langchain_aws
+langchain-core

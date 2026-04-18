@@ -20,7 +20,7 @@ MAX_NEW_TOKENS=64
 BASE_MODEL="Amshaker/Mobile-VideoGPT-0.5B"
 LIMIT=""
 NO_BERT=""
-NO_LLM_JUDGE=""
+NO_LLM_JUDGE="--no-llm-judge"
 INCLUDE_BASE_MODEL=""
 
 # Parse arguments

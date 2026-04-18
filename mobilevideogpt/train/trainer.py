@@ -9,7 +9,7 @@ from transformers.trainer import (
     ALL_LAYERNORM_LAYERS,
     logger,
 )
-from torch.utils.data import Sampler
+from torch.utils.data import DataLoader, Sampler
 from typing import List, Optional
 
 
@@ -232,6 +232,24 @@ class MobileVideoGPTTrainer(Trainer):
                 logger.info(f"skipped: {skipped / 2 ** 20}M params")
 
         return self.optimizer
+
+    def get_eval_dataloader(self, eval_dataset=None):
+        """Override to use fewer dataloader workers during evaluation."""
+        eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
+        if eval_dataset is None:
+            raise ValueError("Trainer: evaluation requires an eval_dataset.")
+
+        data_collator = self.data_collator
+
+        dataloader = DataLoader(
+            eval_dataset,
+            batch_size=self.args.eval_batch_size,
+            collate_fn=data_collator,
+            num_workers=0,
+            pin_memory=self.args.dataloader_pin_memory,
+            shuffle=False,
+        )
+        return dataloader
 
     def _save_checkpoint(self, model, trial, metrics=None):
         if 0 and getattr(self.args, 'tune_mm_mlp_adapter', False):
