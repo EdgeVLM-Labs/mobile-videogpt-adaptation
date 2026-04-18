@@ -228,10 +228,10 @@ class PollingInferenceEngine:
             if torch.cuda.is_available():
                 free_mem = torch.cuda.mem_get_info()[0]
                 # On Jetson, CPU and CUDA share the same physical RAM.
-                # Budget 55% of free memory for model weights on CUDA.
-                # 55% is the sweet spot — 60%+ causes CPU thrashing on 8GB Jetson.
+                # Budget 40% of free memory for model weights on CUDA.
+                # Leaves 60% for inference activations (VideoMamba, Qwen, lm_head).
                 # CLIP runs on CPU separately so doesn't need CUDA budget.
-                cuda_budget = max(int(free_mem * 0.55), 512 * 1024 * 1024)
+                cuda_budget = max(int(free_mem * 0.40), 512 * 1024 * 1024)
                 max_memory = {0: cuda_budget, "cpu": "2GiB"}
                 self.logger.info(f"CUDA budget: {cuda_budget / 1e9:.2f}GB (free: {free_mem / 1e9:.2f}GB)")
             else:

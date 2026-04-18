@@ -31,7 +31,10 @@ from polling.config import PollingConfig
 from polling.inference_engine import PollingInferenceEngine
 from polling.stream_handler import VideoStreamHandler
 from polling.metrics import MetricsTracker
-from utils.naturalizer.feedback_naturalizer import FeedbackNaturalizer
+try:
+    from utils.naturalizer.feedback_naturalizer import FeedbackNaturalizer
+except ImportError:
+    FeedbackNaturalizer = None
 
 
 class LogCapture(logging.Handler):
@@ -860,7 +863,6 @@ def create_interface():
                     label="Browser Webcam (click to capture)",
                     visible=False,
                     streaming=True,
-                    mirror_webcam=True
                 )
 
                 # Get available cameras for direct mode
