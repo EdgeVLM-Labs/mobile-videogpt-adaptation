@@ -263,6 +263,47 @@ for polling-style applications where feedback every ~3-5s is acceptable.
 
 ---
 
+## 🧪 INT8 Quantization Investigation (Phase 6, 2026-04-19)
+
+**Hypothesis**: INT8 quantization of Qwen2 could fit the full model on GPU
+(eliminating CPU↔GPU bounces) AND speed up matmul via INT8 tensor cores.
+Expected: ~2x LLM speedup → ~5-6s total.
+
+**Reality on Jetson Orin Nano Ampere SM 8.7**:
+
+| Library | Path | Latency vs FP16 | Memory | Accuracy |
+|---|---|---|---|---|
+| optimum-quanto 0.2.7 | Post-load `quantize()` int8 | **0.22x (slower)** | -50% | ✅ cosine 0.9999 |
+| torchao 0.1 | `apply_weight_only_int8_quant` | **0.21x (slower)** | -50% | ✅ cosine 0.9999 |
+| torchao 0.1 | `apply_dynamic_quant` (W8A8) | **0.008x (117x slower)** | -50% | ✅ preserved |
+
+**Why every Python-level INT8 path is slower on Jetson:**
+1. These libraries dequantize INT8 → FP16 on every matmul (no fast path)
+2. Jetson SM 8.7 INT8 tensor cores exist but PyTorch's generic INT8 kernels aren't
+   optimized for this specific architecture (generic codegen, not specialized)
+3. torchao 0.17+ has proper kernels but requires torch >= 2.11 — we're pinned
+   to NVIDIA's 2.5.0a0 Jetson wheel
+
+**End-to-end test with USE_QUANTO=1 in inference_engine.py**:
+- FP16 baseline: ~11s/poll
+- Quanto INT8:  ~14-21s/poll (slower despite full GPU fit)
+
+**Paths that WOULD work but are multi-week engineering**:
+- TensorRT-LLM — proper INT8 for Jetson, complex multimodal integration
+- bitsandbytes custom build for SM 8.7 — previously failed (kernel errors)
+- llama.cpp GGUF + custom multimodal wrapper — untested complexity
+
+**Decision**: Keep quanto integration as opt-in (`USE_QUANTO=1`) for future
+scenarios (memory-constrained, or combined with TRT-LLM later). Do NOT make
+it default — it regresses latency on current hardware.
+
+**Implication for roadmap**: The 11s baseline is the practical floor for
+this model+hardware combination without major engineering. Further wins
+now have to come from architectural changes (two-tier feedback, distilled
+smaller model, hardware upgrade), not kernel-level optimization.
+
+---
+
 ## 🛠️ How to Run
 
 ### Fresh Setup
@@ -336,6 +377,7 @@ USE_TRT_CLIP=1 python polling/gradio_app.py
 | 2026-04-18 | **Phase 5a** — `max_new_tokens` 128 → 64 (responses are 30-40 tokens) | ~12.6s |
 | 2026-04-18 | **Phase 5b** — MAXN_SUPER power mode (GPU 612 → 1020 MHz) + `jetson_clocks` | ~11.2s |
 | 2026-04-18 | **Phase 5c** — Codebase review: KV cache reuse has architectural limits (see "Architectural Findings") | — |
+| 2026-04-19 | **Phase 6** — INT8 quantization dead-end on Jetson (see Section "INT8 Quantization Investigation") | 11.2s (no change) |
 
 ---
 
