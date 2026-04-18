@@ -24,10 +24,16 @@
 | Metric | Original | Now | Improvement |
 |---|---|---|---|
 | Model loading | ❌ OOM crash | ✅ ~40s (one-time when using Gradio) | Works |
-| Inference latency (warm) | ❌ OOM crash | **~11s / poll** | ~4.5x faster than first working version |
-| Back-to-back reliability | ❌ 2nd run crashes | **✅ 4+ runs without failure** | Production-viable |
-| Memory usage | Exceeds 8GB | ~6.1GB | Fits |
+| **TTFT** (time-to-first-word) | ❌ OOM | **~2.3s** | **5s-feedback target hit** |
+| Full-response latency | ❌ OOM | ~5-10s (length-dependent) | — |
+| Back-to-back reliability | ❌ 2nd run crashes | ✅ 4+ runs without failure | Production-viable |
+| Memory usage | Exceeds 8GB | ~7GB | Fits |
 | Output quality | N/A | ✅ Correct evaluations | Baseline preserved |
+
+**Recommended demo invocation**:
+```bash
+USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/gradio_app.py
+```
 
 ---
 
@@ -251,9 +257,9 @@ Phase 1 (DONE):   ~50s/poll  — Make it work
 Phase 2 (DONE):   ~31s/poll  — Quick latency wins (max_new_tokens, CUDA budget)
 Phase 3 (DONE):   ~23s/poll  — ONNX Runtime CLIP
 Phase 4 (DONE):   ~13s/poll  — Server mode + reliability
-Phase 5 (DONE):   ~11s/poll  — MAXN_SUPER, max_tokens→64 (current)
-Phase 6 (Next):   ~7-8s/poll — Qwen2 INT8 OR Fix TRT FP16 CLIP
-Phase 7:          ~3-5s/poll — Both #6 approaches combined, possibly + specdec
+Phase 5 (DONE):   ~11s/poll  — MAXN_SUPER, max_tokens→64
+Phase 6 (DONE):   INT8 quant dead-end (kept as opt-in)
+Phase 7 (DONE):   🎯 TTFT 2.3s / Full 5-10s — Streaming + full-GPU + TRT CLIP
 ```
 
 **Note**: Further latency wins now require significant engineering effort
@@ -378,6 +384,12 @@ USE_TRT_CLIP=1 python polling/gradio_app.py
 | 2026-04-18 | **Phase 5b** — MAXN_SUPER power mode (GPU 612 → 1020 MHz) + `jetson_clocks` | ~11.2s |
 | 2026-04-18 | **Phase 5c** — Codebase review: KV cache reuse has architectural limits (see "Architectural Findings") | — |
 | 2026-04-19 | **Phase 6** — INT8 quantization dead-end on Jetson (see Section "INT8 Quantization Investigation") | 11.2s (no change) |
+| 2026-04-19 | **Phase 7** — 🎯 5s-feedback target HIT via combined attack: | |
+| 2026-04-19 | • Token streaming (TextIteratorStreamer + progress UI stages) | — |
+| 2026-04-19 | • `lm_head` patch: only compute last-position logits during prefill (saves 137MB OOM) | — |
+| 2026-04-19 | • Full GPU Qwen2 (USE_FULL_GPU=1, all 24 layers on CUDA, no CPU bounce) | — |
+| 2026-04-19 | • TRT CLIP FP32 viable (USE_TRT_CLIP=1, lm_head patch removes OOM risk) | — |
+| 2026-04-19 | **Result**: TTFT **2.3s** (was 11s), Poll #0 total latency **5.6s** | **TTFT 2.3s** |
 
 ---
 
