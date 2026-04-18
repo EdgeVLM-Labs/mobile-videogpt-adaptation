@@ -28,7 +28,7 @@ MAX_DURATION="${MAX_DURATION:-300}"            # maximum total duration in secon
 MAX_POLLS="${MAX_POLLS:-}"                     # maximum number of polls (empty = unlimited)
 
 # Video processing
-NUM_FRAMES="${NUM_FRAMES:-16}"                 # frames per inference (model requires 16: 2 chunks × 4 topK)
+NUM_FRAMES="${NUM_FRAMES:-16}"                 # frames per inference (fixed by mm_projector square-grid constraint)
 FPS="${FPS:-1}"                                # frame sampling rate
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-64}"         # max generation tokens
 WARMUP_RUNS="${WARMUP_RUNS:-0}"                # number of warmup runs

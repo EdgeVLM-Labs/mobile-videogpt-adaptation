@@ -20,8 +20,14 @@ class PollingConfig:
     max_polling_duration: float = 300.0  # Maximum total polling duration (5 minutes default)
 
     # Video processing
-    num_frames: int = 16  # Number of frames (model architecture requires 16: 2 chunks × 4 topK = 8 for VideoMamba)
-    num_context_images: int = 16  # Number of context images (must match num_frames)
+    # Model constraints (cannot be changed without retraining):
+    #   1. num_chunks × num_select_k_frames_in_chunk == 8   (VideoMamba t=8)
+    #   2. (num_select_k_frames_in_chunk × 49) must be a perfect square
+    #      (mm_projector reshapes to 2D spatial grid — sqrt(num_tokens))
+    # Only valid combo: num_chunks=2, k=4 → 4×49=196=14² ✓
+    # So num_frames must stay at 16 (2 chunks × 8 frames/chunk from CHUNK_SIZE).
+    num_frames: int = 16
+    num_context_images: int = 16
     chunk_size: int = 8  # VideoMamba chunk size
     fps: int = 1  # Frame sampling rate
     image_resolution: int = 224  # Frame resolution
@@ -40,6 +46,8 @@ class PollingConfig:
     # Model loading options
     load_4bit: bool = False  # 4-bit incompatible with custom model architecture
     load_8bit: bool = False
+    # Fixed: num_chunks × num_select_k_frames_in_chunk must = 8, and k×49 must be
+    # a perfect square. Only valid value: k=4 (with num_chunks=2).
     num_select_k_frames_in_chunk: int = 4
     topk: bool = True
 
@@ -61,9 +69,11 @@ class PollingConfig:
 
 
     def __post_init__(self):
-        """Create necessary directories."""
+        """Create necessary directories. num_frames is fixed at 16 due to model constraints."""
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.output_dir, exist_ok=True)
+        # Force matched num_context_images (pipeline requires equal counts)
+        self.num_context_images = self.num_frames
 
     @classmethod
     def from_env(cls) -> "PollingConfig":

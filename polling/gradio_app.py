@@ -615,12 +615,104 @@ class GradioPollingApp:
                         time.sleep(config.polling_interval)
                         continue
 
-                    # Run inference
-                    response, ttft, input_tokens, output_tokens = self.engine.run_single_inference(
-                        video_frames, context_frames, prompt, slice_len
+                    # Run inference with token streaming — yield partial responses to
+                    # the UI as they're generated. Keeps the panel's "real-time feel"
+                    # even when total generation takes ~10s.
+                    response = ""
+                    ttft = 0.0
+                    input_tokens = 0
+                    output_tokens = 0
+                    partial_for_ui = ""
+                    is_repeat = False
+                    repeat_info = ""
+                    display_response = ""
+
+                    # Pre-compute everything the UI needs that doesn't depend on response
+                    if use_webcam:
+                        elapsed_min_pre = int(position // 60)
+                        elapsed_sec_pre = int(position % 60)
+                        timestamp_pre = f"**Live Webcam** - Elapsed: {elapsed_min_pre}:{elapsed_sec_pre:02d} (Poll #{poll_index + 1})"
+                        video_display_pre = self.get_latest_webcam_frame()
+                    else:
+                        current_min_pre = int(position // 60)
+                        current_sec_pre = int(position % 60)
+                        total_min_pre = int(total_duration // 60)
+                        total_sec_pre = int(total_duration % 60)
+                        timestamp_pre = f"**Analysis Position:** {current_min_pre}:{current_sec_pre:02d} / {total_min_pre}:{total_sec_pre:02d} (Poll #{poll_index + 1})"
+                        video_display_pre = self.extract_video_segment(
+                            self.current_video_path, position, config.polling_interval
+                        )
+
+                    # Immediate first update — UI transitions from previous state to
+                    # "processing" the moment the poll starts (before any tokens).
+                    yield (
+                        video_display_pre,
+                        timestamp_pre,
+                        f"**Poll #{poll_index + 1}** (Position: {position:.2f}s) 🎬 Starting analysis...",
+                        "Preparing — first word arrives in ~9s",
+                        self.format_all_responses(self.poll_results),
+                        self.log_capture.get_logs(),
                     )
 
-                    # Process through naturalizer
+                    # Progress stages shown during prefill (no tokens yet)
+                    progress_stages = [
+                        (0.0,  "🎬 Extracting & preprocessing 16 frames..."),
+                        (1.5,  "👁️ CLIP encoding context images..."),
+                        (5.0,  "🎞️ VideoMamba processing video frames..."),
+                        (7.0,  "🧠 Qwen2 analyzing movement patterns..."),
+                        (9.0,  "💬 Generating coaching feedback..."),
+                    ]
+
+                    # Stream generation — receive heartbeats during prefill (None token),
+                    # then actual tokens once decoding starts.
+                    stream = self.engine.run_single_inference_streaming(
+                        video_frames, context_frames, prompt, slice_len
+                    )
+                    for partial_text, is_final, elapsed, final_metrics in stream:
+                        if is_final:
+                            response = partial_text
+                            if final_metrics is not None:
+                                ttft = final_metrics.get("ttft", 0.0)
+                                input_tokens = final_metrics.get("input_tokens", 0)
+                                output_tokens = final_metrics.get("output_tokens", 0)
+                            break
+
+                        if partial_text is None:
+                            # Heartbeat during prefill — pick the latest progress stage
+                            stage_msg = progress_stages[0][1]
+                            for t_stage, msg in progress_stages:
+                                if elapsed >= t_stage:
+                                    stage_msg = msg
+                            current_response_streaming = (
+                                f"**Poll #{poll_index + 1}** (Position: {position:.2f}s) "
+                                f"{stage_msg}\n\n_Analyzing video — please wait..._"
+                            )
+                            yield (
+                                video_display_pre,
+                                timestamp_pre,
+                                current_response_streaming,
+                                f"{stage_msg}  ({elapsed:.1f}s)",
+                                self.format_all_responses(self.poll_results),
+                                self.log_capture.get_logs(),
+                            )
+                            continue
+
+                        # Token arrived — stream it to the UI
+                        partial_for_ui = partial_text
+                        current_response_streaming = (
+                            f"**Poll #{poll_index + 1}** (Position: {position:.2f}s) "
+                            f"✍️ writing...\n\n{partial_for_ui}"
+                        )
+                        yield (
+                            video_display_pre,
+                            timestamp_pre,
+                            current_response_streaming,
+                            f"Streaming tokens — {elapsed:.1f}s elapsed",
+                            self.format_all_responses(self.poll_results),
+                            self.log_capture.get_logs(),
+                        )
+
+                    # Post-process the final response
                     if self.naturalizer:
                         nat_result = self.naturalizer.process(response)
                         display_response = nat_result['display']
@@ -628,8 +720,6 @@ class GradioPollingApp:
                         repeat_info = f" 🔄 Repeat #{nat_result['repeat_count']}" if is_repeat else " ✨ New"
                     else:
                         display_response = response
-                        is_repeat = False
-                        repeat_info = ""
 
                     # Validate token counts (ensure non-negative)
                     input_tokens = max(0, input_tokens) if input_tokens else 0

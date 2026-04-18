@@ -280,13 +280,20 @@ class PollingInferenceEngine:
             # On Jetson (8GB unified), use device_map="auto" with max_memory
             # so accelerate splits the model between CUDA and CPU as needed.
             use_quanto = os.environ.get("USE_QUANTO", "0") == "1"
+            use_full_gpu = os.environ.get("USE_FULL_GPU", "0") == "1"
             if torch.cuda.is_available():
                 free_mem = torch.cuda.mem_get_info()[0]
                 # CUDA budget % depends on whether TRT CLIP is holding memory and
                 # whether we're using quanto (INT8 weights = ~50% smaller, so can fit more).
-                if use_quanto:
-                    # With INT8 Qwen2 (~500MB instead of 1GB), we can afford a bigger
-                    # budget to keep the whole model on GPU and avoid CPU offload.
+                if use_full_gpu:
+                    # Aggressive: fit all Qwen2 layers on GPU to avoid CPU<->GPU
+                    # transfer bounce during autoregressive generation.
+                    # Risk: lm_head output tensor (~140MB) might OOM during generate().
+                    # If it does, we fall back to moving lm_head explicitly to CPU.
+                    budget_pct = 0.75
+                elif use_quanto:
+                    # With INT8 Qwen2 (~500MB instead of 1GB), bigger budget to keep
+                    # the whole model on GPU and avoid CPU offload.
                     budget_pct = 0.55 if trt_clip is not None else 0.65
                 elif trt_clip is not None:
                     budget_pct = 0.30  # With TRT CLIP holding ~500MB
@@ -294,13 +301,19 @@ class PollingInferenceEngine:
                     budget_pct = 0.40  # Baseline FP16, no TRT CLIP
                 cuda_budget = max(int(free_mem * budget_pct), 512 * 1024 * 1024)
                 max_memory = {0: cuda_budget, "cpu": "2GiB"}
-                mode_tag = "QUANTO-INT8" if use_quanto else ("FP16+TRT-CLIP" if trt_clip else "FP16")
+                if use_full_gpu:
+                    mode_tag = "FULL-GPU" + ("+TRT-CLIP" if trt_clip else "")
+                elif use_quanto:
+                    mode_tag = "QUANTO-INT8"
+                else:
+                    mode_tag = "FP16+TRT-CLIP" if trt_clip else "FP16"
                 self.logger.info(
                     f"CUDA budget: {cuda_budget / 1e9:.2f}GB ({int(budget_pct*100)}% of "
                     f"{free_mem / 1e9:.2f}GB free, mode={mode_tag})"
                 )
             else:
                 max_memory = None
+                use_full_gpu = False
 
             self.logger.info("Loading base model...")
             self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
@@ -314,6 +327,20 @@ class PollingInferenceEngine:
                 topk=self.config.topk,
                 **kwargs
             )
+
+            # Diagnostic: report where Qwen2 layers actually ended up after
+            # accelerate's device_map placement. Helps verify USE_FULL_GPU works.
+            try:
+                layer_devices = {}
+                for i, layer in enumerate(self.model.model.layers):
+                    dev = str(next(layer.parameters()).device)
+                    layer_devices[dev] = layer_devices.get(dev, 0) + 1
+                self.logger.info(
+                    f"Qwen2 layer placement: {layer_devices}  "
+                    f"(lm_head: {next(self.model.lm_head.parameters()).device})"
+                )
+            except Exception:
+                pass
 
             # Post-load INT8 quantization of Qwen2 LLM layers only.
             # We intentionally skip the vision tower, image tower, projectors, and
@@ -606,6 +633,117 @@ class PollingInferenceEngine:
             ttft = (generation_end - self._first_token_streamer.start_time) / max(output_tokens, 1) * 2
 
         return response, ttft, input_token_count, output_tokens
+
+    def run_single_inference_streaming(
+        self,
+        video_frames,
+        context_frames,
+        prompt: str,
+        slice_len: int,
+    ):
+        """
+        Streaming variant of run_single_inference.
+
+        Yields tuples of (partial_response, is_final, elapsed_seconds, metrics).
+        The final yield has is_final=True with final metrics populated:
+            metrics = dict(ttft=float, input_tokens=int, output_tokens=int)
+
+        Usage:
+            for partial, done, elapsed, metrics in engine.run_single_inference_streaming(...):
+                ui.update(partial)
+                if done: break
+        """
+        import threading
+        from transformers import TextIteratorStreamer
+
+        input_ids, stop_str = self.prepare_prompt(prompt, slice_len)
+        video_tensor = torch.stack(video_frames, dim=0).to(
+            dtype=torch.float16, device=self.config.device
+        )
+        context_tensor = torch.stack(context_frames, dim=0).to(
+            dtype=torch.float16, device=self.config.device
+        )
+        input_token_count = input_ids.shape[1]
+
+        streamer = TextIteratorStreamer(
+            self.tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+            timeout=60.0,  # safety net
+        )
+
+        gen_kwargs = dict(
+            images=video_tensor,
+            context_images=context_tensor,
+            do_sample=self.config.do_sample,
+            num_beams=self.config.num_beams,
+            max_new_tokens=self.config.max_new_tokens,
+            use_cache=True,
+            streamer=streamer,
+        )
+
+        thread_error = {"exc": None}
+
+        def _generate():
+            try:
+                with torch.inference_mode():
+                    self.model.generate(input_ids, **gen_kwargs)
+            except Exception as exc:  # pass error out to main thread
+                thread_error["exc"] = exc
+            finally:
+                streamer.end()
+
+        t_start = time.time()
+        thread = threading.Thread(target=_generate, daemon=True)
+        thread.start()
+
+        # Poll the streamer queue with short timeout so the caller can yield
+        # progress updates while prefill is still running (no tokens yet).
+        # Returns None every `poll_interval` seconds during quiet periods.
+        import queue as _queue
+        poll_interval = 0.8  # seconds between progress pings
+        accumulated = ""
+        ttft = 0.0
+        try:
+            while True:
+                try:
+                    token_text = streamer.text_queue.get(timeout=poll_interval)
+                except _queue.Empty:
+                    # No token yet — yield a "no-progress" heartbeat so caller
+                    # can refresh UI with a progress indicator.
+                    yield None, False, time.time() - t_start, None
+                    continue
+
+                # `streamer.end()` sends the stop_signal sentinel
+                if token_text is streamer.stop_signal:
+                    break
+
+                if ttft == 0.0 and token_text:
+                    ttft = time.time() - t_start
+                accumulated += token_text
+                yield accumulated, False, time.time() - t_start, None
+        finally:
+            thread.join()
+
+        if thread_error["exc"] is not None:
+            raise thread_error["exc"]
+
+        # Strip end-of-turn marker if present
+        final_text = accumulated
+        if final_text.endswith(stop_str):
+            final_text = final_text[: -len(stop_str)].strip()
+
+        # Estimate output_tokens by re-tokenizing final text (fast enough)
+        try:
+            output_tokens = len(self.tokenizer(final_text, add_special_tokens=False).input_ids)
+        except Exception:
+            output_tokens = 0
+
+        yield final_text, True, time.time() - t_start, {
+            "ttft": ttft,
+            "input_tokens": input_token_count,
+            "output_tokens": output_tokens,
+        }
 
     def run_polling_loop(
         self,
