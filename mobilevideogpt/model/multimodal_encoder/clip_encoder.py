@@ -5,6 +5,7 @@ import math
 from transformers import CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig
 
 from mobilevideogpt.model.multimodal_encoder.clip_trt import try_load_trt_clip
+from mobilevideogpt.model.multimodal_encoder.clip_ort import try_load_ort_clip
 
 logger = logging.getLogger(__name__)
 
@@ -33,17 +34,32 @@ class CLIPVisionTower(nn.Module):
         self.image_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
         self.image_eval_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
 
-        # Try TensorRT engine on GPU only when explicitly enabled (USE_TRT_CLIP=1).
-        # See clip_trt.py + inference_engine.py for details on memory trade-offs.
-        trt_model = None
+        # Backend selection priority:
+        #   1. TensorRT GPU  — fastest (~180ms), opt-in via USE_TRT_CLIP=1
+        #   2. ONNX Runtime CPU  — default (~3-8s), no CUDA memory needed
+        #   3. PyTorch FP16 CPU  — last resort (~37s)
+        # Disable ORT with USE_ORT_CLIP=0 if needed.
+
+        # 1. TensorRT GPU (opt-in)
+        self.vision_tower = None
+        self._backend = None
         if os.environ.get("USE_TRT_CLIP", "0") == "1":
             trt_model = try_load_trt_clip()
+            if trt_model is not None:
+                logger.info("CLIP: Using TensorRT engine on GPU")
+                self.vision_tower = trt_model
+                self._backend = "tensorrt"
 
-        if trt_model is not None:
-            logger.info("CLIP: Using TensorRT engine on GPU")
-            self.vision_tower = trt_model
-            self._backend = "tensorrt"
-        else:
+        # 2. ONNX Runtime CPU (default if available)
+        if self.vision_tower is None and os.environ.get("USE_ORT_CLIP", "1") == "1":
+            ort_model = try_load_ort_clip()
+            if ort_model is not None:
+                logger.info("CLIP: Using ONNX Runtime on CPU")
+                self.vision_tower = ort_model
+                self._backend = "onnxruntime_cpu"
+
+        # 3. PyTorch CPU fallback
+        if self.vision_tower is None:
             logger.info("CLIP: Using PyTorch FP16 on CPU")
             self.vision_tower = CLIPVisionModel.from_pretrained(
                 self.vision_tower_name,
