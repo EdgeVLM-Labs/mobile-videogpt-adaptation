@@ -32,7 +32,7 @@ class PollingConfig:
 
     # Inference configuration
     prompt: str = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
-    max_new_tokens: int = 128  # Reduced from 512 — exercise feedback is 2-3 sentences
+    max_new_tokens: int = 64  # Reduced from 128 — responses are 30-40 tokens
     do_sample: bool = False
     num_beams: int = 1
     use_cache: bool = True
