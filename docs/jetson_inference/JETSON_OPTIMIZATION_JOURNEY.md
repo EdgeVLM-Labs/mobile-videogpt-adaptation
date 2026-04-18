@@ -24,7 +24,7 @@
 | Metric | Original | Now | Improvement |
 |---|---|---|---|
 | Model loading | ❌ OOM crash | ✅ ~40s (one-time when using Gradio) | Works |
-| Inference latency (warm) | ❌ OOM crash | **~13s / poll** | ~4x faster than first working version |
+| Inference latency (warm) | ❌ OOM crash | **~11s / poll** | ~4.5x faster than first working version |
 | Back-to-back reliability | ❌ 2nd run crashes | **✅ 4+ runs without failure** | Production-viable |
 | Memory usage | Exceeds 8GB | ~6.1GB | Fits |
 | Output quality | N/A | ✅ Correct evaluations | Baseline preserved |
@@ -152,17 +152,17 @@ The critical issue that blocked production use: **running inference twice in the
 ## 📊 Latency Breakdown (Current)
 
 ```
-Total per poll (warm): ~13s
+Total per poll (warm): ~11s
 
 ┌──────────────────────────────────────────────┐
-│ Qwen2 LLM (mixed CPU/GPU)   ~6-8s  ████████ │  60% ← new bottleneck
-│ CLIP (ORT CPU, 16 frames)   ~3-5s  ████     │  30%
-│ VideoMamba (CUDA)           ~2-3s  ██       │
+│ Qwen2 LLM (mixed CPU/GPU)   ~5-6s  ███████  │  55% ← current bottleneck
+│ CLIP (ORT CPU, 16 frames)   ~3s    ████     │  27%
+│ VideoMamba (CUDA)           ~2s    ██       │  18%
 │ Frame extraction            ~1s    █        │
 └──────────────────────────────────────────────┘
 ```
 
-The bottleneck has shifted from CLIP (60% of time) to **Qwen2 LLM generation** (60%). Any further wins need to target Qwen2.
+The bottleneck is **Qwen2 LLM generation** — half on GPU, half on CPU due to device_map="auto" split. Any further wins need to target this stage.
 
 ---
 
@@ -187,36 +187,60 @@ The bottleneck has shifted from CLIP (60% of time) to **Qwen2 LLM generation** (
 - ONNX Runtime CPU CLIP (default, reliable)
 - Server-mode architecture for back-to-back reliability
 - Inter-poll memory cleanup + OOM retry
+- Power mode MAXN_SUPER (GPU 612 → 1020 MHz, ~11% gain)
+- `max_new_tokens` 128 → 64
 
-### 🎯 Tier 1 — Next Targets (Qwen2 is the bottleneck)
+### 🔍 Architectural Findings (from codebase review)
 
-| # | Optimization | Expected Gain | Accuracy Risk |
-|---|---|---|---|
-| 7.1 | **Qwen2 INT8 via AWQ** (Activation-aware Weight Quantization) | 2x on LLM stage → ~6-7s total | <1% loss |
-| 7.2 | **ONNX Runtime for Qwen2** (not just CLIP) | 1.5-2x on LLM | Zero |
-| 7.3 | **KV cache reuse across polls** — same video, similar context | 30-50% on repeated polls | Zero |
-| 7.4 | **Fix TRT FP16 CLIP** — solve the ±512 saturation bug | Saves another ~5s | Zero |
+**Where our inference time goes (breakdown by code path)**:
+- Qwen2 LLM on mixed CPU/GPU device_map: **largest portion** (~6s of 11s)
+- ORT CLIP encoding on CPU: ~3s
+- VideoMamba + projectors on GPU: ~2s
+- Preprocessing + miscellaneous: ~1s
 
-### ⚡ Tier 2 — Quick Wins
+**KV cache reuse is architecturally limited** in this model:
+- Sequence order: `[system tokens] → [video embeddings] → [prompt text] → [assistant prefix]`
+- Video embeddings come **before** the prompt text in the sequence
+- K/V cache only helps for tokens **before** any changing content
+- Since video changes every poll, only the initial ~5-10 system tokens are truly cacheable
+- Expected gain: **~5-10%**, not the "30-50%" originally hoped
 
-| # | Optimization | Expected Gain | Accuracy Risk |
-|---|---|---|---|
-| 7.5 | `sudo nvpmodel -m 0` + `jetson_clocks` | 20-30% overall | Zero |
-| 7.6 | Headless boot (no GNOME desktop) | Frees ~500MB → can re-enable TRT CLIP | Zero |
-| 7.7 | `max_new_tokens` 128 → 64 | ~3s saved | Zero |
+**Vision feature caching is conditional**:
+- Only beneficial if video content is **near-static** between polls
+- For exercise videos (active movement every frame), frames DO change
+- Would need motion-detection heuristic to be useful
+- Expected gain: **highly variable** (0% for moving, 30%+ for static)
 
-### 🧠 Tier 3 — Architectural
+### 🎯 Tier 1 — Realistic High-Value Targets
 
-| # | Optimization | Expected Gain | Accuracy Risk |
-|---|---|---|---|
-| 7.8 | Async frame extraction (pipeline parallel) | ~1-2s saved | Zero |
-| 7.9 | Speculative decoding with draft LLM | 2x on LLM stage | Zero (verified against main) |
-| 7.10 | Model distillation to smaller student | 3-5x on LLM | Medium (needs retraining) |
+| # | Optimization | Expected Gain | Accuracy Risk | Effort |
+|---|---|---|---|---|
+| 7.1 | **Qwen2 INT8 via AWQ/SmoothQuant** | **2x on LLM** → ~7-8s total | <0.3% loss (structured outputs) | **XL** (Jetson aarch64 tooling) |
+| 7.2 | **Fix TRT FP16 CLIP overflow bug** — solve ±512 saturation | Saves ~3-5s IF memory allows | Zero | L |
+| 7.3 | **Qwen2 via ONNX Runtime** (not just CLIP) | 1.5-2x on LLM | Zero | L (complex: KV cache in ONNX) |
+
+### ⚡ Tier 2 — Small Cumulative Wins
+
+| # | Optimization | Expected Gain | Accuracy Risk | Effort |
+|---|---|---|---|---|
+| 7.4 | **Warmup run at server startup** — amortize first-call JIT | Makes 1st poll as fast as subsequent | Zero | S |
+| 7.5 | **Async frame extraction** — decode next frames during current inference | ~0.5-1s saved | Zero | M |
+| 7.6 | **KV cache for system-prefix tokens** (limited gain given architecture) | ~5-10% per poll | Zero | M |
+| 7.7 | **Vision feature caching with motion detection** — skip CLIP on static frames | Variable (0-30%) | Zero | M |
+| 7.8 | **Move `lm_head` to CPU** — frees ~272MB GPU, may enable TRT CLIP to fit | Neutral (trade-off) | Zero | S |
+
+### 🧠 Tier 3 — Architectural (bigger bets)
+
+| # | Optimization | Expected Gain | Accuracy Risk | Effort |
+|---|---|---|---|---|
+| 7.9 | **Speculative decoding with draft LLM** | 2x on LLM | Zero (verified) | XL |
+| 7.10 | **Model distillation** (smaller student model) | 3-5x on LLM | Medium (retraining) | XL |
 
 ### ❌ Avoided
 
-- **INT4 quantization** — Too lossy for a 0.5B model (2-5% accuracy loss)
+- **INT4 quantization** — 2-5% loss on 0.5B is too much for structured output
 - **Model pruning** — Risk of breaking VideoMamba custom kernels
+- **torch.compile** — Triton broken on Jetson aarch64 (tried, failed)
 
 ---
 
@@ -226,10 +250,16 @@ The bottleneck has shifted from CLIP (60% of time) to **Qwen2 LLM generation** (
 Phase 1 (DONE):   ~50s/poll  — Make it work
 Phase 2 (DONE):   ~31s/poll  — Quick latency wins (max_new_tokens, CUDA budget)
 Phase 3 (DONE):   ~23s/poll  — ONNX Runtime CLIP
-Phase 4 (DONE):   ~13s/poll  — Server mode + reliability (current)
-Phase 5 (Next):   ~5-7s/poll — Qwen2 INT8 / ORT / KV cache reuse
-Phase 6:          ~2-3s/poll — Speculative decoding, true real-time
+Phase 4 (DONE):   ~13s/poll  — Server mode + reliability
+Phase 5 (DONE):   ~11s/poll  — MAXN_SUPER, max_tokens→64 (current)
+Phase 6 (Next):   ~7-8s/poll — Qwen2 INT8 OR Fix TRT FP16 CLIP
+Phase 7:          ~3-5s/poll — Both #6 approaches combined, possibly + specdec
 ```
+
+**Note**: Further latency wins now require significant engineering effort
+(quantization tooling on Jetson aarch64, FP16 overflow debugging). The
+current 11s baseline with the server architecture is already viable
+for polling-style applications where feedback every ~3-5s is acceptable.
 
 ---
 
@@ -303,6 +333,9 @@ USE_TRT_CLIP=1 python polling/gradio_app.py
 | 2026-04-18 | **Phase 4a** — ONNX Runtime CPU CLIP becomes default (7.4x faster than PyTorch CPU) | ~23s |
 | 2026-04-18 | **Phase 4b** — Inter-poll cleanup + OOM retry: reliable back-to-back inference | ~13s (warm) |
 | 2026-04-18 | **Phase 4c** — Validated Gradio server with 4 consecutive runs (no crashes) | — |
+| 2026-04-18 | **Phase 5a** — `max_new_tokens` 128 → 64 (responses are 30-40 tokens) | ~12.6s |
+| 2026-04-18 | **Phase 5b** — MAXN_SUPER power mode (GPU 612 → 1020 MHz) + `jetson_clocks` | ~11.2s |
+| 2026-04-18 | **Phase 5c** — Codebase review: KV cache reuse has architectural limits (see "Architectural Findings") | — |
 
 ---
 
