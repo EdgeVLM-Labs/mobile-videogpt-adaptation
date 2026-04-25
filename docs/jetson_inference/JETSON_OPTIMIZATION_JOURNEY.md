@@ -1,7 +1,7 @@
 # Mobile-VideoGPT on Jetson Orin Nano — Optimization Journey
 
 > **Living document** — updated continuously as we iterate on optimizations.
-> Last updated: 2026-04-18
+> Last updated: 2026-04-19
 
 ---
 
@@ -238,30 +238,29 @@ The Qwen2 time drop (5-6s → 3-4s) comes from eliminating CPU offload bouncing 
 - Would need motion-detection heuristic to be useful
 - Expected gain: **highly variable** (0% for moving, 30%+ for static)
 
-### 🎯 Tier 1 — Realistic High-Value Targets
+### 🎯 Tier 1 — Realistic High-Value Targets (post-Phase 7)
 
 | # | Optimization | Expected Gain | Accuracy Risk | Effort |
 |---|---|---|---|---|
-| 7.1 | **Qwen2 INT8 via AWQ/SmoothQuant** | **2x on LLM** → ~7-8s total | <0.3% loss (structured outputs) | **XL** (Jetson aarch64 tooling) |
-| 7.2 | **Fix TRT FP16 CLIP overflow bug** — solve ±512 saturation | Saves ~3-5s IF memory allows | Zero | L |
-| 7.3 | **Qwen2 via ONNX Runtime** (not just CLIP) | 1.5-2x on LLM | Zero | L (complex: KV cache in ONNX) |
+| 8.1 | **Qwen2 INT8 via TensorRT-LLM** | **2x on LLM** → ~3-5s total | <0.3% loss (structured outputs) | **XL** (Jetson aarch64 tooling) |
+| 8.2 | **Fix TRT FP16 CLIP overflow bug** — solve ±512 saturation | Saves ~3-5s on cold polls | Zero | L |
+| 8.3 | **Qwen2 via ONNX Runtime** (not just CLIP) | 1.5-2x on LLM | Zero | L (complex: KV cache in ONNX) |
 
 ### ⚡ Tier 2 — Small Cumulative Wins
 
 | # | Optimization | Expected Gain | Accuracy Risk | Effort |
 |---|---|---|---|---|
-| 7.4 | **Warmup run at server startup** — amortize first-call JIT | Makes 1st poll as fast as subsequent | Zero | S |
-| 7.5 | **Async frame extraction** — decode next frames during current inference | ~0.5-1s saved | Zero | M |
-| 7.6 | **KV cache for system-prefix tokens** (limited gain given architecture) | ~5-10% per poll | Zero | M |
-| 7.7 | **Vision feature caching with motion detection** — skip CLIP on static frames | Variable (0-30%) | Zero | M |
-| 7.8 | **Move `lm_head` to CPU** — frees ~272MB GPU, may enable TRT CLIP to fit | Neutral (trade-off) | Zero | S |
+| 8.4 | **Warmup run at server startup** — amortize first-call JIT | Makes 1st poll as fast as subsequent | Zero | S |
+| 8.5 | **Async frame extraction** — decode next frames during current inference | ~0.5-1s saved | Zero | M |
+| 8.6 | **KV cache for system-prefix tokens** (limited gain given architecture) | ~5-10% per poll | Zero | M |
+| 8.7 | **Vision feature caching with motion detection** — skip CLIP on static frames | Variable (0-30%) | Zero | M |
 
 ### 🧠 Tier 3 — Architectural (bigger bets)
 
 | # | Optimization | Expected Gain | Accuracy Risk | Effort |
 |---|---|---|---|---|
-| 7.9 | **Speculative decoding with draft LLM** | 2x on LLM | Zero (verified) | XL |
-| 7.10 | **Model distillation** (smaller student model) | 3-5x on LLM | Medium (retraining) | XL |
+| 8.8 | **Speculative decoding with draft LLM** | 2x on LLM | Zero (verified) | XL |
+| 8.9 | **Model distillation** (smaller student model) | 3-5x on LLM | Medium (retraining) | XL |
 
 ### ❌ Avoided
 
@@ -281,12 +280,18 @@ Phase 4 (DONE):   ~13s/poll  — Server mode + reliability
 Phase 5 (DONE):   ~11s/poll  — MAXN_SUPER, max_tokens→64
 Phase 6 (DONE):   INT8 quant dead-end (kept as opt-in)
 Phase 7 (DONE):   🎯 TTFT 2.3s / Full 5-10s — Streaming + full-GPU + TRT CLIP
+
+— Phase 7 is our shipping configuration. Further wins below are post-demo —
+
+Phase 8 (Future): ~3-5s actual    — TensorRT-LLM Qwen2 (multi-week work)
+Phase 9 (Future): ~1-2s perceived — KV cache + speculative decoding
 ```
 
-**Note**: Further latency wins now require significant engineering effort
-(quantization tooling on Jetson aarch64, FP16 overflow debugging). The
-current 11s baseline with the server architecture is already viable
-for polling-style applications where feedback every ~3-5s is acceptable.
+**Note**: Phase 7 hits the 5s-feedback target through real GPU optimization
+(saves 5-6s) plus streaming UI (gives the perception of immediate response).
+For deeper actual-latency wins below 5s on this hardware, the next steps
+require significant engineering effort (TensorRT-LLM integration, KV cache
+plumbing, distillation) — appropriate post-demo if higher throughput is needed.
 
 ---
 
@@ -418,10 +423,11 @@ USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/run_polling.py \
 
 ## 📚 Related Docs
 
-- [`jetson_inference_fixes.md`](./jetson_inference_fixes.md) — Original fixes documentation
+- [`jetson_inference_fixes.md`](./jetson_inference_fixes.md) — Initial fix-by-fix notes from Phase 1 (mostly superseded by this doc, kept for reference)
 - [`setup_jetson.sh`](../../setup_jetson.sh) — Setup script with detailed comments
 - [`models/tensorrt/README.md`](../../models/tensorrt/README.md) — TensorRT engine build instructions
-- [Stage logs](./) — Raw inference logs from each optimization stage
+- [Stage logs](./) — Raw inference logs from each optimization stage (`logs_stage_1.txt` through `logs_stage_4.txt`, plus `error_inf.txt`)
+- [`screenshots/`](./screenshots/) — Demo screenshots from inference runs
 
 ---
 
