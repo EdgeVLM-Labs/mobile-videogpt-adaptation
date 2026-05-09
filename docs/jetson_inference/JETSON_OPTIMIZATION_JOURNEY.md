@@ -464,14 +464,15 @@ USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/run_polling.py \
 
 ## 📚 Related Docs
 
+- [`README.md`](./README.md) — entry point and reading-order index for this folder
 - [`HEADLESS_DEMO_SETUP.md`](./HEADLESS_DEMO_SETUP.md) — SSH + headless launch guide
 - [`POWER_MEASUREMENT.md`](./POWER_MEASUREMENT.md) — How to capture power numbers
 - [`REVIEWER_RESPONSE.md`](./REVIEWER_RESPONSE.md) — Answers to IEEE AIIoT reviewer feedback
-- [`jetson_inference_fixes.md`](./jetson_inference_fixes.md) — Initial fix-by-fix notes from Phase 1 (mostly superseded by this doc, kept for reference)
+- [`jetson_inference_fixes.md`](./jetson_inference_fixes.md) — Initial Phase-1 fix list (superseded by this doc; archived)
 - [`setup_jetson.sh`](../../setup_jetson.sh) — Setup script with detailed comments
 - [`models/tensorrt/README.md`](../../models/tensorrt/README.md) — TensorRT engine build instructions
-- [Stage logs](./) — Raw inference logs from each optimization stage (`logs_stage_1.txt` through `logs_stage_4.txt`, plus `error_inf.txt`)
-- [`screenshots/`](./screenshots/) — Demo screenshots from inference runs
+- [`stage_logs/`](./stage_logs/) — raw inference logs from each optimization stage
+- [`screenshots/`](./screenshots/) — demo screenshots from inference runs
 
 ---
 

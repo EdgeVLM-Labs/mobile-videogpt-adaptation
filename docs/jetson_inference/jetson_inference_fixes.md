@@ -1,5 +1,11 @@
 # Jetson Orin Nano — Inference Fixes & Latency Report
 
+> ⚠️ **This document is superseded.** It captures the Phase-1 fix list as
+> originally written. The current canonical reference is
+> [`JETSON_OPTIMIZATION_JOURNEY.md`](./JETSON_OPTIMIZATION_JOURNEY.md),
+> which covers all phases (1 through 8) with up-to-date measurements.
+> This file is kept for archive.
+
 This document covers all changes made to get Mobile-VideoGPT inference running on the Jetson Orin Nano (8GB unified RAM), along with latency benchmarks and remaining issues.
 
 ## Platform
