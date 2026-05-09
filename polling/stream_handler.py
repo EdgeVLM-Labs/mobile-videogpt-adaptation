@@ -603,14 +603,17 @@ class VideoStreamHandler:
                 advance_by=polling_interval
             )
         elif len(self.frame_buffer) > 0:
-            # Stream mode - get frames from buffer
+            # Stream mode (real-time camera): use the MOST RECENT num_video_frames
+            # frames from the buffer, not a uniform sample across the whole buffer.
+            #
+            # Why: for live exercise feedback the model must reason about "what
+            # the patient is doing right now". Uniform sampling across a 64s
+            # buffer would mix multiple exercises (squats + push-ups + lunges)
+            # into a single inference, producing confused/generic responses.
+            # Tail-sampling guarantees each poll covers a contiguous recent
+            # window roughly equal to (num_video_frames / fps) seconds.
             buffer_frames = list(self.frame_buffer)
-            if len(buffer_frames) >= num_video_frames:
-                # Uniform sample from buffer
-                step = len(buffer_frames) // num_video_frames
-                raw_frames = [buffer_frames[i * step].frame for i in range(num_video_frames)]
-            else:
-                raw_frames = [f.frame for f in buffer_frames]
+            raw_frames = [f.frame for f in buffer_frames[-num_video_frames:]]
             slice_len = len(raw_frames)
         else:
             return [], [], 0

@@ -1,7 +1,7 @@
 # Mobile-VideoGPT on Jetson Orin Nano — Optimization Journey
 
 > **Living document** — updated continuously as we iterate on optimizations.
-> Last updated: 2026-04-19
+> Last updated: 2026-05-04
 
 ---
 
@@ -173,6 +173,43 @@ The breakthrough that made the pipeline demo-ready. Four changes combined:
 
 ---
 
+### Stage 8: Real-Time Frame Buffering — Ground the Pipeline in "Now"
+
+While the engineering pipeline up to Phase 7 was fast, the **content** the
+model evaluated was not strictly real-time. The original buffering strategy
+was inherited from offline video benchmarks:
+
+- **Capture rate**: 1 fps
+- **Buffer**: 64 frames (≈ 64 s of history)
+- **Per-poll sampling**: uniform across the full buffer
+
+For a patient doing **multiple exercises in sequence** (squats → push-ups →
+lunges), this meant a single poll could mix frames from three different
+exercises — confusing the model and producing generic feedback. Even within
+one long exercise (≥ 60 s), frames from the start and end were averaged,
+hiding form drift over time.
+
+| # | Change | File |
+|---|---|---|
+| 8.1 | **Tail sampling** instead of uniform sampling — each poll uses the most-recent `num_frames` from the buffer, not a sample spread across all of it | [`stream_handler.py`](../../polling/stream_handler.py) |
+| 8.2 | **Capture FPS 1 → 4** — finer temporal resolution; 16 frames now span 4 seconds instead of 16 | [`config.py`](../../polling/config.py) |
+| 8.3 | **Buffer size 64 → 32** — keeps only ~8 s of history, so old-exercise frames purge within ~8 s of switching | [`config.py`](../../polling/config.py) |
+| 8.4 | **Cold-start guard** — first inference waits for buffer to hold a full window of real frames; UI shows a `0/16 → 16/16` countdown so the user knows the system is alive | [`gradio_app.py`](../../polling/gradio_app.py) |
+
+**Effect on temporal semantics**:
+| | Before Phase 8 | After Phase 8 |
+|---|---|---|
+| Active window per poll | uniform sample over last ~64 s | last 4 s contiguously |
+| Exercise switch contamination | up to 64 s of stale frames mixed in | fully purged in ≤ 8 s |
+| Cold-start first response | ran on partial + zero-padded buffer | waits 4 s, then runs on full buffer |
+| Camera native FPS used | 1 of every 30 frames kept | 4 of every 30 frames kept |
+
+**No effect on inference compute time** — the model still receives 16
+frames per poll. Phase 8 is about *what the 16 frames represent* (the most
+recent 4 s of activity) rather than how fast the model processes them.
+
+---
+
 ## 📊 Latency Breakdown (Current — Phase 7)
 
 ```
@@ -216,6 +253,7 @@ The Qwen2 time drop (5-6s → 3-4s) comes from eliminating CPU offload bouncing 
 - **`lm_head` patch** (only compute last-position logits during prefill)
 - **Full-GPU Qwen2** (all 24 layers on CUDA, no CPU bounce)
 - **Token streaming** (progressive UI updates, perceived TTFT = 2.3s)
+- **Real-time frame buffering** (tail sampling + 4 fps capture + cold-start guard) — Phase 8
 
 ### 🔍 Architectural Findings (from codebase review)
 
@@ -280,11 +318,12 @@ Phase 4 (DONE):   ~13s/poll  — Server mode + reliability
 Phase 5 (DONE):   ~11s/poll  — MAXN_SUPER, max_tokens→64
 Phase 6 (DONE):   INT8 quant dead-end (kept as opt-in)
 Phase 7 (DONE):   🎯 TTFT 2.3s / Full 5-10s — Streaming + full-GPU + TRT CLIP
+Phase 8 (DONE):   Real-time frame buffering (each poll = last 4 s of activity)
 
-— Phase 7 is our shipping configuration. Further wins below are post-demo —
+— Phases 7-8 together are our shipping configuration. Further wins below are post-demo —
 
-Phase 8 (Future): ~3-5s actual    — TensorRT-LLM Qwen2 (multi-week work)
-Phase 9 (Future): ~1-2s perceived — KV cache + speculative decoding
+Phase 9 (Future): ~3-5s actual    — TensorRT-LLM Qwen2 (multi-week work)
+Phase 10 (Future): ~1-2s perceived — KV cache + speculative decoding
 ```
 
 **Note**: Phase 7 hits the 5s-feedback target through real GPU optimization
@@ -418,11 +457,16 @@ USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/run_polling.py \
 | 2026-04-19 | • Full GPU Qwen2 (USE_FULL_GPU=1, all 24 layers on CUDA, no CPU bounce) | — |
 | 2026-04-19 | • TRT CLIP FP32 viable (USE_TRT_CLIP=1, lm_head patch removes OOM risk) | — |
 | 2026-04-19 | **Result**: TTFT **2.3s** (was 11s), Poll #0 total latency **5.6s** | **TTFT 2.3s** |
+| 2026-05-02 | Power profile measured (avg 8.7 W, peak 19.0 W, idle 7.0 W) | — |
+| 2026-05-04 | **Phase 8** — Real-time frame buffering: tail sampling, 4 fps capture, buffer 32, cold-start guard. Each poll now covers the most recent 4 seconds of activity (no exercise contamination across polls) | TTFT unchanged; semantics fixed |
 
 ---
 
 ## 📚 Related Docs
 
+- [`HEADLESS_DEMO_SETUP.md`](./HEADLESS_DEMO_SETUP.md) — SSH + headless launch guide
+- [`POWER_MEASUREMENT.md`](./POWER_MEASUREMENT.md) — How to capture power numbers
+- [`REVIEWER_RESPONSE.md`](./REVIEWER_RESPONSE.md) — Answers to IEEE AIIoT reviewer feedback
 - [`jetson_inference_fixes.md`](./jetson_inference_fixes.md) — Initial fix-by-fix notes from Phase 1 (mostly superseded by this doc, kept for reference)
 - [`setup_jetson.sh`](../../setup_jetson.sh) — Setup script with detailed comments
 - [`models/tensorrt/README.md`](../../models/tensorrt/README.md) — TensorRT engine build instructions

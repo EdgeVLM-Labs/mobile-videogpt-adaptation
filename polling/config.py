@@ -29,11 +29,18 @@ class PollingConfig:
     num_frames: int = 16
     num_context_images: int = 16
     chunk_size: int = 8  # VideoMamba chunk size
-    fps: int = 1  # Frame sampling rate
+    # Capture rate. With num_frames=16 and tail-sampling, each poll covers
+    # (num_frames / fps) seconds of activity. fps=4 gives a 4-second window
+    # per inference — roughly one exercise rep — and prevents stale frames
+    # from a previous exercise contaminating the current poll.
+    fps: int = 4
     image_resolution: int = 224  # Frame resolution
 
     # Frame buffer configuration
-    frame_buffer_size: int = 64  # Maximum frames to keep in buffer
+    # Sized to ~2× the active window so old frames evict quickly when the
+    # patient transitions between exercises. With fps=4 and num_frames=16,
+    # buffer_size=32 holds ~8 seconds of recent history.
+    frame_buffer_size: int = 32
     frame_overlap: float = 0.5  # Overlap ratio between polling windows (0.0 - 1.0)
 
     # Inference configuration

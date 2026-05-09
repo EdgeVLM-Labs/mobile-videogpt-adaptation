@@ -544,6 +544,39 @@ class GradioPollingApp:
                 self.log_capture.get_logs()
             )
 
+            # COLD-START GUARD (webcam mode only):
+            # Wait for the buffer to hold a full window of real frames before
+            # the first inference. Otherwise the first poll runs on a partially-
+            # filled buffer (fewer real frames + zero-padding) and produces a
+            # weak/confused response. Show a friendly countdown so the user knows
+            # the system is alive while it warms up.
+            if use_webcam and self.engine.stream_handler is not None:
+                target_frames = config.num_frames
+                expected_seconds = target_frames / max(config.fps, 1)
+                warmup_start = time.time()
+                warmup_timeout = max(expected_seconds * 2.0, 6.0)  # safety cap
+
+                while self.is_running:
+                    have = len(self.engine.stream_handler.frame_buffer)
+                    elapsed = time.time() - warmup_start
+                    if have >= target_frames:
+                        break
+                    if elapsed > warmup_timeout:
+                        logging.warning(
+                            f"Cold-start timeout — proceeding with {have}/{target_frames} frames"
+                        )
+                        break
+                    yield (
+                        None,                 # video player (webcam)
+                        timestamp_display,
+                        f"🎬 **Warming up camera...** {have}/{target_frames} frames "
+                        f"buffered ({elapsed:.1f}/{expected_seconds:.0f}s)",
+                        f"Filling buffer at {config.fps} fps...",
+                        "",
+                        self.log_capture.get_logs(),
+                    )
+                    time.sleep(0.25)
+
             while self.is_running:
                 # Check if video exhausted (only for video files)
                 if not use_webcam and self.engine.stream_handler.current_position >= total_duration:
@@ -632,7 +665,9 @@ class GradioPollingApp:
                         elapsed_min_pre = int(position // 60)
                         elapsed_sec_pre = int(position % 60)
                         timestamp_pre = f"**Live Webcam** - Elapsed: {elapsed_min_pre}:{elapsed_sec_pre:02d} (Poll #{poll_index + 1})"
-                        video_display_pre = self.get_latest_webcam_frame()
+                        # Don't push numpy frames to gr.Video (it expects file paths).
+                        # Sending None keeps the video player on the previous segment.
+                        video_display_pre = None
                     else:
                         current_min_pre = int(position // 60)
                         current_sec_pre = int(position % 60)
@@ -784,8 +819,9 @@ class GradioPollingApp:
                             config.polling_interval
                         )
 
-                    # For webcam, show live frame; for video, show segment
-                    video_display = self.get_latest_webcam_frame() if use_webcam else segment_path
+                    # For webcam, skip video update (gr.Video can't take numpy arrays).
+                    # The video player keeps showing the previous segment / stays empty.
+                    video_display = None if use_webcam else segment_path
 
                     yield (
                         video_display,
@@ -851,8 +887,9 @@ class GradioPollingApp:
                 timestamp = f"**Complete:** {total_min}:{total_sec:02d} / {total_min}:{total_sec:02d} ({poll_index} polls)"
                 final_video = video_path
 
-            # Show final webcam frame for webcam mode, video for file mode
-            final_display = self.get_latest_webcam_frame() if use_webcam else final_video
+            # For webcam mode, gr.Video can't take numpy arrays — leave empty.
+            # For video file mode, show the file.
+            final_display = None if use_webcam else final_video
 
             yield (
                 final_display,
@@ -1099,6 +1136,19 @@ def create_interface():
                     loop=True,
                     show_label=False,
                     height=300
+                )
+
+                # Live webcam preview — auto-refreshes every 500ms from the engine's
+                # frame buffer. Doesn't go through the polling yields, so it stays
+                # in sync with the camera regardless of what the inference loop does.
+                # Returns None when no engine running (gr.Image handles None gracefully).
+                webcam_preview = gr.Image(
+                    value=app.get_latest_webcam_frame,
+                    every=0.5,
+                    label="Live Webcam",
+                    show_label=True,
+                    height=300,
+                    interactive=False,
                 )
 
                 gr.Markdown("### Real-time Results")
