@@ -62,6 +62,8 @@ Documentation for **Mobile-VideoGPT** deployed on **NVIDIA Jetson Orin Nano Supe
 |---|---|
 | What is the current TTFT? | JOURNEY § Summary Table — **2.3 s** |
 | How do I launch a demo? | HEADLESS_DEMO_SETUP.md → "Running the Demo" |
+| How does the demo UI work? | HEADLESS_DEMO_SETUP.md → "Demo UI Walkthrough" |
+| How does voice feedback work? | HEADLESS_DEMO_SETUP.md → "Voice feedback" — runs **client-side** in the browser |
 | How do I measure power? | POWER_MEASUREMENT.md |
 | Why does install need so many manual steps? | INSTALL_NOTES.md — explains each |
 | What's the recommended invocation? | JOURNEY § How to Run → `USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/gradio_app.py` |

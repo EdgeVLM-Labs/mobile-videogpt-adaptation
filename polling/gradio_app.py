@@ -969,15 +969,7 @@ class GradioPollingApp:
 
 
 def create_interface():
-    """Create Gradio interface — production-grade layout.
-
-    Top section: header banner, status badge, single preview, large coaching
-    response, controls. Advanced settings live in a tab navbar at the bottom.
-
-    NOTE: Critical visuals (header banner, status pill, card backgrounds) use
-    INLINE styles via gr.HTML so they render regardless of how the host
-    Gradio version handles `elem_classes` / theme overrides.
-    """
+    """Create Gradio interface."""
     app = GradioPollingApp()
 
     available_cameras = app.get_available_cameras()
@@ -1024,7 +1016,6 @@ def create_interface():
     )
 
     PAGE_CSS = """
-    /* Center the app and constrain width */
     .gradio-container, .gradio-container > .main {
         max-width: 1240px !important;
         margin: 24px auto !important;
@@ -1033,7 +1024,6 @@ def create_interface():
     body, .gradio-container { background: #0b0d12 !important; }
     footer { display: none !important; }
 
-    /* ---- Status badge (the gr.Markdown right under the header) ---- */
     #status-badge {
         padding: 14px 20px !important;
         background: #11141a !important;
@@ -1047,7 +1037,6 @@ def create_interface():
     #status-badge * { color: #e8eaed !important; background: transparent !important; }
     #status-badge p { margin: 0 !important; }
 
-    /* ---- Preview card around video/webcam ---- */
     #preview-card {
         border: 1px solid #252a35 !important;
         border-radius: 14px !important;
@@ -1059,7 +1048,6 @@ def create_interface():
     #preview-card > * { background: transparent !important; }
     #preview-card video, #preview-card img { border-radius: 10px !important; }
 
-    /* ---- Coaching feedback card (right column) ---- */
     #feedback-card {
         border: 1px solid #252a35 !important;
         border-radius: 14px !important;
@@ -1077,7 +1065,6 @@ def create_interface():
     }
     #response-md * { color: #e8eaed !important; background: transparent !important; }
 
-    /* ---- Metrics / history cards ---- */
     #metrics-card, #history-card {
         padding: 14px 16px !important;
         border: 1px solid #252a35 !important;
@@ -1090,7 +1077,6 @@ def create_interface():
     }
     #metrics-card *, #history-card * { color: #d4d4d4 !important; background: transparent !important; }
 
-    /* Tabs styling — modern navbar */
     .tab-nav, div[role="tablist"] {
         background: transparent !important;
         border-bottom: 1px solid #252a35 !important;
@@ -1116,7 +1102,6 @@ def create_interface():
         box-shadow: inset 0 -2px 0 #6366f1 !important;
     }
 
-    /* Buttons */
     button.primary, button.lg.primary, .controls-row button {
         height: 48px !important;
         font-weight: 700 !important;
@@ -1124,7 +1109,7 @@ def create_interface():
         border-radius: 10px !important;
     }
 
-    /* Inputs / dropdowns — exclude radios/checkboxes so their selected dot remains visible */
+    /* radio/checkbox excluded so the native selected dot stays visible */
     input:not([type="radio"]):not([type="checkbox"]), select, textarea {
         background: #161a22 !important;
         color: #e8eaed !important;
@@ -1137,7 +1122,6 @@ def create_interface():
         cursor: pointer;
     }
 
-    /* Radio chip group */
     fieldset.gr-radio, .gr-radio { border: none !important; }
     .gr-radio label, .gr-form label.svelte {
         background: #161a22 !important;
@@ -1153,7 +1137,6 @@ def create_interface():
         background: rgba(139, 92, 246, 0.12) !important;
     }
 
-    /* Labels above components */
     .block > label > span, .block > .label-wrap > .label-text {
         color: #9ca3af !important;
         font-weight: 600 !important;
@@ -1162,7 +1145,6 @@ def create_interface():
         letter-spacing: 1px;
     }
 
-    /* Logs textarea */
     .logs-box textarea {
         font-family: 'JetBrains Mono', 'Courier New', monospace !important;
         font-size: 12px !important;
@@ -1178,7 +1160,6 @@ def create_interface():
         theme=custom_theme,
         css=PAGE_CSS,
     ) as demo:
-        # ---- Header banner (inline-styled HTML so it ALWAYS renders) ----
         gr.HTML(
             """
             <div style="
@@ -1223,17 +1204,13 @@ def create_interface():
             """
         )
 
-        # ---- Status badge (inline-styled wrapper, Markdown content inside) ----
-        gr.HTML('<div id="status-badge-anchor"></div>')
         with gr.Group():
             video_timestamp = gr.Markdown(
                 value="⏸ &nbsp;**Idle** — choose a source and press **Start**",
                 elem_id="status-badge",
             )
 
-        # ---- Two-column workspace ----
         with gr.Row(equal_height=False):
-            # LEFT: source picker + preview + controls
             with gr.Column(scale=3, min_width=460):
                 webcam_mode = gr.Radio(
                     choices=["Video File", "Browser Webcam", "Direct Webcam (Linux only)"],
@@ -1277,7 +1254,6 @@ def create_interface():
                     start_btn = gr.Button("▶  Start", variant="primary", scale=2)
                     stop_btn = gr.Button("■  Stop", variant="secondary", scale=1)
 
-            # RIGHT: coaching feedback panel
             with gr.Column(scale=2, min_width=320):
                 with gr.Row(elem_id="feedback-header"):
                     gr.HTML(
@@ -1298,7 +1274,6 @@ def create_interface():
                         elem_id="response-md",
                     )
 
-        # ---- Advanced settings — navbar tabs ----
         gr.HTML(
             '<div style="font-size: 11px; font-weight: 700; letter-spacing: 1.4px; '
             'color: #9ca3af; text-transform: uppercase; margin: 24px 2px 8px;">Advanced</div>'
@@ -1419,7 +1394,6 @@ def create_interface():
                     show_label=False,
                 )
 
-        # ---- Event handlers ----
         def toggle_source_mode(mode):
             is_browser = mode == "Browser Webcam"
             is_direct = mode == "Direct Webcam (Linux only)"
@@ -1464,58 +1438,65 @@ def create_interface():
 
         stop_btn.click(fn=app.stop_inference, outputs=current_response)
 
-        # ---- Voice feedback (browser-side TTS via Web Speech API) ----
-        # Fires on every change to current_response, but the JS guard skips
-        # streaming partials and avoids re-speaking the same text.
         TTS_JS = r"""
         (text, enabled) => {
             if (!enabled) {
                 if (window.speechSynthesis) window.speechSynthesis.cancel();
-                window._mvg_lastSpoken = '';
+                window._mvg_lastPollId = '';
                 return;
             }
             if (!text || !window.speechSynthesis) return;
 
-            // Skip mid-stream / progress states
             const skipMarkers = [
                 'writing...', 'Starting analysis', 'Extracting',
                 'CLIP encoding', 'VideoMamba', 'Qwen2 analyzing',
                 'Generating coaching', 'Warming up camera',
-                'Analyzing video — please wait', 'Initializing',
+                'Analyzing video', 'Initializing',
                 'Starting polling', 'Waiting for first poll',
-                'Waiting to start',
+                'Waiting to start', 'Polling Complete',
             ];
             for (const m of skipMarkers) {
                 if (text.indexOf(m) !== -1) return;
             }
 
-            // Extract just the response body (everything after the first blank line)
+            // Dedup by poll id, not by speech text — back-to-back polls with
+            // identical bodies must still be spoken.
+            const pollIdMatch = text.match(/Poll #\d+\s*\(Position:\s*[\d.]+s\)/);
+            const pollId = pollIdMatch ? pollIdMatch[0] : text.slice(0, 60);
+            if (pollId === window._mvg_lastPollId) return;
+            window._mvg_lastPollId = pollId;
+
             let body = text;
             const idx = text.indexOf('\n\n');
             if (idx >= 0) body = text.slice(idx + 2);
 
-            // Strip markdown formatting and emojis-as-bullets
             const speech = body
-                .replace(/[*_`#>]/g, '')
                 .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+                .replace(/[*_`#>]/g, '')
                 .replace(/\s+/g, ' ')
                 .trim();
-
             if (!speech) return;
-            if (speech === window._mvg_lastSpoken) return;
-            window._mvg_lastSpoken = speech;
 
             window.speechSynthesis.cancel();
             const u = new SpeechSynthesisUtterance(speech);
             u.rate = 1.05;
             u.pitch = 1.0;
             u.volume = 1.0;
-            // Prefer an English voice if available
             const voices = window.speechSynthesis.getVoices();
-            const en = voices.find(v => /en[-_]/i.test(v.lang) && /female|google|samantha|jenny|aria/i.test(v.name))
+            const en = voices.find(v => /en[-_]/i.test(v.lang) && /samantha|google|jenny|aria|zira|natural/i.test(v.name))
                     || voices.find(v => /en[-_]/i.test(v.lang));
             if (en) u.voice = en;
             window.speechSynthesis.speak(u);
+
+            // Chrome cuts off utterances >~15s without a periodic pause/resume.
+            if (!window._mvg_keepAlive) {
+                window._mvg_keepAlive = setInterval(() => {
+                    if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+                        window.speechSynthesis.pause();
+                        window.speechSynthesis.resume();
+                    }
+                }, 10000);
+            }
         }
         """
         current_response.change(
@@ -1525,7 +1506,6 @@ def create_interface():
             js=TTS_JS,
         )
 
-        # When user disables voice mid-utterance, stop speaking immediately
         voice_enabled.change(
             fn=None,
             inputs=[voice_enabled],
@@ -1534,13 +1514,12 @@ def create_interface():
             (enabled) => {
                 if (!enabled && window.speechSynthesis) {
                     window.speechSynthesis.cancel();
-                    window._mvg_lastSpoken = '';
+                    window._mvg_lastPollId = '';
                 }
             }
             """,
         )
 
-        # Pre-warm voices (some browsers populate them asynchronously)
         gr.HTML(
             "<script>"
             "if (window.speechSynthesis) {"

@@ -161,6 +161,55 @@ http://192.168.1.126:7860
 You'll see the Gradio UI — click Start, the patient stands in front of the
 USB camera, feedback streams onto the page.
 
+---
+
+## 🖥️ Demo UI Walkthrough
+
+The interface is split into a single workspace with advanced settings tucked
+into a tab navbar at the bottom. Everything the panel needs to see lives at
+the top; engineer-facing controls stay one click away.
+
+### Top half (always visible)
+
+| Element | What it shows |
+|---|---|
+| Header banner | App name, model spec pills (`0.5B PARAMS`, `VIDEOMAMBA + QWEN2`, `FP16`) |
+| Status badge | `⏸ Idle` → `🟢 Live` / `🟡 Analyzing` → `✅ Complete` / `❌ Error` with current poll # and timestamp |
+| Input source | Radio chips: **Video File** / **Browser Webcam** / **Direct Webcam (Linux only)**. Selecting a mode swaps the preview and reveals the matching dropdown in the *Source* tab. |
+| Preview | Single slot — shows a `gr.Video` for file mode, a webcam capture for browser mode, or a live frame-buffer preview for direct-V4L2 mode. Only one is visible at a time. |
+| Coaching feedback | Large response card. Streams tokens during generation, then locks the final coaching text. |
+| 🔊 Voice toggle | On by default. Speaks each completed poll's response via the browser's Web Speech API. |
+| Start / Stop | Primary indigo gradient + secondary slate. |
+
+### Voice feedback
+
+Voice is rendered **client-side in the browser**, not on the Jetson. Implications:
+
+- Zero extra Jetson CPU/GPU cost — the synth runs on the operator's laptop.
+- Works in Chrome / Edge / Safari / Firefox out of the box. (Chrome has the smoothest English voices.)
+- Toggle off if the panel asks for silence during a screenshot.
+- Streaming-token partials are filtered out — only the final response per poll
+  is spoken, deduped by poll ID so back-to-back identical answers still get
+  voiced.
+- Includes a Chrome keep-alive (pause/resume every 10 s) so longer
+  naturalizer-rephrased responses don't cut off at ~15 s.
+
+### Bottom half — Advanced tabs
+
+| Tab | Contents |
+|---|---|
+| **Source** | Sample video dropdown, camera device picker, mode hints |
+| **Model** | Base model (0.5B / 1.5B), LoRA adapter |
+| **Inference** | Polling interval, frames per poll, sample FPS, max new tokens, warmup runs, prompt |
+| **Naturalizer** | Toggle + similarity threshold for repeat-detection rephrasing |
+| **Metrics** | Current-poll latency / TTFT / tok-per-sec, full session response history |
+| **Logs** | Live tail of the inference logger |
+
+For a panel demo, leave the tabs collapsed on **Source**. Switch to **Metrics**
+if a reviewer asks "what was the latency on that one?".
+
+---
+
 ### Stopping the demo:
 
 Press `Ctrl+C` in the SSH terminal where Gradio is running.
