@@ -14,7 +14,13 @@ Documentation for **Mobile-VideoGPT** deployed on **NVIDIA Jetson Orin Nano Supe
 
 ---
 
-## 🛠️ Operating the demo
+## 🛠️ Setting up & operating
+
+- **[INSTALL_NOTES.md](./INSTALL_NOTES.md)** — why each step in
+  `setup_jetson.sh` exists (cuSPARSELt, NVIDIA PyTorch wheel,
+  torchvision / decord / causal-conv1d / mamba-ssm built from source,
+  the `pypi.jetson-ai-lab.dev` DNS quirk, etc.). Read this if a future
+  install fails or you need to explain the install in writing.
 
 - **[HEADLESS_DEMO_SETUP.md](./HEADLESS_DEMO_SETUP.md)** — set up SSH,
   switch the Jetson to headless mode, launch the Gradio inference
@@ -57,6 +63,7 @@ Documentation for **Mobile-VideoGPT** deployed on **NVIDIA Jetson Orin Nano Supe
 | What is the current TTFT? | JOURNEY § Summary Table — **2.3 s** |
 | How do I launch a demo? | HEADLESS_DEMO_SETUP.md → "Running the Demo" |
 | How do I measure power? | POWER_MEASUREMENT.md |
+| Why does install need so many manual steps? | INSTALL_NOTES.md — explains each |
 | What's the recommended invocation? | JOURNEY § How to Run → `USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/gradio_app.py` |
 | Did we use quantization? | REVIEWER_RESPONSE.md § 4 — **No, by design** |
 | Why does each poll cover only the last 4 seconds? | JOURNEY § Stage 8 (Real-Time Frame Buffering) |

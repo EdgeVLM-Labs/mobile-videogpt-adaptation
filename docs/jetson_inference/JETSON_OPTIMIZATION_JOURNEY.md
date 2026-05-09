@@ -87,15 +87,29 @@ USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/gradio_app.py
 
 ### Stage 3: Installation & Portability
 
-| # | Change | Why |
-|---|---|---|
-| 3.1 | Created `setup_jetson.sh` (504 lines) | Automates entire Jetson setup |
-| 3.2 | Created `requirements_jetson.txt` | Jetson-specific Python deps |
-| 3.3 | Builds `causal-conv1d` + `mamba-ssm` from source with `TORCH_CUDA_ARCH_LIST=8.7` | Pre-built wheels don't support Jetson Ampere |
-| 3.4 | Uses NVIDIA Jetson wheels for PyTorch | JP6.1 wheel works on JP6.2/CUDA 12.6 |
-| 3.5 | Builds torchvision from source | Pip PyTorch (x86) shows `CUDA: False` on Jetson |
+The Jetson aarch64 + custom CUDA stack means **almost no library
+installs cleanly with `pip install`** — most CUDA-dependent packages
+need to be built from source against the NVIDIA Jetson PyTorch wheel
+and `TORCH_CUDA_ARCH_LIST=8.7` to actually run on this device.
 
-**Result**: Repo can be cloned to fresh Jetson → `bash setup_jetson.sh` → works end-to-end.
+We package this complexity into [`setup_jetson.sh`](../../setup_jetson.sh)
+(9 steps, ~30–45 min on a fresh board), so a fresh clone reaches a
+working inference state with one command:
+
+```bash
+git clone … && cd mobile-videogpt-adaptation
+git checkout jetson-inference
+bash setup_jetson.sh
+```
+
+**For the rationale behind each install step** (why pip wheels fail,
+why we build cuSPARSELt / torchvision / causal-conv1d / mamba-ssm from
+source, why we patch `mamba_ssm.distributed`, and the
+`pypi.jetson-ai-lab.dev` DNS quirk), see
+[**INSTALL_NOTES.md**](./INSTALL_NOTES.md).
+
+**Result**: Repo can be cloned to a fresh Jetson, run
+`bash setup_jetson.sh`, and reach a working inference setup end-to-end.
 
 ---
 
@@ -465,6 +479,7 @@ USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/run_polling.py \
 ## 📚 Related Docs
 
 - [`README.md`](./README.md) — entry point and reading-order index for this folder
+- [`INSTALL_NOTES.md`](./INSTALL_NOTES.md) — why each step in `setup_jetson.sh` exists
 - [`HEADLESS_DEMO_SETUP.md`](./HEADLESS_DEMO_SETUP.md) — SSH + headless launch guide
 - [`POWER_MEASUREMENT.md`](./POWER_MEASUREMENT.md) — How to capture power numbers
 - [`REVIEWER_RESPONSE.md`](./REVIEWER_RESPONSE.md) — Answers to IEEE AIIoT reviewer feedback
