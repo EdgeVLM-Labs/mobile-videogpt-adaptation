@@ -164,9 +164,22 @@ sample_videos/Lunges.mp4
 # Jetson inference — TensorRT models and engines (too large, built locally)
 models/tensorrt/*.engine
 models/tensorrt/*.onnx
+models/tensorrt/*.BROKEN*
 offload/
 
-# Transient inference logs
+# Jetson inference — built-from-source deps (rebuilt by setup_jetson.sh)
+/decord/
+
+# Gradio runtime artifacts (flagging cache, share certs, temp files)
+.gradio/
+
+# Transient inference logs / diagnostics
 scripts/logs.txt
+/logs.txt
+# diagnostic_frames/ is a transient working dir (webcam diagnostics + power
+# capture); ignore its contents but keep the power log committed — it's the
+# reproducibility artifact referenced by REVIEWER_RESPONSE.md / POWER_MEASUREMENT.md.
+diagnostic_frames/*
+!diagnostic_frames/power_log.txt
 /.vscode
 /.claude

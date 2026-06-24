@@ -793,6 +793,7 @@ class PollingInferenceEngine:
         )
 
         poll_index = 0
+        motion_idle_streak = 0  # consecutive below-threshold polls (motion gate hysteresis)
         start_time = time.time()
 
         try:
@@ -815,6 +816,30 @@ class PollingInferenceEngine:
                 self.logger.info(f"POLL #{poll_index + 1}")
                 self.logger.info(f"Video position: {self.stream_handler.current_position:.2f}s / {self.stream_handler.total_duration:.2f}s")
                 self.logger.info(f"{'='*40}")
+
+                # Motion gate (Tier 1, optional — config.enable_motion_gate):
+                # On a live stream, skip the VLM when the scene is static so the
+                # model doesn't emit feedback to an empty/idle frame. Returns +inf
+                # (never gates) in video-file mode, which doesn't use the live
+                # buffer. Checked before metrics start so a gated tick is free.
+                # Hysteresis: only declare idle after `motion_idle_polls`
+                # consecutive below-threshold polls so a single low-motion poll
+                # (slow rep phase / brief pause) doesn't gate mid-exercise.
+                if self.config.enable_motion_gate:
+                    motion = self.stream_handler.compute_motion_score(self.config.num_frames)
+                    if motion < self.config.motion_threshold:
+                        motion_idle_streak += 1
+                    else:
+                        motion_idle_streak = 0
+
+                    if motion_idle_streak >= self.config.motion_idle_polls:
+                        self.logger.info(
+                            f"Motion gate: score {motion:.2f} < {self.config.motion_threshold:.2f} "
+                            f"for {motion_idle_streak} polls — idle scene, skipping"
+                        )
+                        if not self.stream_handler.is_exhausted:
+                            time.sleep(self.config.polling_interval)
+                        continue
 
                 # Start metrics for this inference
                 self.metrics.start_inference(poll_index)

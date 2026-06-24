@@ -652,6 +652,42 @@ class VideoStreamHandler:
         step = len(lst) // n
         return [lst[i * step] for i in range(n)]
 
+    def compute_motion_score(self, num_frames: Optional[int] = None) -> float:
+        """
+        Cheap activity/presence heuristic for the optional motion gate (Tier 1).
+
+        Returns the mean absolute pixel difference between consecutive frames
+        over the most recent `num_frames` of the live buffer, on a 0-255
+        grayscale intensity scale (0 = perfectly static scene). Frames are
+        downscaled to 64x64 grayscale thumbnails first, so this costs only a
+        few milliseconds and is robust to sensor noise.
+
+        Returns +inf when there are fewer than 2 buffered frames (e.g. video-
+        file mode, which doesn't use the live buffer, or before camera warmup)
+        so the caller treats "not enough data" as "don't gate".
+        """
+        n = num_frames or self.num_frames
+        frames = [f.frame for f in list(self.frame_buffer)[-n:]]
+        if len(frames) < 2:
+            return float('inf')
+
+        thumbs = []
+        for fr in frames:
+            try:
+                small = cv2.resize(fr, (64, 64))
+                gray = cv2.cvtColor(small, cv2.COLOR_RGB2GRAY)
+                thumbs.append(gray.astype(np.float32))
+            except Exception:
+                continue
+        if len(thumbs) < 2:
+            return float('inf')
+
+        diffs = [
+            float(np.mean(np.abs(thumbs[i] - thumbs[i - 1])))
+            for i in range(1, len(thumbs))
+        ]
+        return sum(diffs) / len(diffs) if diffs else float('inf')
+
     def get_remaining_duration(self) -> float:
         """Get remaining video duration in seconds."""
         if self._video_reader is None:

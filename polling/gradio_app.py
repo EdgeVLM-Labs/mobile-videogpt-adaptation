@@ -526,6 +526,7 @@ class GradioPollingApp:
                 total_duration = self.engine.stream_handler.total_duration
 
             poll_index = 0
+            motion_idle_streak = 0  # consecutive below-threshold polls (motion gate hysteresis)
 
             # Yield initial state with video loaded
             if use_webcam:
@@ -591,6 +592,41 @@ class GradioPollingApp:
                     # For webcam, just calculate elapsed time without progress bar update
                     session_start = self.engine.metrics.current_session.start_time if self.engine.metrics.current_session else time.time()
                     position = time.time() - session_start
+
+                # MOTION GATE (Tier 1, optional — MOTION_GATE=1):
+                # On a live webcam, skip the whole VLM when the scene is static
+                # (empty room / person standing idle) so the model never narrates
+                # to an empty stage. Checked before metrics/inference start, so a
+                # gated tick consumes no poll number and no compute. Direct-webcam
+                # only: browser-webcam replicates a single frame (no motion to
+                # measure) and video files don't use the live buffer.
+                #
+                # Hysteresis: a single low-motion poll (slow part of a rep, brief
+                # pause) must NOT flip the UI to "waiting" mid-exercise. Only go
+                # idle after `motion_idle_polls` consecutive below-threshold polls;
+                # any active poll resets the streak.
+                if config.enable_motion_gate and use_direct_webcam:
+                    motion = self.engine.stream_handler.compute_motion_score(config.num_frames)
+                    if motion < config.motion_threshold:
+                        motion_idle_streak += 1
+                    else:
+                        motion_idle_streak = 0
+
+                    if motion_idle_streak >= config.motion_idle_polls:
+                        logging.info(
+                            f"Motion gate: score {motion:.2f} < {config.motion_threshold:.2f} "
+                            f"for {motion_idle_streak} polls — idle scene, skipping"
+                        )
+                        yield (
+                            None,
+                            "⏸ **Waiting for exercise**",
+                            "⏸ **Waiting for exercise…**",
+                            f"Idle — motion {motion:.1f} < {config.motion_threshold:.1f}",
+                            self.format_all_responses(self.poll_results),
+                            self.log_capture.get_logs(),
+                        )
+                        time.sleep(config.polling_interval)
+                        continue
 
                 # Start metrics
                 self.engine.metrics.start_inference(poll_index)
@@ -1550,9 +1586,14 @@ if __name__ == "__main__":
         print("   Will show generic camera indices")
 
     demo = create_interface()
+    # share=True publishes a public *.gradio.live tunnel URL that works from any
+    # device on any network (needs internet on the Jetson) — useful when the demo
+    # WiFi uses client/AP isolation or a firewall blocks port 7860. Opt-in via
+    # GRADIO_SHARE=1; default stays LAN-only on 0.0.0.0:7860.
+    share = os.environ.get("GRADIO_SHARE", "0") == "1"
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=False,
+        share=share,
         show_error=True
     )
