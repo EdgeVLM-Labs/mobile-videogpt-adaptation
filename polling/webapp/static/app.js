@@ -105,7 +105,11 @@ function renderFeedback(ev){
     fbExercise.textContent = ev.exercise || "—";
     fbText.textContent = ev.display || ev.feedback || "";
   }
-  fbMeta.textContent = `Poll #${ev.poll}` + (ev.latency_ms ? ` · ${ev.latency_ms} ms` : "");
+  let meta = `Poll #${ev.poll}`;
+  if(ev.latency_ms) meta += ` · ${(ev.latency_ms/1000).toFixed(1)}s total`;
+  if(ev.ttft_ms)    meta += ` · TTFT ${(ev.ttft_ms/1000).toFixed(1)}s`;
+  if(ev.frames_ms)  meta += ` · frames ${Math.round(ev.frames_ms)}ms`;
+  fbMeta.textContent = meta;
 
   // history (newest first, cap 8)
   const li = document.createElement("li");

@@ -253,17 +253,43 @@ class Session:
                         num_context_images=cfg.num_context_images,
                         polling_interval=cfg.polling_interval,
                     )
+                    t_frames = time.time() - t0          # CPU frame extraction + preprocessing
                     if slice_len == 0:
                         time.sleep(cfg.polling_interval); continue
 
                     poll += 1
-                    # Show 'Analyzing…' while the single (non-streaming) inference runs.
-                    # We use the SAME blocking call as the Gradio app — generate() in
-                    # this thread — to avoid the background-thread + per-token streamer
-                    # overhead that adds latency on the Jetson's CPU.
+                    # 'thinking' during prefill (encoding 16 frames, before any token),
+                    # then stream tokens as they generate so the feedback types out.
+                    # Partial broadcasts are throttled to ~10/s to keep SSE overhead low.
                     self.broadcast({"type": "thinking", "poll": poll, "message": "Analyzing…"})
-                    response, _ttft, _in_tok, _out_tok = engine.run_single_inference(
-                        vframes, cframes, prompt, slice_len)
+                    response = ""
+                    last_emit = 0.0
+                    t_infer = time.time()
+                    ttft = 0.0
+                    final_metrics = None
+                    for partial, is_final, _elapsed, metrics in engine.run_single_inference_streaming(
+                            vframes, cframes, prompt, slice_len):
+                        if is_final:
+                            response = partial or response
+                            final_metrics = metrics
+                            break
+                        if partial:  # accumulated text (None = prefill heartbeat)
+                            if ttft == 0.0:
+                                ttft = time.time() - t_infer   # wall time to first token
+                            now = time.time()
+                            if now - last_emit >= 0.1:
+                                last_emit = now
+                                self.broadcast({"type": "partial", "poll": poll, "raw": partial})
+
+                    # prefer the engine's own ttft if available
+                    if final_metrics and final_metrics.get("ttft"):
+                        ttft = final_metrics["ttft"]
+                    total_ms = (time.time() - t0) * 1000
+                    logger.info(
+                        f"poll {poll}: slice={slice_len}  frames={t_frames*1000:.0f}ms  "
+                        f"ttft={ttft*1000:.0f}ms  gen={total_ms - t_frames*1000 - ttft*1000:.0f}ms  "
+                        f"total={total_ms:.0f}ms"
+                    )
 
                     parsed = classify(response)
                     display = parsed["feedback"]
@@ -278,7 +304,9 @@ class Session:
                                     "display": display,
                                     "raw": parsed["raw"],
                                     "poll": poll,
-                                    "latency_ms": round((time.time() - t0) * 1000, 1)})
+                                    "latency_ms": round(total_ms, 1),
+                                    "ttft_ms": round(ttft * 1000, 1),
+                                    "frames_ms": round(t_frames * 1000, 1)})
                     self.status["polls"] = poll
                 except Exception as e:
                     logger.error(f"poll {poll+1}: {e}", exc_info=True)
