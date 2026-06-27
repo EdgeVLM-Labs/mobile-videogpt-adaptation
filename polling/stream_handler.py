@@ -641,6 +641,14 @@ class VideoStreamHandler:
         video_frames_raw = self._uniform_sample(raw_frames, min(num_video_frames, len(raw_frames)))
         context_frames_raw = self._uniform_sample(raw_frames, min(num_context_images, len(raw_frames)))
 
+        # CRITICAL: slice_len must equal the number of video frames actually fed to
+        # the model — it sets the count of <image> placeholder tokens in the prompt.
+        # The webcam window may hold e.g. 40 frames but we sample 16, so recompute
+        # here. If slice_len stays 40, the prompt gets 40 image tokens for 16 frames,
+        # which balloons prefill (TTFT) AND misaligns the visual tokens so the model
+        # falls back to generic captioning instead of the finetuned feedback.
+        slice_len = len(video_frames_raw)
+
         # Process for video encoder
         video_frames = video_processor.preprocess(video_frames_raw)['pixel_values']
 
