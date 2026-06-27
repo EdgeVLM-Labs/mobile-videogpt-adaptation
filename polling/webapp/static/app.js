@@ -23,6 +23,22 @@ $("sourceMode").onchange = (e) => {
   $("cameraField").classList.toggle("hidden", file);
 };
 
+// ---- light/dark theme toggle ----
+// Initial theme is set pre-paint by the inline script in <head>.
+const themeBtn = $("themeBtn");
+function syncThemeIcon(){
+  const dark = (document.documentElement.getAttribute("data-theme") || "dark") === "dark";
+  themeBtn.textContent = dark ? "☀" : "☾";  // icon = the mode you'll switch TO
+  themeBtn.title = dark ? "Switch to light theme" : "Switch to dark theme";
+}
+themeBtn.onclick = () => {
+  const next = (document.documentElement.getAttribute("data-theme") === "light") ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("mvgpt-theme", next); } catch(e){}
+  syncThemeIcon();
+};
+syncThemeIcon();
+
 // ---- load defaults + options ----
 async function init(){
   try {

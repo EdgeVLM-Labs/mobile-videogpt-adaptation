@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mobile-VideoGPT Coach</title>
   <link rel="stylesheet" href="/static/styles.css" />
+  <script>
+    // Set theme before first paint (no flash): saved choice, else OS preference.
+    (function () {
+      var t;
+      try { t = localStorage.getItem("mvgpt-theme"); } catch (e) {}
+      if (!t) t = window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
 </head>
 <body>
   <!-- Header -->
@@ -19,6 +29,7 @@
     <div class="badges">
       <span class="badge">0.5B</span>
       <span class="badge">VideoMamba + Qwen2</span>
+      <button id="themeBtn" class="gear" title="Toggle theme" aria-label="Toggle light/dark theme">☀</button>
       <button id="gearBtn" class="gear" title="Advanced settings" aria-label="Advanced settings">⚙</button>
     </div>
   </header>

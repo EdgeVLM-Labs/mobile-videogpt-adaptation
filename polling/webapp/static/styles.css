@@ -1,18 +1,42 @@
+/* ── Dark theme (default) ───────────────────────────────────────────── */
 :root{
+  color-scheme:dark;
   --bg:#0c0d12; --panel:#15171f; --panel2:#1b1e29; --line:#272b38;
   --text:#e8eaf0; --muted:#9aa0b4;
   --primary:#7c5cff; --primary2:#c054d6;
+  /* status/feedback accents — vivid on dark */
   --good:#28c08a; --warn:#e0a23a; --info:#5b8def; --bad:#e0556b; --neutral:#6b7280;
   --radius:16px; --shadow:0 8px 30px rgba(0,0,0,.35);
+  --header-grad:linear-gradient(110deg,#6a3bd6 0%,#8a3bc8 45%,#c0479e 100%);
+  --on-accent:#fff; --video-bg:#000; --placeholder-bg:#0a0b10;
+  --pill-bg:rgba(0,0,0,.45);
+}
+/* ── Light theme ────────────────────────────────────────────────────── */
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#eef1f7; --panel:#ffffff; --panel2:#f3f5fa; --line:#e3e7f0;
+  --text:#1b1f2a; --muted:#5f6678;
+  --primary:#7c5cff; --primary2:#c054d6;
+  /* darkened so they stay legible as TEXT on white cards (AA-large) */
+  --good:#0a9d68; --warn:#b9770f; --info:#2f6fdb; --bad:#d83a54; --neutral:#9aa3b2;
+  --shadow:0 10px 28px rgba(25,30,60,.10);
+  --header-grad:linear-gradient(110deg,#6a3bd6 0%,#8a3bc8 45%,#c0479e 100%);
+  --on-accent:#fff; --video-bg:#0a0b10; --placeholder-bg:#e7ebf3;
+  --pill-bg:rgba(255,255,255,.78);
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);
-  font-family:"Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+  font-family:"Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  transition:background-color .25s ease,color .25s ease;}
+/* smooth surfaces when toggling theme */
+.video-wrap,.feedback-card,.history,.drawer,.btn,.voice-toggle,
+.field input,.field select,.field textarea{
+  transition:background-color .25s ease,border-color .25s ease,color .25s ease;}
 
 /* Header */
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;
   margin:18px;padding:16px 22px;border-radius:var(--radius);
-  background:linear-gradient(110deg,#6a3bd6 0%,#8a3bc8 45%,#c0479e 100%);
+  background:var(--header-grad);
   box-shadow:var(--shadow);}
 .brand{display:flex;align-items:center;gap:14px}
 .logo{width:46px;height:46px;border-radius:12px;background:rgba(255,255,255,.18);
@@ -31,16 +55,16 @@ body{margin:0;background:var(--bg);color:var(--text);
 @media(max-width:900px){.stage{grid-template-columns:1fr}}
 
 .video-col,.feedback-col{display:flex;flex-direction:column;gap:14px}
-.video-wrap{position:relative;background:#000;border-radius:var(--radius);
+.video-wrap{position:relative;background:var(--video-bg);border-radius:var(--radius);
   overflow:hidden;border:1px solid var(--line);aspect-ratio:16/10;box-shadow:var(--shadow)}
 #preview{width:100%;height:100%;object-fit:cover;display:block}
 .video-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:10px;color:var(--muted);background:#0a0b10}
+  align-items:center;justify-content:center;gap:10px;color:var(--muted);background:var(--placeholder-bg)}
 .video-placeholder.hidden{display:none}
 .ph-icon{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;
   background:var(--panel2);font-size:24px;color:var(--primary)}
 .status-pill{position:absolute;top:12px;left:12px;padding:6px 14px;border-radius:999px;
-  font-size:13px;font-weight:700;backdrop-filter:blur(6px);background:rgba(0,0,0,.45)}
+  font-size:13px;font-weight:700;backdrop-filter:blur(6px);background:var(--pill-bg)}
 .status-pill.idle{color:var(--muted)}
 .status-pill.connecting,.status-pill.loading,.status-pill.warmup{color:var(--info)}
 .status-pill.running{color:var(--good)}
@@ -50,10 +74,10 @@ body{margin:0;background:var(--bg);color:var(--text);
 /* Controls */
 .controls{display:flex;align-items:center;gap:12px}
 .btn{border:0;border-radius:12px;padding:14px 22px;font-size:16px;font-weight:700;
-  cursor:pointer;color:#fff}
-.btn-primary{flex:1;background:linear-gradient(110deg,var(--primary),var(--primary2))}
+  cursor:pointer;color:var(--on-accent)}
+.btn-primary{flex:1;background:linear-gradient(110deg,var(--primary),var(--primary2));color:#fff}
 .btn-primary:hover{filter:brightness(1.08)}
-.btn-stop{background:var(--panel2);border:1px solid var(--line)}
+.btn-stop{background:var(--panel2);border:1px solid var(--line);color:var(--text)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 .voice-toggle{display:flex;align-items:center;gap:8px;color:var(--muted);
   font-size:14px;background:var(--panel);padding:10px 14px;border-radius:12px;
