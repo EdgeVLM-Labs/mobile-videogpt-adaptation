@@ -417,8 +417,22 @@ class PollingInferenceEngine:
                 self.model = self.model.merge_and_unload()
                 self.logger.info("LoRA adapters loaded and merged successfully")
             except Exception as e:
-                self.logger.warning(f"Could not load LoRA adapters: {e}")
-                self.logger.info("Proceeding with base model only")
+                # DO NOT silently fall back to the base model. The base
+                # Mobile-VideoGPT is a generic video captioner ("The man is
+                # doing ..."), so a swallowed failure here produces an app that
+                # looks alive but gives garbage instead of finetuned coaching.
+                # A 401 / "Repository Not Found" here means the (private) LoRA
+                # repo is not accessible from this host — fix by either:
+                #   * `hf auth login` with a token that can read the repo, or
+                #   * set HF_TOKEN before launching, or
+                #   * make the repo public, or
+                #   * point lora_weights_path at a LOCAL adapter directory.
+                raise RuntimeError(
+                    f"Failed to load LoRA adapter from '{self.config.lora_weights_path}': {e}. "
+                    "Refusing to run on the base model (it would produce generic "
+                    "captions, not finetuned coaching). Authenticate (hf auth login / "
+                    "HF_TOKEN), make the repo public, or use a local adapter path."
+                ) from e
 
             # Setup special tokens
             mm_use_im_start_end = getattr(self.model.config, "mm_use_im_start_end", False)
