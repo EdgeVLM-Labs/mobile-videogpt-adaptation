@@ -44,7 +44,7 @@ class PollingConfig:
     frame_overlap: float = 0.5  # Overlap ratio between polling windows (0.0 - 1.0)
 
     # Inference configuration
-    prompt: str = "Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?"
+    prompt: str = "Watch the video. Identify the exercise and give short feedback on the form."
     max_new_tokens: int = 64  # Reduced from 128 — responses are 30-40 tokens
     do_sample: bool = False
     num_beams: int = 1

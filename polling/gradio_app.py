@@ -1350,7 +1350,7 @@ def create_interface():
                     )
                 prompt = gr.Textbox(
                     label="Prompt",
-                    value="Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections would you recommend?",
+                    value="Watch the video. Identify the exercise and give short feedback on the form.",
                     lines=3,
                 )
 
@@ -1404,7 +1404,7 @@ def create_interface():
                 gr.update(visible=is_direct),       # webcam_preview
                 gr.update(visible=is_file),         # video_dropdown
                 gr.update(visible=is_direct),       # camera_selector
-                gr.update(value=30 if (is_browser or is_direct) else 1),  # fps
+                gr.update(value=4 if (is_browser or is_direct) else 1),  # fps (webcam: 16 frames / 4 fps = 4s window, matches training)
             )
 
         webcam_mode.change(
