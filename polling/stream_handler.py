@@ -125,6 +125,9 @@ class VideoStreamHandler:
         self._total_frames: int = 0
         self._current_frame_idx: int = 0
 
+        # Verification: counts polls when MVGPT_DEBUG_FRAMES=1 (see _debug_dump_frames)
+        self._debug_poll_count = 0
+
     def open_video_file(self, video_path: str) -> bool:
         """Open a video file for frame extraction."""
         if not os.path.exists(video_path):
@@ -598,6 +601,7 @@ class VideoStreamHandler:
             Tuple of (video_frames, context_frames, slice_len)
         """
         # Get raw frames
+        windowed_fd = None  # FrameData (with timestamps) of the selected window — webcam only
         if self._video_reader is not None:
             # Video file mode - use polling_interval as both duration and advance_by
             # This ensures we sample from a window equal to polling_interval and advance by the same amount
@@ -627,9 +631,10 @@ class VideoStreamHandler:
                 windowed = [f for f in buffer_frames if f.timestamp >= cutoff]
                 if len(windowed) < num_video_frames:
                     windowed = buffer_frames[-num_video_frames:]
-                raw_frames = [f.frame for f in windowed]
             else:
-                raw_frames = [f.frame for f in buffer_frames[-num_video_frames:]]
+                windowed = buffer_frames[-num_video_frames:]
+            raw_frames = [f.frame for f in windowed]
+            windowed_fd = windowed
             slice_len = len(raw_frames)
         else:
             return [], [], 0
@@ -648,6 +653,16 @@ class VideoStreamHandler:
         # which balloons prefill (TTFT) AND misaligns the visual tokens so the model
         # falls back to generic captioning instead of the finetuned feedback.
         slice_len = len(video_frames_raw)
+
+        # Verification: dump the EXACT frames being fed to the model this poll.
+        # Enable with MVGPT_DEBUG_FRAMES=1. Off by default → zero runtime cost.
+        if os.environ.get("MVGPT_DEBUG_FRAMES", "0") == "1":
+            sampled_fd = (self._uniform_sample(windowed_fd, len(video_frames_raw))
+                          if windowed_fd is not None else None)
+            try:
+                self._debug_dump_frames(video_frames_raw, sampled_fd, slice_len)
+            except Exception as e:
+                self.logger.warning(f"debug frame dump failed: {e}")
 
         # Process for video encoder
         video_frames = video_processor.preprocess(video_frames_raw)['pixel_values']
@@ -670,11 +685,74 @@ class VideoStreamHandler:
         return video_frames, context_frames, slice_len
 
     def _uniform_sample(self, lst: List, n: int) -> List:
-        """Uniformly sample n items from list."""
+        """Uniformly sample n items, endpoint-inclusive (matches the np.linspace
+        sampling in training/eval: dataloader.py / video_encoding.py).
+
+        The old `step = len//n` version was front-biased: for 40 frames -> 16 it
+        picked indices 0..30, dropping the newest ~1s and spanning only ~3s of a
+        4s window. linspace includes both the first and the LAST frame, so the
+        live path sees frames the same way the model was trained — and always
+        includes the most recent moment (critical for "what is the patient doing
+        right now")."""
         if n >= len(lst):
             return lst
-        step = len(lst) // n
-        return [lst[i * step] for i in range(n)]
+        idxs = np.linspace(0, len(lst) - 1, num=n, dtype=int)
+        return [lst[i] for i in idxs]
+
+    def _debug_dump_frames(self, frames_raw: List[np.ndarray],
+                           sampled_fd: Optional[List["FrameData"]], slice_len: int):
+        """Verification helper: log metadata + save a montage of the frames that
+        are actually fed to the model this poll. Gated by MVGPT_DEBUG_FRAMES=1.
+
+        Proves: (a) exactly num_frames go in, (b) they are real, distinct frames,
+        (c) they span the intended temporal window, (d) no blank padding."""
+        self._debug_poll_count += 1
+        poll = self._debug_poll_count
+        out_dir = os.path.join("logs", "debug_frames")
+        os.makedirs(out_dir, exist_ok=True)
+
+        n = len(frames_raw)
+        # --- metadata / sanity log ---
+        if sampled_fd:
+            ts = [f.timestamp for f in sampled_fd]
+            idxs = [f.frame_index for f in sampled_fd]
+            span = ts[-1] - ts[0] if len(ts) > 1 else 0.0
+            gaps = [round(ts[i + 1] - ts[i], 3) for i in range(len(ts) - 1)]
+            dup = len(idxs) - len(set(idxs))
+            self.logger.info(
+                f"[DEBUG_FRAMES] poll {poll}: fed={n} frames | slice_len={slice_len} | "
+                f"span={span:.2f}s | first_ts={ts[0]:.2f} last_ts={ts[-1]:.2f} | "
+                f"duplicate_frames={dup}"
+            )
+            self.logger.info(f"[DEBUG_FRAMES] poll {poll}: inter-frame gaps(s)={gaps}")
+            self.logger.info(f"[DEBUG_FRAMES] poll {poll}: source frame_indices={idxs}")
+        else:
+            self.logger.info(
+                f"[DEBUG_FRAMES] poll {poll}: fed={n} frames | slice_len={slice_len} "
+                f"(no timestamps — file mode)"
+            )
+
+        # --- montage (4xN grid) with index + timestamp overlay ---
+        tiles, cols = [], 4
+        for i, fr in enumerate(frames_raw):
+            img = cv2.cvtColor(fr, cv2.COLOR_RGB2BGR) if fr.ndim == 3 else fr
+            img = cv2.resize(img, (160, 120))
+            label = f"#{i}"
+            if sampled_fd and i < len(sampled_fd):
+                label += f" t={sampled_fd[i].timestamp:.2f}"
+            cv2.putText(img, label, (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                        (0, 255, 0), 1, cv2.LINE_AA)
+            tiles.append(img)
+        rows = []
+        for r in range(0, len(tiles), cols):
+            row = tiles[r:r + cols]
+            while len(row) < cols:  # pad last row with black so hstack works
+                row.append(np.zeros_like(tiles[0]))
+            rows.append(np.hstack(row))
+        montage = np.vstack(rows) if rows else np.zeros((120, 640, 3), np.uint8)
+        path = os.path.join(out_dir, f"poll_{poll:03d}.jpg")
+        cv2.imwrite(path, montage)
+        self.logger.info(f"[DEBUG_FRAMES] poll {poll}: montage saved -> {path}")
 
     def get_remaining_duration(self) -> float:
         """Get remaining video duration in seconds."""
