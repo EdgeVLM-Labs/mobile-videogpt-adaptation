@@ -257,23 +257,18 @@ class Session:
                         time.sleep(cfg.polling_interval); continue
 
                     poll += 1
-                    # 'thinking' while the model encodes 16 frames (most of the time
-                    # is prefill, before the first token), then stream tokens as they
-                    # arrive so the feedback types out instead of popping in at once.
+                    # Show 'Analyzing…' while the single (non-streaming) inference runs.
+                    # We use the SAME blocking call as the Gradio app — generate() in
+                    # this thread — to avoid the background-thread + per-token streamer
+                    # overhead that adds latency on the Jetson's CPU.
                     self.broadcast({"type": "thinking", "poll": poll, "message": "Analyzing…"})
-                    final_text = ""
-                    for partial, is_final, _elapsed, _metrics in engine.run_single_inference_streaming(
-                            vframes, cframes, prompt, slice_len):
-                        if is_final:
-                            final_text = partial or final_text
-                            break
-                        if partial:  # accumulated text so far (None = prefill heartbeat)
-                            self.broadcast({"type": "partial", "poll": poll, "raw": partial})
+                    response, _ttft, _in_tok, _out_tok = engine.run_single_inference(
+                        vframes, cframes, prompt, slice_len)
 
-                    parsed = classify(final_text)
+                    parsed = classify(response)
                     display = parsed["feedback"]
                     if self.naturalizer:
-                        try: display = self.naturalizer.process(final_text).get("display", display)
+                        try: display = self.naturalizer.process(response).get("display", display)
                         except Exception: pass
 
                     self.broadcast({"type": "feedback",
