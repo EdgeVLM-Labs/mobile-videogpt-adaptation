@@ -65,6 +65,36 @@ function speak(text){
   window.speechSynthesis.speak(u);
 }
 
+function parsePartial(raw){
+  raw = (raw || "").trim();
+  const i = raw.indexOf(" - ");
+  if(i >= 0) return {ex: raw.slice(0, i).trim(), fb: raw.slice(i + 3).trim()};
+  return {ex: raw, fb: ""};
+}
+
+// shown during prefill (model encoding 16 frames, before the first token)
+function showThinking(poll){
+  fbCard.className = "feedback-card state-thinking";
+  fbExercise.textContent = "";
+  fbText.innerHTML = 'Analyzing your form<span class="dots"></span>';
+  fbMeta.textContent = "Poll #" + poll;
+}
+
+// shown per token as the response streams in
+function showPartial(ev){
+  fbCard.className = "feedback-card state-typing";
+  const raw = ev.raw || "";
+  if(/^no recognized/i.test(raw)){
+    fbExercise.textContent = "…";
+    fbText.innerHTML = raw + '<span class="caret">▌</span>';
+  } else {
+    const {ex, fb} = parsePartial(raw);
+    fbExercise.textContent = ex || "…";
+    fbText.innerHTML = (fb || "") + '<span class="caret">▌</span>';
+  }
+  fbMeta.textContent = "Poll #" + ev.poll;
+}
+
 function renderFeedback(ev){
   const state = ev.state || "none";
   fbCard.className = "feedback-card state-" + state;
@@ -112,7 +142,9 @@ async function start(){
   placeholder.classList.add("hidden");
   setStatus("connecting", "Starting…");
   lastSpoken = "";
-  // live MJPEG preview (cache-bust so the stream (re)connects)
+  // live MJPEG preview (cache-bust so the stream (re)connects).
+  // Auto-retry if the long-lived stream drops, so it never sticks on a broken image.
+  preview.onerror = () => { setTimeout(() => { preview.src = "/api/preview.mjpg?t=" + Date.now(); }, 1000); };
   preview.src = "/api/preview.mjpg?t=" + Date.now();
 
   const res = await (await fetch("/api/start", {
@@ -127,6 +159,12 @@ async function start(){
     if(ev.type === "status"){
       setStatus(ev.state, ev.message);
       if(ev.state === "complete"){ onStopped(); }
+    } else if(ev.type === "thinking"){
+      setStatus("running", "Analyzing…");
+      showThinking(ev.poll);
+    } else if(ev.type === "partial"){
+      setStatus("running", "Coaching…");
+      showPartial(ev);
     } else if(ev.type === "feedback"){
       setStatus("running", "Coaching…");
       renderFeedback(ev);

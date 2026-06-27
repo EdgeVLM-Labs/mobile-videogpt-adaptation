@@ -256,16 +256,26 @@ class Session:
                     if slice_len == 0:
                         time.sleep(cfg.polling_interval); continue
 
-                    response, ttft, in_tok, out_tok = engine.run_single_inference(
-                        vframes, cframes, prompt, slice_len)
+                    poll += 1
+                    # 'thinking' while the model encodes 16 frames (most of the time
+                    # is prefill, before the first token), then stream tokens as they
+                    # arrive so the feedback types out instead of popping in at once.
+                    self.broadcast({"type": "thinking", "poll": poll, "message": "Analyzing…"})
+                    final_text = ""
+                    for partial, is_final, _elapsed, _metrics in engine.run_single_inference_streaming(
+                            vframes, cframes, prompt, slice_len):
+                        if is_final:
+                            final_text = partial or final_text
+                            break
+                        if partial:  # accumulated text so far (None = prefill heartbeat)
+                            self.broadcast({"type": "partial", "poll": poll, "raw": partial})
 
-                    parsed = classify(response)
+                    parsed = classify(final_text)
                     display = parsed["feedback"]
                     if self.naturalizer:
-                        try: display = self.naturalizer.process(response).get("display", display)
+                        try: display = self.naturalizer.process(final_text).get("display", display)
                         except Exception: pass
 
-                    poll += 1
                     self.broadcast({"type": "feedback",
                                     "state": parsed["state"],
                                     "exercise": parsed["exercise"],

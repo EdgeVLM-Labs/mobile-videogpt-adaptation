@@ -73,6 +73,11 @@ body{margin:0;background:var(--bg);color:var(--text);
 .feedback-card.state-error{border-left-color:var(--bad)}
 .feedback-card.state-good .fb-exercise{color:var(--good)}
 .feedback-card.state-correction .fb-exercise{color:var(--warn)}
+.feedback-card.state-thinking,.feedback-card.state-typing{border-left-color:var(--info)}
+.dots::after{content:"";animation:dots 1.3s steps(1,end) infinite}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}100%{content:""}}
+.caret{color:var(--muted);animation:blink 1s steps(1,end) infinite;font-weight:400}
+@keyframes blink{50%{opacity:0}}
 
 /* History */
 .history{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
