@@ -1,0 +1,150 @@
+// Mobile-VideoGPT Coach — patient-first frontend (vanilla JS, no build step)
+const $ = (id) => document.getElementById(id);
+let es = null;           // EventSource for feedback
+let lastSpoken = "";
+
+// ---- element refs ----
+const preview = $("preview"), placeholder = $("videoPlaceholder"), statusPill = $("statusPill");
+const startBtn = $("startBtn"), stopBtn = $("stopBtn"), voiceToggle = $("voiceToggle");
+const fbCard = $("feedbackCard"), fbExercise = $("fbExercise"), fbText = $("fbText"), fbMeta = $("fbMeta");
+const historyList = $("historyList");
+
+// ---- advanced drawer ----
+const drawer = $("drawer"), overlay = $("overlay");
+function openDrawer(){ drawer.classList.remove("hidden"); overlay.classList.remove("hidden"); }
+function closeDrawer(){ drawer.classList.add("hidden"); overlay.classList.add("hidden"); }
+$("gearBtn").onclick = openDrawer;
+$("closeDrawer").onclick = closeDrawer;
+overlay.onclick = closeDrawer;
+
+$("sourceMode").onchange = (e) => {
+  const file = e.target.value === "file";
+  $("fileField").classList.toggle("hidden", !file);
+  $("cameraField").classList.toggle("hidden", file);
+};
+
+// ---- load defaults + options ----
+async function init(){
+  try {
+    const cfg = await (await fetch("/api/config")).json();
+    $("pollingInterval").value = cfg.polling_interval;
+    $("fps").value = cfg.fps;
+    $("numFrames").value = cfg.num_frames;
+    $("maxTokens").value = cfg.max_new_tokens;
+    $("baseModel").value = cfg.base_model_path;
+    $("loraWeights").value = cfg.lora_weights_path;
+    $("prompt").value = cfg.prompt;
+  } catch(e){ console.warn(e); }
+
+  try {
+    const cams = (await (await fetch("/api/cameras")).json()).cameras || [];
+    $("cameraSelect").innerHTML = cams.map(c => `<option value="${c.index}">${c.name}</option>`).join("");
+  } catch(e){ console.warn(e); }
+
+  try {
+    const vids = (await (await fetch("/api/sample_videos")).json()).videos || [];
+    $("videoSelect").innerHTML = vids.map(v => `<option value="${v}">${v}</option>`).join("");
+  } catch(e){ console.warn(e); }
+}
+init();
+
+// ---- status pill ----
+function setStatus(state, message){
+  statusPill.className = "status-pill " + (state || "idle");
+  statusPill.textContent = message || state || "Idle";
+}
+
+// ---- feedback rendering ----
+function speak(text){
+  if(!voiceToggle.checked || !text || text === lastSpoken) return;
+  if(!("speechSynthesis" in window)) return;
+  lastSpoken = text;
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 1.0; u.pitch = 1.0;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(u);
+}
+
+function renderFeedback(ev){
+  const state = ev.state || "none";
+  fbCard.className = "feedback-card state-" + state;
+  if(state === "no_exercise"){
+    fbExercise.textContent = "No exercise detected";
+    fbText.textContent = "Position yourself and start a supported exercise.";
+  } else {
+    fbExercise.textContent = ev.exercise || "—";
+    fbText.textContent = ev.display || ev.feedback || "";
+  }
+  fbMeta.textContent = `Poll #${ev.poll}` + (ev.latency_ms ? ` · ${ev.latency_ms} ms` : "");
+
+  // history (newest first, cap 8)
+  const li = document.createElement("li");
+  const ex = (state === "no_exercise") ? "No exercise" : (ev.exercise || "");
+  li.innerHTML = `<span class="h-ex">${ex}</span> <span class="h-fb">${ev.display || ev.feedback || ""}</span>`;
+  historyList.prepend(li);
+  while(historyList.children.length > 8) historyList.removeChild(historyList.lastChild);
+
+  // voice: speak the spoken-form feedback
+  const toSay = (state === "no_exercise") ? "No exercise detected"
+              : [ev.exercise, (ev.display || ev.feedback)].filter(Boolean).join(", ");
+  speak(toSay);
+}
+
+// ---- start/stop ----
+function payload(){
+  const isFile = $("sourceMode").value === "file";
+  return {
+    is_file: isFile,
+    source: isFile ? $("videoSelect").value : $("cameraSelect").value,
+    polling_interval: parseFloat($("pollingInterval").value),
+    fps: parseInt($("fps").value),
+    max_new_tokens: parseInt($("maxTokens").value),
+    prompt: $("prompt").value,
+    base_model_path: $("baseModel").value,
+    lora_weights_path: $("loraWeights").value,
+    use_naturalizer: $("naturalizer").checked,
+    warmup_runs: parseInt($("warmup").value),
+  };
+}
+
+async function start(){
+  startBtn.disabled = true; stopBtn.disabled = false;
+  placeholder.classList.add("hidden");
+  setStatus("connecting", "Starting…");
+  lastSpoken = "";
+  // live MJPEG preview (cache-bust so the stream (re)connects)
+  preview.src = "/api/preview.mjpg?t=" + Date.now();
+
+  const res = await (await fetch("/api/start", {
+    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload())
+  })).json();
+  if(!res.ok){ setStatus("error", res.message || "Could not start"); startBtn.disabled=false; stopBtn.disabled=true; return; }
+
+  if(es) es.close();
+  es = new EventSource("/api/stream");
+  es.onmessage = (m) => {
+    let ev; try { ev = JSON.parse(m.data); } catch { return; }
+    if(ev.type === "status"){
+      setStatus(ev.state, ev.message);
+      if(ev.state === "complete"){ onStopped(); }
+    } else if(ev.type === "feedback"){
+      setStatus("running", "Coaching…");
+      renderFeedback(ev);
+    }
+  };
+  es.onerror = () => { /* browser auto-reconnects via retry */ };
+}
+
+async function stop(){
+  await fetch("/api/stop", {method:"POST"});
+  onStopped();
+}
+
+function onStopped(){
+  startBtn.disabled = false; stopBtn.disabled = true;
+  if(es){ es.close(); es = null; }
+  window.speechSynthesis && window.speechSynthesis.cancel();
+}
+
+startBtn.onclick = start;
+stopBtn.onclick = stop;

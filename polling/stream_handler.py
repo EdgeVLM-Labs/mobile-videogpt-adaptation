@@ -92,11 +92,15 @@ class VideoStreamHandler:
         num_frames: int = 16,
         fps: int = 1,
         image_resolution: int = 224,
+        inference_window_seconds: float = 0.0,
     ):
         self.buffer_size = buffer_size
         self.num_frames = num_frames
         self.fps = fps
         self.image_resolution = image_resolution
+        # If > 0, webcam inference samples num_frames across this many seconds of
+        # recent buffer (decoupled from capture fps). 0 = legacy frame-count tail.
+        self.inference_window_seconds = inference_window_seconds
 
         self.logger = logging.getLogger("VideoStreamHandler")
 
@@ -610,10 +614,22 @@ class VideoStreamHandler:
             # the patient is doing right now". Uniform sampling across a 64s
             # buffer would mix multiple exercises (squats + push-ups + lunges)
             # into a single inference, producing confused/generic responses.
-            # Tail-sampling guarantees each poll covers a contiguous recent
-            # window roughly equal to (num_video_frames / fps) seconds.
+            # Capture runs fast (smooth preview), but the model needs a fixed
+            # TEMPORAL window of "what the patient is doing right now". Select the
+            # frames from the last `inference_window_seconds`; the uniform sample
+            # below then picks num_video_frames evenly across that window — so the
+            # model input is independent of capture fps. Falls back to a frame-count
+            # tail if no window is configured or too few frames are present.
             buffer_frames = list(self.frame_buffer)
-            raw_frames = [f.frame for f in buffer_frames[-num_video_frames:]]
+            window = getattr(self, "inference_window_seconds", 0.0)
+            if window and window > 0:
+                cutoff = buffer_frames[-1].timestamp - window
+                windowed = [f for f in buffer_frames if f.timestamp >= cutoff]
+                if len(windowed) < num_video_frames:
+                    windowed = buffer_frames[-num_video_frames:]
+                raw_frames = [f.frame for f in windowed]
+            else:
+                raw_frames = [f.frame for f in buffer_frames[-num_video_frames:]]
             slice_len = len(raw_frames)
         else:
             return [], [], 0

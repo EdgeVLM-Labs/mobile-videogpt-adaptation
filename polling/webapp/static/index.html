@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mobile-VideoGPT Coach</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">MV</div>
+      <div class="brand-text">
+        <h1>Mobile-VideoGPT Coach</h1>
+        <p>Real-time exercise form feedback</p>
+      </div>
+    </div>
+    <div class="badges">
+      <span class="badge">0.5B</span>
+      <span class="badge">VideoMamba + Qwen2</span>
+      <button id="gearBtn" class="gear" title="Advanced settings" aria-label="Advanced settings">⚙</button>
+    </div>
+  </header>
+
+  <!-- Main patient view -->
+  <main class="stage">
+    <section class="video-col">
+      <div class="video-wrap">
+        <img id="preview" alt="camera preview" />
+        <div id="statusPill" class="status-pill idle">Idle</div>
+        <div id="videoPlaceholder" class="video-placeholder">
+          <div class="ph-icon">▶</div>
+          <p>Press <b>Start</b> to begin coaching</p>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="startBtn" class="btn btn-primary">▶ Start</button>
+        <button id="stopBtn" class="btn btn-stop" disabled>■ Stop</button>
+        <label class="voice-toggle">
+          <input type="checkbox" id="voiceToggle" /> 🔊 Voice
+        </label>
+      </div>
+    </section>
+
+    <section class="feedback-col">
+      <div id="feedbackCard" class="feedback-card state-idle">
+        <div class="fb-label">COACHING FEEDBACK</div>
+        <div id="fbExercise" class="fb-exercise">—</div>
+        <div id="fbText" class="fb-text">Waiting to start…</div>
+        <div id="fbMeta" class="fb-meta"></div>
+      </div>
+      <div class="history">
+        <div class="history-title">Recent</div>
+        <ul id="historyList"></ul>
+      </div>
+    </section>
+  </main>
+
+  <!-- Advanced drawer -->
+  <div id="overlay" class="overlay hidden"></div>
+  <aside id="drawer" class="drawer hidden">
+    <div class="drawer-head">
+      <h2>Advanced</h2>
+      <button id="closeDrawer" class="gear" aria-label="Close">✕</button>
+    </div>
+    <div class="drawer-body">
+      <div class="field">
+        <label>Input source</label>
+        <select id="sourceMode">
+          <option value="webcam">Direct Webcam (Jetson)</option>
+          <option value="file">Sample Video File</option>
+        </select>
+      </div>
+      <div class="field" id="cameraField">
+        <label>Camera</label>
+        <select id="cameraSelect"></select>
+      </div>
+      <div class="field hidden" id="fileField">
+        <label>Sample video</label>
+        <select id="videoSelect"></select>
+      </div>
+
+      <hr/>
+      <div class="grid2">
+        <div class="field"><label>Polling interval (s)</label><input type="number" id="pollingInterval" step="0.5" min="1" max="10"/></div>
+        <div class="field"><label>Capture FPS (preview)</label><input type="number" id="fps" step="1" min="1" max="30"/></div>
+        <div class="field"><label>Frames per poll</label><input type="number" id="numFrames" value="16" disabled title="Fixed by model (16)"/></div>
+        <div class="field"><label>Max new tokens</label><input type="number" id="maxTokens" step="16" min="32" max="256"/></div>
+        <div class="field"><label>Warmup runs</label><input type="number" id="warmup" value="1" min="0" max="5"/></div>
+      </div>
+
+      <hr/>
+      <div class="field"><label>Base model</label><input type="text" id="baseModel"/></div>
+      <div class="field"><label>LoRA weights</label><input type="text" id="loraWeights"/></div>
+      <div class="field"><label>Prompt</label><textarea id="prompt" rows="3"></textarea></div>
+      <label class="voice-toggle"><input type="checkbox" id="naturalizer"/> Enable feedback naturalizer</label>
+      <p class="hint">Changing model/LoRA reloads the model on next Start.</p>
+    </div>
+  </aside>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

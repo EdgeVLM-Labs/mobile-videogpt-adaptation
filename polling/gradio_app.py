@@ -1316,11 +1316,12 @@ def create_interface():
                     )
                     lora_weights = gr.Dropdown(
                         choices=[
+                            "EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed",
                             "EdgeVLM-Labs/mobile-videogpt-finetune-2000",
                             "EdgeVLM-Labs/qved-finetune-20260110_155349",
                         ],
                         label="LoRA adapter",
-                        value="EdgeVLM-Labs/mobile-videogpt-finetune-2000",
+                        value="EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed",
                     )
 
             with gr.Tab("Inference"):

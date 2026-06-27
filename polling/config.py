@@ -13,7 +13,7 @@ class PollingConfig:
 
     # Model configuration
     base_model_path: str = "Amshaker/Mobile-VideoGPT-0.5B"
-    lora_weights_path: str = "EdgeVLM-Labs/mobile-videogpt-finetune-2000"
+    lora_weights_path: str = "EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed"
 
     # Polling configuration
     polling_interval: float = 3.0  # Seconds between inference calls
@@ -29,18 +29,21 @@ class PollingConfig:
     num_frames: int = 16
     num_context_images: int = 16
     chunk_size: int = 8  # VideoMamba chunk size
-    # Capture rate. With num_frames=16 and tail-sampling, each poll covers
-    # (num_frames / fps) seconds of activity. fps=4 gives a 4-second window
-    # per inference — roughly one exercise rep — and prevents stale frames
-    # from a previous exercise contaminating the current poll.
-    fps: int = 4
+    # Capture rate — controls PREVIEW smoothness only. Decoupled from the model:
+    # frames are captured at `fps` for a smooth live preview, while each inference
+    # uniformly samples num_frames across the last `inference_window_seconds` of
+    # buffer. So raising fps smooths the preview without changing what the model sees.
+    fps: int = 15
+    # Temporal window the model's num_frames cover. 16 frames over 4s = the 4 fps
+    # density used during fine-tuning — keep at 4.0 to match training.
+    inference_window_seconds: float = 4.0
     image_resolution: int = 224  # Frame resolution
 
     # Frame buffer configuration
-    # Sized to ~2× the active window so old frames evict quickly when the
-    # patient transitions between exercises. With fps=4 and num_frames=16,
-    # buffer_size=32 holds ~8 seconds of recent history.
-    frame_buffer_size: int = 32
+    # Must hold >= inference_window_seconds * fps frames. At 15 fps over a 4s window
+    # that is 60; 96 (~6.4s) leaves margin and still evicts old frames quickly so a
+    # previous exercise does not contaminate the current poll.
+    frame_buffer_size: int = 96
     frame_overlap: float = 0.5  # Overlap ratio between polling windows (0.0 - 1.0)
 
     # Inference configuration

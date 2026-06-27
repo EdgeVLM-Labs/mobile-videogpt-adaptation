@@ -160,6 +160,7 @@ class PollingInferenceEngine:
             num_frames=config.num_frames,
             fps=config.fps,
             image_resolution=config.image_resolution,
+            inference_window_seconds=getattr(config, "inference_window_seconds", 0.0),
         )
 
         # First token streamer
