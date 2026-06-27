@@ -33,15 +33,19 @@ class PollingConfig:
     # frames are captured at `fps` for a smooth live preview, while each inference
     # uniformly samples num_frames across the last `inference_window_seconds` of
     # buffer. So raising fps smooths the preview without changing what the model sees.
-    fps: int = 15
+    # 10 keeps the preview smooth while cutting capture/encode CPU vs 15. Must stay
+    # >= ceil(num_frames / inference_window_seconds) (=4) so the 4s window always has
+    # >=16 real frames to sample — 10 leaves a wide margin (40 frames), no padding,
+    # so the model input is unchanged.
+    fps: int = 10
     # Temporal window the model's num_frames cover. 16 frames over 4s = the 4 fps
     # density used during fine-tuning — keep at 4.0 to match training.
     inference_window_seconds: float = 4.0
     image_resolution: int = 224  # Frame resolution
 
     # Frame buffer configuration
-    # Must hold >= inference_window_seconds * fps frames. At 15 fps over a 4s window
-    # that is 60; 96 (~6.4s) leaves margin and still evicts old frames quickly so a
+    # Must hold >= inference_window_seconds * fps frames. At 10 fps over a 4s window
+    # that is 40; 96 (~9.6s) leaves margin and still evicts old frames quickly so a
     # previous exercise does not contaminate the current poll.
     frame_buffer_size: int = 96
     frame_overlap: float = 0.5  # Overlap ratio between polling windows (0.0 - 1.0)

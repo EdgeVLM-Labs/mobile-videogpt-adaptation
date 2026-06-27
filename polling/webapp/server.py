@@ -374,10 +374,16 @@ def api_preview():
             frame = SESSION.latest_frame_bgr()
             if frame is None:
                 frame = blank
-            ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            # Downscale for the PREVIEW only. latest_frame_bgr() already returns a
+            # copy and cv2.resize makes a new array, so the model's full-res buffer
+            # frames are never touched — zero effect on inference/accuracy.
+            h, w = frame.shape[:2]
+            if w > 480:
+                frame = cv2.resize(frame, (480, int(h * 480 / w)))
+            ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 65])
             if ok:
                 yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg.tobytes() + b"\r\n")
-            time.sleep(1 / 15)  # output cap; real cadence is the capture fps
+            time.sleep(1 / 10)  # preview output cap (decoupled from model/accuracy)
     return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
