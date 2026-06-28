@@ -34,9 +34,17 @@
     </div>
   </header>
 
-  <!-- Main patient view -->
+  <!-- Mode tabs -->
+  <nav class="mode-tabs">
+    <button id="tabLive" class="mode-tab active">● Live Coaching</button>
+    <button id="tabUpload" class="mode-tab">⬆ Analyze a Video</button>
+    <label class="voice-toggle tab-voice"><input type="checkbox" id="voiceToggle" /> 🔊 Voice</label>
+  </nav>
+
+  <!-- Main view -->
   <main class="stage">
-    <section class="video-col">
+    <!-- LIVE mode -->
+    <section class="video-col" id="liveCol">
       <div class="video-wrap">
         <img id="preview" alt="camera preview" />
         <div id="statusPill" class="status-pill idle">Idle</div>
@@ -48,12 +56,29 @@
       <div class="controls">
         <button id="startBtn" class="btn btn-primary">▶ Start</button>
         <button id="stopBtn" class="btn btn-stop" disabled>■ Stop</button>
-        <label class="voice-toggle">
-          <input type="checkbox" id="voiceToggle" /> 🔊 Voice
-        </label>
       </div>
     </section>
 
+    <!-- UPLOAD mode -->
+    <section class="video-col hidden" id="uploadCol">
+      <div class="video-wrap">
+        <video id="uploadVideo" playsinline controls></video>
+        <div id="uploadStatusPill" class="status-pill idle">No file</div>
+        <div id="uploadPlaceholder" class="video-placeholder">
+          <div class="ph-icon">⬆</div>
+          <p>Choose a video to analyze</p>
+        </div>
+      </div>
+      <div class="controls">
+        <input type="file" id="fileInput" accept="video/*" hidden />
+        <button id="chooseBtn" class="btn btn-stop">Choose video…</button>
+        <button id="analyzeBtn" class="btn btn-primary" disabled>▶ Analyze</button>
+        <button id="analyzeStopBtn" class="btn btn-stop" disabled>■ Stop</button>
+      </div>
+      <p id="uploadHint" class="hint"></p>
+    </section>
+
+    <!-- Shared feedback -->
     <section class="feedback-col">
       <div id="feedbackCard" class="feedback-card state-idle">
         <div class="fb-label">COACHING FEEDBACK</div>
@@ -77,19 +102,8 @@
     </div>
     <div class="drawer-body">
       <div class="field">
-        <label>Input source</label>
-        <select id="sourceMode">
-          <option value="webcam">Direct Webcam (Jetson)</option>
-          <option value="file">Sample Video File</option>
-        </select>
-      </div>
-      <div class="field" id="cameraField">
-        <label>Camera</label>
+        <label>Camera (Live mode)</label>
         <select id="cameraSelect"></select>
-      </div>
-      <div class="field hidden" id="fileField">
-        <label>Sample video</label>
-        <select id="videoSelect"></select>
       </div>
 
       <hr/>

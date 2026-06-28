@@ -1,13 +1,26 @@
 // Mobile-VideoGPT Coach — patient-first frontend (vanilla JS, no build step)
+// Two modes share one feedback panel + one SSE stream:
+//   * Live Coaching  — webcam, MJPEG preview
+//   * Analyze a Video — upload a file, run inference over it
 const $ = (id) => document.getElementById(id);
-let es = null;           // EventSource for feedback
+let es = null;            // EventSource for feedback
 let lastSpoken = "";
+let currentMode = "live"; // "live" | "upload"
+let running = false;
+let uploadedName = null;  // server-side filename of the uploaded video
 
 // ---- element refs ----
 const preview = $("preview"), placeholder = $("videoPlaceholder"), statusPill = $("statusPill");
 const startBtn = $("startBtn"), stopBtn = $("stopBtn"), voiceToggle = $("voiceToggle");
 const fbCard = $("feedbackCard"), fbExercise = $("fbExercise"), fbText = $("fbText"), fbMeta = $("fbMeta");
 const historyList = $("historyList");
+// tabs + columns
+const tabLive = $("tabLive"), tabUpload = $("tabUpload"), liveCol = $("liveCol"), uploadCol = $("uploadCol");
+// upload controls
+const fileInput = $("fileInput"), chooseBtn = $("chooseBtn"),
+      analyzeBtn = $("analyzeBtn"), analyzeStopBtn = $("analyzeStopBtn"),
+      uploadVideo = $("uploadVideo"), uploadStatusPill = $("uploadStatusPill"),
+      uploadPlaceholder = $("uploadPlaceholder"), uploadHint = $("uploadHint");
 
 // ---- advanced drawer ----
 const drawer = $("drawer"), overlay = $("overlay");
@@ -16,12 +29,6 @@ function closeDrawer(){ drawer.classList.add("hidden"); overlay.classList.add("h
 $("gearBtn").onclick = openDrawer;
 $("closeDrawer").onclick = closeDrawer;
 overlay.onclick = closeDrawer;
-
-$("sourceMode").onchange = (e) => {
-  const file = e.target.value === "file";
-  $("fileField").classList.toggle("hidden", !file);
-  $("cameraField").classList.toggle("hidden", file);
-};
 
 // ---- light/dark theme toggle ----
 // Initial theme is set pre-paint by the inline script in <head>.
@@ -56,21 +63,18 @@ async function init(){
     const cams = (await (await fetch("/api/cameras")).json()).cameras || [];
     $("cameraSelect").innerHTML = cams.map(c => `<option value="${c.index}">${c.name}</option>`).join("");
   } catch(e){ console.warn(e); }
-
-  try {
-    const vids = (await (await fetch("/api/sample_videos")).json()).videos || [];
-    $("videoSelect").innerHTML = vids.map(v => `<option value="${v}">${v}</option>`).join("");
-  } catch(e){ console.warn(e); }
 }
 init();
 
-// ---- status pill ----
+// ---- status pill (writes to the active mode's pill) ----
+function activePill(){ return currentMode === "upload" ? uploadStatusPill : statusPill; }
 function setStatus(state, message){
-  statusPill.className = "status-pill " + (state || "idle");
-  statusPill.textContent = message || state || "Idle";
+  const p = activePill();
+  p.className = "status-pill " + (state || "idle");
+  p.textContent = message || state || "Idle";
 }
 
-// ---- feedback rendering ----
+// ---- feedback rendering (shared by both modes) ----
 function speak(text){
   if(!voiceToggle.checked || !text || text === lastSpoken) return;
   if(!("speechSynthesis" in window)) return;
@@ -92,7 +96,7 @@ function parsePartial(raw){
 function showThinking(poll){
   fbCard.className = "feedback-card state-thinking";
   fbExercise.textContent = "";
-  fbText.innerHTML = 'Analyzing your form<span class="dots"></span>';
+  fbText.innerHTML = 'Analyzing the movement<span class="dots"></span>';
   fbMeta.textContent = "Poll #" + poll;
 }
 
@@ -140,12 +144,18 @@ function renderFeedback(ev){
   speak(toSay);
 }
 
-// ---- start/stop ----
-function payload(){
-  const isFile = $("sourceMode").value === "file";
+function resetFeedback(){
+  fbCard.className = "feedback-card state-idle";
+  fbExercise.textContent = "—";
+  fbText.textContent = "Waiting to start…";
+  fbMeta.textContent = "";
+  historyList.innerHTML = "";
+  lastSpoken = "";
+}
+
+// ---- settings (from the Advanced drawer) — shared by both modes ----
+function settings(){
   return {
-    is_file: isFile,
-    source: isFile ? $("videoSelect").value : $("cameraSelect").value,
     polling_interval: parseFloat($("pollingInterval").value),
     fps: parseInt($("fps").value),
     max_new_tokens: parseInt($("maxTokens").value),
@@ -157,21 +167,8 @@ function payload(){
   };
 }
 
-async function start(){
-  startBtn.disabled = true; stopBtn.disabled = false;
-  placeholder.classList.add("hidden");
-  setStatus("connecting", "Starting…");
-  lastSpoken = "";
-  // live MJPEG preview (cache-bust so the stream (re)connects).
-  // Auto-retry if the long-lived stream drops, so it never sticks on a broken image.
-  preview.onerror = () => { setTimeout(() => { preview.src = "/api/preview.mjpg?t=" + Date.now(); }, 1000); };
-  preview.src = "/api/preview.mjpg?t=" + Date.now();
-
-  const res = await (await fetch("/api/start", {
-    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload())
-  })).json();
-  if(!res.ok){ setStatus("error", res.message || "Could not start"); startBtn.disabled=false; stopBtn.disabled=true; return; }
-
+// ---- SSE wiring (shared) ----
+function connectSSE(){
   if(es) es.close();
   es = new EventSource("/api/stream");
   es.onmessage = (m) => {
@@ -179,30 +176,107 @@ async function start(){
     if(ev.type === "status"){
       setStatus(ev.state, ev.message);
       if(ev.state === "complete"){ onStopped(); }
-    } else if(ev.type === "thinking"){
-      setStatus("running", "Analyzing…");
-      showThinking(ev.poll);
-    } else if(ev.type === "partial"){
-      setStatus("running", "Coaching…");
-      showPartial(ev);
-    } else if(ev.type === "feedback"){
-      setStatus("running", "Coaching…");
-      renderFeedback(ev);
-    }
+    } else if(ev.type === "thinking"){ setStatus("running", "Analyzing…"); showThinking(ev.poll); }
+    else if(ev.type === "partial"){ setStatus("running", "Coaching…"); showPartial(ev); }
+    else if(ev.type === "feedback"){ setStatus("running", "Coaching…"); renderFeedback(ev); }
   };
   es.onerror = () => { /* browser auto-reconnects via retry */ };
 }
 
-async function stop(){
-  await fetch("/api/stop", {method:"POST"});
-  onStopped();
+async function postStart(payload){
+  return (await (await fetch("/api/start", {
+    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)
+  })).json());
 }
 
+// ---- LIVE mode ----
+async function startLive(){
+  running = true;
+  startBtn.disabled = true; stopBtn.disabled = false;
+  placeholder.classList.add("hidden");
+  setStatus("connecting", "Starting…");
+  lastSpoken = "";
+  // live MJPEG preview (cache-bust so it (re)connects; auto-retry if it drops)
+  preview.onerror = () => { setTimeout(() => { preview.src = "/api/preview.mjpg?t=" + Date.now(); }, 1000); };
+  preview.src = "/api/preview.mjpg?t=" + Date.now();
+
+  const res = await postStart({ is_file:false, source: ($("cameraSelect").value || "0"), ...settings() });
+  if(!res.ok){ setStatus("error", res.message || "Could not start"); running=false; startBtn.disabled=false; stopBtn.disabled=true; return; }
+  connectSSE();
+}
+
+// ---- UPLOAD mode ----
+chooseBtn.onclick = () => fileInput.click();
+
+fileInput.onchange = async () => {
+  const f = fileInput.files[0];
+  if(!f) return;
+  // instant local preview (no round-trip) while we upload for inference
+  uploadVideo.src = URL.createObjectURL(f);
+  uploadPlaceholder.classList.add("hidden");
+  analyzeBtn.disabled = true; uploadedName = null;
+  uploadStatusPill.className = "status-pill loading"; uploadStatusPill.textContent = "Uploading…";
+  uploadHint.textContent = `${f.name} · ${(f.size/1e6).toFixed(1)} MB`;
+  try {
+    // raw-body upload (no multipart): file bytes are the request body
+    const res = await (await fetch("/api/upload?filename=" + encodeURIComponent(f.name), {
+      method:"POST", headers:{"Content-Type":"application/octet-stream"}, body: f
+    })).json();
+    if(!res.ok) throw new Error(res.message || "upload failed");
+    uploadedName = res.filename;
+    uploadStatusPill.className = "status-pill running"; uploadStatusPill.textContent = "Ready";
+    analyzeBtn.disabled = false;
+  } catch(e){
+    uploadStatusPill.className = "status-pill error"; uploadStatusPill.textContent = "Upload failed";
+    uploadHint.textContent = String(e);
+  }
+};
+
+async function startUpload(){
+  if(!uploadedName) return;
+  running = true;
+  analyzeBtn.disabled = true; analyzeStopBtn.disabled = false; chooseBtn.disabled = true;
+  setStatus("connecting", "Analyzing…");
+  lastSpoken = "";
+  try { uploadVideo.currentTime = 0; uploadVideo.play(); } catch(e){}
+
+  const res = await postStart({ is_file:true, source: uploadedName, ...settings() });
+  if(!res.ok){
+    setStatus("error", res.message || "Could not start");
+    running=false; analyzeBtn.disabled=false; analyzeStopBtn.disabled=true; chooseBtn.disabled=false; return;
+  }
+  connectSSE();
+}
+
+// ---- stop / completion (shared) ----
+async function stopSession(){ try { await fetch("/api/stop", {method:"POST"}); } catch(e){} onStopped(); }
 function onStopped(){
+  running = false;
   startBtn.disabled = false; stopBtn.disabled = true;
+  analyzeStopBtn.disabled = true; chooseBtn.disabled = false;
+  analyzeBtn.disabled = !uploadedName;
   if(es){ es.close(); es = null; }
   window.speechSynthesis && window.speechSynthesis.cancel();
 }
 
-startBtn.onclick = start;
-stopBtn.onclick = stop;
+startBtn.onclick = startLive;
+stopBtn.onclick = stopSession;
+analyzeBtn.onclick = startUpload;
+analyzeStopBtn.onclick = stopSession;
+
+// ---- mode switching ----
+function setMode(mode){
+  if(mode === currentMode) return;
+  if(running) stopSession();
+  currentMode = mode;
+  const live = mode === "live";
+  tabLive.classList.toggle("active", live);
+  tabUpload.classList.toggle("active", !live);
+  liveCol.classList.toggle("hidden", !live);
+  uploadCol.classList.toggle("hidden", live);
+  if(!live){ preview.onerror = null; preview.removeAttribute("src"); }  // free the MJPEG stream
+  resetFeedback();
+  setStatus("idle", live ? "Idle" : (uploadedName ? "Ready" : "No file"));
+}
+tabLive.onclick = () => setMode("live");
+tabUpload.onclick = () => setMode("upload");

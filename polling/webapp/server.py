@@ -19,6 +19,7 @@ Run:
     python -m polling.webapp.server               # serves on 0.0.0.0:8000
 """
 import os
+import re
 import sys
 import time
 import json
@@ -30,7 +31,7 @@ from typing import Optional, List, Dict
 
 import cv2
 import numpy as np
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -50,9 +51,21 @@ logger = logging.getLogger("webapp")
 
 STATIC_DIR = Path(__file__).parent / "static"
 SAMPLE_DIR = Path(__file__).parent.parent.parent / "sample_videos"
+UPLOAD_DIR = Path(__file__).parent.parent.parent / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 PRAISE_MARKERS = ("good form", "great job", "no obvious issue", "good arm placement", "keep going")
 NEG_LABEL = "No recognized exercise"
+
+
+def resolve_source(name: str) -> Optional[str]:
+    """Resolve an inference video by name: uploaded files first, then sample_videos/."""
+    base_name = os.path.basename(name or "")
+    for base in (UPLOAD_DIR, SAMPLE_DIR):
+        p = base / base_name
+        if p.exists():
+            return str(p)
+    return None
 
 
 def classify(response: str) -> Dict:
@@ -218,8 +231,8 @@ class Session:
                 engine.stream_handler.start_stream_capture(str(req.source))
                 time.sleep(0.8)  # let the buffer fill a few frames for preview
             else:
-                path = str(SAMPLE_DIR / req.source)
-                if not os.path.exists(path):
+                path = resolve_source(req.source)
+                if not path:
                     self._status("error", f"Video not found: {req.source}"); self.running = False; return
 
             # 2) load the model (slow on first run) — preview keeps streaming meanwhile
@@ -229,7 +242,7 @@ class Session:
                     self._status("error", "Failed to load model."); self.running = False; return
 
             if not is_webcam:
-                if not engine.stream_handler.open_video_file(str(SAMPLE_DIR / req.source)):
+                if not engine.stream_handler.open_video_file(path):
                     self._status("error", "Failed to open video file."); self.running = False; return
 
             # 3) warmup
@@ -339,6 +352,28 @@ def api_cameras():
     return {"cameras": list_cameras()}
 
 
+@app.post("/api/upload")
+async def api_upload(request: Request, filename: str = "upload.mp4"):
+    """Receive a video as the raw request body (no multipart dep). The client
+    sends the file bytes with ?filename=... ; we stream them to uploads/ so the
+    file-mode inference path can pick it up via resolve_source()."""
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(filename)) or "upload.mp4"
+    if "." not in safe:
+        safe += ".mp4"
+    dest = UPLOAD_DIR / safe
+    try:
+        size = 0
+        with open(dest, "wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk); size += len(chunk)
+        if size == 0:
+            return JSONResponse({"ok": False, "message": "Empty upload."}, status_code=400)
+        return {"ok": True, "filename": safe, "size": size}
+    except Exception as e:
+        logger.error(f"upload failed: {e}", exc_info=True)
+        return JSONResponse({"ok": False, "message": str(e)}, status_code=500)
+
+
 @app.get("/api/sample_videos")
 def api_sample_videos():
     vids = []
@@ -411,6 +446,7 @@ def api_preview():
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
 if __name__ == "__main__":
