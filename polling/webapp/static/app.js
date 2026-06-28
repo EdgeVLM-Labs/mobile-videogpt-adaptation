@@ -227,7 +227,9 @@ async function startLiveDevice(){
     liveLocalVideo.srcObject = mediaStream;
     await liveLocalVideo.play();
   } catch(e){
-    setStatus("error", "Camera permission denied"); onStopped(); return;
+    // surface the real reason: NotAllowedError (denied/insecure-context),
+    // NotFoundError (no camera), NotReadableError (camera busy), SecurityError…
+    setStatus("error", "Camera blocked: " + (e && e.name ? e.name : e)); onStopped(); return;
   }
   const res = await postStart({ is_file:false, source:"push", ...settings() });
   if(!res.ok){ setStatus("error", res.message || "Could not start"); onStopped(); return; }
