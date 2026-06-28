@@ -31,7 +31,7 @@ from typing import Optional, List, Dict
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -224,12 +224,18 @@ class Session:
                 try: self.naturalizer = FeedbackNaturalizer()
                 except Exception as e: logger.warning(f"naturalizer disabled: {e}")
 
-            # 1) start the camera FIRST so the preview is live while the model loads
+            # 1) start the source FIRST so the buffer fills while the model loads
             is_webcam = not req.is_file
             if is_webcam:
-                self._status("connecting", "Connecting to camera…")
-                engine.stream_handler.start_stream_capture(str(req.source))
-                time.sleep(0.8)  # let the buffer fill a few frames for preview
+                if str(req.source) == "push":
+                    # Frames are pushed from a remote client (phone/laptop) over
+                    # the /api/ingest websocket — no local camera.
+                    self._status("connecting", "Waiting for phone/laptop camera…")
+                    engine.stream_handler.start_push_stream()
+                else:
+                    self._status("connecting", "Connecting to camera…")
+                    engine.stream_handler.start_stream_capture(str(req.source))
+                    time.sleep(0.8)  # let the buffer fill a few frames for preview
             else:
                 path = resolve_source(req.source)
                 if not path:
@@ -374,6 +380,28 @@ async def api_upload(request: Request, filename: str = "upload.mp4"):
         return JSONResponse({"ok": False, "message": str(e)}, status_code=500)
 
 
+@app.websocket("/api/ingest")
+async def api_ingest(ws: WebSocket):
+    """Receive JPEG frames pushed from a remote client (phone/laptop camera) and
+    feed them into the inference buffer. Active when a session was started with
+    source='push'. Each binary message is one JPEG frame."""
+    await ws.accept()
+    n = 0
+    try:
+        while True:
+            data = await ws.receive_bytes()
+            eng = SESSION.engine
+            sh = eng.stream_handler if eng else None
+            if sh is not None and getattr(sh, "_push_mode", False):
+                sh.push_frame(data); n += 1
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.warning(f"ingest ws closed: {e}")
+    finally:
+        logger.info(f"ingest ws ended ({n} frames received)")
+
+
 @app.get("/api/sample_videos")
 def api_sample_videos():
     vids = []
@@ -451,4 +479,13 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # HTTPS (required for phone-camera mode — getUserMedia needs a secure context).
+    # Enabled when MVGPT_SSL_CERT/KEY point to a cert pair (see gen_cert.sh).
+    cert, key = os.environ.get("MVGPT_SSL_CERT"), os.environ.get("MVGPT_SSL_KEY")
+    kw = {}
+    if cert and key and os.path.exists(cert) and os.path.exists(key):
+        kw = {"ssl_certfile": cert, "ssl_keyfile": key}
+        logger.info(f"Serving HTTPS on 0.0.0.0:8000 (cert={cert})")
+    else:
+        logger.info("Serving HTTP on 0.0.0.0:8000 (phone camera needs HTTPS — see gen_cert.sh)")
+    uvicorn.run(app, host="0.0.0.0", port=8000, **kw)

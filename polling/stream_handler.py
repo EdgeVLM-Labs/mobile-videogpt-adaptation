@@ -128,6 +128,11 @@ class VideoStreamHandler:
         # Verification: counts polls when MVGPT_DEBUG_FRAMES=1 (see _debug_dump_frames)
         self._debug_poll_count = 0
 
+        # Push mode: frames arrive from a remote client (phone/laptop) instead of
+        # a local camera (see start_push_stream / push_frame).
+        self._push_mode = False
+        self._push_frame_idx = 0
+
     def open_video_file(self, video_path: str) -> bool:
         """Open a video file for frame extraction."""
         if not os.path.exists(video_path):
@@ -255,6 +260,33 @@ class VideoStreamHandler:
         except Exception as e:
             self.logger.error(f"Failed to start ffmpeg capture: {e}")
             return False
+
+    def start_push_stream(self):
+        """Prepare to receive frames PUSHED from a remote client (a phone or
+        laptop browser) instead of capturing from a local camera. Frames arrive
+        via push_frame() (from the ingest websocket) and land in the same buffer
+        the inference path samples, so get_frames_for_inference() is unchanged."""
+        self.close()
+        self.frame_buffer.clear()
+        self._is_running = True
+        self._push_mode = True
+        self._push_frame_idx = 0
+        self.logger.info("Push stream ready — awaiting frames from a remote client")
+
+    def push_frame(self, jpeg_bytes: bytes) -> bool:
+        """Decode a JPEG frame pushed from a remote client and append it to the
+        buffer as RGB (matching the local capture loops)."""
+        if not jpeg_bytes:
+            return False
+        arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return False
+        frame_rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        self.frame_buffer.append(FrameData(
+            frame=frame_rgb, timestamp=time.time(), frame_index=self._push_frame_idx))
+        self._push_frame_idx += 1
+        return True
 
     def start_stream_capture(self, source: str):
         """Start background thread to capture frames from stream."""

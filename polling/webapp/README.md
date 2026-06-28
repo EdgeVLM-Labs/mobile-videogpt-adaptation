@@ -29,7 +29,12 @@ Then open **`http://<jetson-ip>:8000`** from any device on the same network.
 
 ## Usage
 Two modes, switched by the tabs at the top (both share the feedback panel, voice, and theme):
-- **Live Coaching:** big live webcam video + one feedback card + Start/Stop.
+- **Live Coaching:** live video + one feedback card + Start/Stop. The **camera source**
+  selector chooses between:
+  - **Jetson camera** — a camera physically attached to the Jetson (MJPEG preview).
+  - **This phone / laptop** — uses the *viewing device's* camera: it previews locally
+    (zero latency) and streams JPEG frames to the Jetson over a websocket for inference.
+    Prop the phone up, do the exercise, get feedback. **Requires HTTPS** (see below).
 - **Analyze a Video:** choose a video file → it uploads and plays → **Analyze** runs the
   model over the clip in windows and streams feedback (same card + Recent list).
   Uploads are stored under `uploads/` and processed via the file-inference path.
@@ -37,12 +42,25 @@ Two modes, switched by the tabs at the top (both share the feedback panel, voice
 - **Advanced (gear icon):** camera (Live), polling interval, capture fps, max tokens,
   base model, **LoRA weights**, prompt, warmup, naturalizer.
 
+## Phone / laptop camera (HTTPS required)
+Browsers only allow camera access (`getUserMedia`) in a **secure context**. Over a LAN IP
+that means **HTTPS** — plain `http://<jetson-ip>:8000` will not let a phone use its camera.
+Enable it once:
+```bash
+bash polling/webapp/gen_cert.sh   # writes a self-signed cert.pem + key.pem
+bash polling/webapp/run.sh        # auto-detects the cert → serves HTTPS
+```
+Then open **`https://<jetson-ip>:8000`** on the phone. The first time, the browser warns
+about the self-signed cert — tap **Advanced → Proceed**. (Jetson-camera and Upload modes
+work fine over plain HTTP; only the phone-camera source needs HTTPS.)
+
 ## Endpoints
 | Route | Purpose |
 |---|---|
 | `GET /` | patient UI |
-| `GET /api/preview.mjpg` | live camera preview (MJPEG) |
+| `GET /api/preview.mjpg` | live camera preview (MJPEG, Jetson camera) |
 | `POST /api/upload?filename=…` | upload a video (raw body) → saved to `uploads/` |
+| `WS /api/ingest` | phone/laptop camera frames (binary JPEG) → inference buffer |
 | `GET /api/stream` | feedback stream (SSE) |
 | `POST /api/start` / `POST /api/stop` | session control |
 | `GET /api/cameras` · `/api/sample_videos` · `/api/config` · `/api/status` | options/state |

@@ -23,4 +23,16 @@ fi
 
 export USE_FULL_GPU=1
 export USE_TRT_CLIP=1
+
+# HTTPS — needed for the "This phone / laptop" camera source (getUserMedia needs a
+# secure context). Auto-enabled if a self-signed cert exists
+# (create once with: bash polling/webapp/gen_cert.sh). Jetson-camera mode works on HTTP.
+CERT="$(pwd)/polling/webapp/cert.pem"; KEY="$(pwd)/polling/webapp/key.pem"
+if [ -f "$CERT" ] && [ -f "$KEY" ]; then
+  export MVGPT_SSL_CERT="$CERT" MVGPT_SSL_KEY="$KEY"
+  echo "HTTPS enabled -> https://<jetson-ip>:8000  (phone camera supported)"
+else
+  echo "HTTP only -> http://<jetson-ip>:8000  (for phone camera run: bash polling/webapp/gen_cert.sh)"
+fi
+
 exec python -m polling.webapp.server "$@"

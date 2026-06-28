@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mobile-VideoGPT Coach</title>
-  <link rel="stylesheet" href="/static/styles.css?v=2" />
+  <link rel="stylesheet" href="/static/styles.css?v=3" />
   <script>
     // Set theme before first paint (no flash): saved choice, else OS preference.
     (function () {
@@ -49,6 +49,7 @@
     <section class="video-col live-only" id="liveCol">
       <div class="video-wrap">
         <img id="preview" alt="camera preview" />
+        <video id="liveLocalVideo" muted playsinline hidden></video>
         <div id="statusPill" class="status-pill idle">Idle</div>
         <div id="videoPlaceholder" class="video-placeholder">
           <div class="ph-icon">▶</div>
@@ -56,6 +57,10 @@
         </div>
       </div>
       <div class="controls">
+        <select id="liveSource" class="src-select" title="Camera source">
+          <option value="jetson">Jetson camera</option>
+          <option value="device">This phone / laptop</option>
+        </select>
         <button id="startBtn" class="btn btn-primary">▶ Start</button>
         <button id="stopBtn" class="btn btn-stop" disabled>■ Stop</button>
       </div>
@@ -132,6 +137,6 @@
     </div>
   </aside>
 
-  <script src="/static/app.js?v=2"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>

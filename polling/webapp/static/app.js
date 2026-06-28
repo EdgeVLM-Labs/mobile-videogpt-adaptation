@@ -10,11 +10,15 @@ let lastSpoken = "";
 let currentMode = "live"; // "live" | "upload"
 let running = false;
 let uploadedName = null;  // server-side filename of the uploaded video
+// phone/laptop camera ("device") mode:
+let ingestWS = null, framePump = null, mediaStream = null;
+const captureCanvas = document.createElement("canvas");
 
 // ---- element refs ----
 const stage = $("stage");
 const preview = $("preview"), placeholder = $("videoPlaceholder"), statusPill = $("statusPill");
 const startBtn = $("startBtn"), stopBtn = $("stopBtn"), voiceToggle = $("voiceToggle");
+const liveSource = $("liveSource"), liveLocalVideo = $("liveLocalVideo");
 const fbCard = $("feedbackCard"), fbExercise = $("fbExercise"), fbText = $("fbText"), fbMeta = $("fbMeta");
 const historyList = $("historyList");
 // tabs
@@ -189,19 +193,79 @@ async function postStart(payload){
 
 // ---- LIVE mode ----
 async function startLive(){
+  if(liveSource.value === "device") return startLiveDevice();
+  // --- Jetson camera: MJPEG preview streamed from the device ---
   running = true;
   startBtn.disabled = true; stopBtn.disabled = false;
   placeholder.classList.add("hidden");
+  preview.hidden = false; liveLocalVideo.hidden = true;
   setStatus("connecting", "Starting…");
   lastSpoken = "";
   preview.onerror = () => { setTimeout(() => { preview.src = "/api/preview.mjpg?t=" + Date.now(); }, 1000); };
   preview.src = "/api/preview.mjpg?t=" + Date.now();
 
   const res = await postStart({ is_file:false, source: ($("cameraSelect").value || "0"), ...settings() });
-  if(!res.ok){ setStatus("error", res.message || "Could not start"); running=false; startBtn.disabled=false; stopBtn.disabled=true; return; }
+  if(!res.ok){ setStatus("error", res.message || "Could not start"); onStopped(); return; }
   connectSSE();
 }
+
+// --- Phone/laptop camera: capture locally (zero-latency preview) and stream
+// JPEG frames to the Jetson over a websocket; inference + feedback unchanged. ---
+async function startLiveDevice(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    setStatus("error", "Camera needs HTTPS — open the https:// address"); return;
+  }
+  running = true;
+  startBtn.disabled = true; stopBtn.disabled = false;
+  placeholder.classList.add("hidden");
+  setStatus("connecting", "Starting camera…");
+  lastSpoken = "";
+  preview.onerror = null; preview.removeAttribute("src"); preview.hidden = true;
+  liveLocalVideo.hidden = false;
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"user" }, audio:false });
+    liveLocalVideo.srcObject = mediaStream;
+    await liveLocalVideo.play();
+  } catch(e){
+    setStatus("error", "Camera permission denied"); onStopped(); return;
+  }
+  const res = await postStart({ is_file:false, source:"push", ...settings() });
+  if(!res.ok){ setStatus("error", res.message || "Could not start"); onStopped(); return; }
+  openIngestWS();
+  connectSSE();
+}
+
+function openIngestWS(){
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ingestWS = new WebSocket(`${proto}://${location.host}/api/ingest`);
+  ingestWS.binaryType = "arraybuffer";
+  ingestWS.onopen = startPump;
+  ingestWS.onerror = () => {};
+}
+
+function startPump(){
+  const fps = Math.max(1, parseInt($("fps").value) || 10);
+  if(framePump) clearInterval(framePump);
+  framePump = setInterval(() => {
+    const v = liveLocalVideo;
+    if(!ingestWS || ingestWS.readyState !== 1 || !v.videoWidth) return;
+    const W = 320, H = Math.round(v.videoHeight * W / v.videoWidth) || 240;
+    captureCanvas.width = W; captureCanvas.height = H;
+    captureCanvas.getContext("2d").drawImage(v, 0, 0, W, H);
+    captureCanvas.toBlob(b => { if(b && ingestWS && ingestWS.readyState === 1) ingestWS.send(b); }, "image/jpeg", 0.7);
+  }, Math.round(1000 / fps));
+}
+
+function stopDeviceCapture(){
+  if(framePump){ clearInterval(framePump); framePump = null; }
+  if(ingestWS){ try { ingestWS.close(); } catch(e){} ingestWS = null; }
+  if(mediaStream){ mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  if(liveLocalVideo){ liveLocalVideo.srcObject = null; liveLocalVideo.hidden = true; }
+  if(preview) preview.hidden = false;
+}
+
 startBtn.onclick = startLive;
+liveSource.onchange = () => { if(running) stopSession(); else stopDeviceCapture(); };
 
 // ---- UPLOAD mode ----
 function setView(v){ stage.setAttribute("data-view", v); }
@@ -274,6 +338,7 @@ changeVideoBtn.onclick = () => {
 async function stopSession(){ try { await fetch("/api/stop", {method:"POST"}); } catch(e){} onStopped(); }
 function onStopped(){
   running = false;
+  stopDeviceCapture();
   startBtn.disabled = false; stopBtn.disabled = true;
   analyzeStopBtn.disabled = true; changeVideoBtn.disabled = false;
   analyzeBtn.disabled = !uploadedName;
