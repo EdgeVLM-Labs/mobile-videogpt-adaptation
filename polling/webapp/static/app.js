@@ -1,7 +1,9 @@
 // Mobile-VideoGPT Coach — patient-first frontend (vanilla JS, no build step)
 // Two modes share one feedback panel + one SSE stream:
-//   * Live Coaching  — webcam, MJPEG preview
-//   * Analyze a Video — upload a file, run inference over it
+//   * Live Coaching   — webcam, MJPEG preview
+//   * Analyze a Video — drag/drop or browse a file, then run inference over it
+// The stage has three views, driven by #stage[data-view]:
+//   "live"  |  "upload-empty" (dropzone)  |  "upload-ready" (player + results)
 const $ = (id) => document.getElementById(id);
 let es = null;            // EventSource for feedback
 let lastSpoken = "";
@@ -10,17 +12,18 @@ let running = false;
 let uploadedName = null;  // server-side filename of the uploaded video
 
 // ---- element refs ----
+const stage = $("stage");
 const preview = $("preview"), placeholder = $("videoPlaceholder"), statusPill = $("statusPill");
 const startBtn = $("startBtn"), stopBtn = $("stopBtn"), voiceToggle = $("voiceToggle");
 const fbCard = $("feedbackCard"), fbExercise = $("fbExercise"), fbText = $("fbText"), fbMeta = $("fbMeta");
 const historyList = $("historyList");
-// tabs + columns
-const tabLive = $("tabLive"), tabUpload = $("tabUpload"), liveCol = $("liveCol"), uploadCol = $("uploadCol");
-// upload controls
-const fileInput = $("fileInput"), chooseBtn = $("chooseBtn"),
-      analyzeBtn = $("analyzeBtn"), analyzeStopBtn = $("analyzeStopBtn"),
-      uploadVideo = $("uploadVideo"), uploadStatusPill = $("uploadStatusPill"),
-      uploadPlaceholder = $("uploadPlaceholder"), uploadHint = $("uploadHint");
+// tabs
+const tabLive = $("tabLive"), tabUpload = $("tabUpload");
+// upload
+const uploadDropzone = $("uploadDropzone"), fileInput = $("fileInput"),
+      changeVideoBtn = $("changeVideoBtn"), analyzeBtn = $("analyzeBtn"),
+      analyzeStopBtn = $("analyzeStopBtn"), uploadVideo = $("uploadVideo"),
+      uploadStatusPill = $("uploadStatusPill"), uploadHint = $("uploadHint");
 
 // ---- advanced drawer ----
 const drawer = $("drawer"), overlay = $("overlay");
@@ -58,7 +61,6 @@ async function init(){
     $("loraWeights").value = cfg.lora_weights_path;
     $("prompt").value = cfg.prompt;
   } catch(e){ console.warn(e); }
-
   try {
     const cams = (await (await fetch("/api/cameras")).json()).cameras || [];
     $("cameraSelect").innerHTML = cams.map(c => `<option value="${c.index}">${c.name}</option>`).join("");
@@ -92,7 +94,6 @@ function parsePartial(raw){
   return {ex: raw, fb: ""};
 }
 
-// shown during prefill (model encoding 16 frames, before the first token)
 function showThinking(poll){
   fbCard.className = "feedback-card state-thinking";
   fbExercise.textContent = "";
@@ -100,7 +101,6 @@ function showThinking(poll){
   fbMeta.textContent = "Poll #" + poll;
 }
 
-// shown per token as the response streams in
 function showPartial(ev){
   fbCard.className = "feedback-card state-typing";
   const raw = ev.raw || "";
@@ -131,14 +131,12 @@ function renderFeedback(ev){
   if(ev.frames_ms)  meta += ` · frames ${Math.round(ev.frames_ms)}ms`;
   fbMeta.textContent = meta;
 
-  // history (newest first, cap 8)
   const li = document.createElement("li");
   const ex = (state === "no_exercise") ? "No exercise" : (ev.exercise || "");
   li.innerHTML = `<span class="h-ex">${ex}</span> <span class="h-fb">${ev.display || ev.feedback || ""}</span>`;
   historyList.prepend(li);
   while(historyList.children.length > 8) historyList.removeChild(historyList.lastChild);
 
-  // voice: speak the spoken-form feedback
   const toSay = (state === "no_exercise") ? "No exercise detected"
               : [ev.exercise, (ev.display || ev.feedback)].filter(Boolean).join(", ");
   speak(toSay);
@@ -196,7 +194,6 @@ async function startLive(){
   placeholder.classList.add("hidden");
   setStatus("connecting", "Starting…");
   lastSpoken = "";
-  // live MJPEG preview (cache-bust so it (re)connects; auto-retry if it drops)
   preview.onerror = () => { setTimeout(() => { preview.src = "/api/preview.mjpg?t=" + Date.now(); }, 1000); };
   preview.src = "/api/preview.mjpg?t=" + Date.now();
 
@@ -204,21 +201,34 @@ async function startLive(){
   if(!res.ok){ setStatus("error", res.message || "Could not start"); running=false; startBtn.disabled=false; stopBtn.disabled=true; return; }
   connectSSE();
 }
+startBtn.onclick = startLive;
 
 // ---- UPLOAD mode ----
-chooseBtn.onclick = () => fileInput.click();
+function setView(v){ stage.setAttribute("data-view", v); }
 
-fileInput.onchange = async () => {
-  const f = fileInput.files[0];
-  if(!f) return;
-  // instant local preview (no round-trip) while we upload for inference
+// dropzone: click to browse + drag & drop
+uploadDropzone.onclick = () => fileInput.click();
+fileInput.onchange = () => { if(fileInput.files[0]) handleFile(fileInput.files[0]); };
+["dragenter","dragover"].forEach(ev =>
+  uploadDropzone.addEventListener(ev, e => { e.preventDefault(); uploadDropzone.classList.add("dragover"); }));
+["dragleave","drop"].forEach(ev =>
+  uploadDropzone.addEventListener(ev, e => { e.preventDefault(); uploadDropzone.classList.remove("dragover"); }));
+uploadDropzone.addEventListener("drop", e => {
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if(f) handleFile(f);
+});
+
+async function handleFile(f){
+  if(f.type && !f.type.startsWith("video/")){ alert("Please choose a video file."); return; }
+  uploadedName = null;
+  setView("upload-ready");
   uploadVideo.src = URL.createObjectURL(f);
-  uploadPlaceholder.classList.add("hidden");
-  analyzeBtn.disabled = true; uploadedName = null;
+  resetFeedback();
+  analyzeBtn.disabled = true; changeVideoBtn.disabled = false;
   uploadStatusPill.className = "status-pill loading"; uploadStatusPill.textContent = "Uploading…";
   uploadHint.textContent = `${f.name} · ${(f.size/1e6).toFixed(1)} MB`;
   try {
-    // raw-body upload (no multipart): file bytes are the request body
+    // raw-body upload (no multipart): the file bytes ARE the request body
     const res = await (await fetch("/api/upload?filename=" + encodeURIComponent(f.name), {
       method:"POST", headers:{"Content-Type":"application/octet-stream"}, body: f
     })).json();
@@ -230,12 +240,12 @@ fileInput.onchange = async () => {
     uploadStatusPill.className = "status-pill error"; uploadStatusPill.textContent = "Upload failed";
     uploadHint.textContent = String(e);
   }
-};
+}
 
 async function startUpload(){
   if(!uploadedName) return;
   running = true;
-  analyzeBtn.disabled = true; analyzeStopBtn.disabled = false; chooseBtn.disabled = true;
+  analyzeBtn.disabled = true; analyzeStopBtn.disabled = false; changeVideoBtn.disabled = true;
   setStatus("connecting", "Analyzing…");
   lastSpoken = "";
   try { uploadVideo.currentTime = 0; uploadVideo.play(); } catch(e){}
@@ -243,25 +253,34 @@ async function startUpload(){
   const res = await postStart({ is_file:true, source: uploadedName, ...settings() });
   if(!res.ok){
     setStatus("error", res.message || "Could not start");
-    running=false; analyzeBtn.disabled=false; analyzeStopBtn.disabled=true; chooseBtn.disabled=false; return;
+    running=false; analyzeBtn.disabled=false; analyzeStopBtn.disabled=true; changeVideoBtn.disabled=false; return;
   }
   connectSSE();
 }
+analyzeBtn.onclick = startUpload;
+
+changeVideoBtn.onclick = () => {
+  if(running) stopSession();
+  uploadedName = null;
+  try { uploadVideo.pause(); } catch(e){}
+  uploadVideo.removeAttribute("src"); uploadVideo.load();
+  fileInput.value = "";
+  resetFeedback();
+  uploadStatusPill.className = "status-pill idle"; uploadStatusPill.textContent = "Ready";
+  setView("upload-empty");
+};
 
 // ---- stop / completion (shared) ----
 async function stopSession(){ try { await fetch("/api/stop", {method:"POST"}); } catch(e){} onStopped(); }
 function onStopped(){
   running = false;
   startBtn.disabled = false; stopBtn.disabled = true;
-  analyzeStopBtn.disabled = true; chooseBtn.disabled = false;
+  analyzeStopBtn.disabled = true; changeVideoBtn.disabled = false;
   analyzeBtn.disabled = !uploadedName;
   if(es){ es.close(); es = null; }
   window.speechSynthesis && window.speechSynthesis.cancel();
 }
-
-startBtn.onclick = startLive;
 stopBtn.onclick = stopSession;
-analyzeBtn.onclick = startUpload;
 analyzeStopBtn.onclick = stopSession;
 
 // ---- mode switching ----
@@ -272,11 +291,13 @@ function setMode(mode){
   const live = mode === "live";
   tabLive.classList.toggle("active", live);
   tabUpload.classList.toggle("active", !live);
-  liveCol.classList.toggle("hidden", !live);
-  uploadCol.classList.toggle("hidden", live);
-  if(!live){ preview.onerror = null; preview.removeAttribute("src"); }  // free the MJPEG stream
+  if(live){
+    setView("live");
+  } else {
+    preview.onerror = null; preview.removeAttribute("src");  // free the MJPEG stream
+    setView(uploadedName ? "upload-ready" : "upload-empty");
+  }
   resetFeedback();
-  setStatus("idle", live ? "Idle" : (uploadedName ? "Ready" : "No file"));
 }
 tabLive.onclick = () => setMode("live");
 tabUpload.onclick = () => setMode("upload");

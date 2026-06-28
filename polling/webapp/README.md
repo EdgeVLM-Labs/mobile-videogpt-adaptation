@@ -28,8 +28,13 @@ Requires the TensorRT CLIP engine at `models/tensorrt/clip_vit_base_fp16.engine`
 Then open **`http://<jetson-ip>:8000`** from any device on the same network.
 
 ## Usage
-- **Patient view (default):** big live video + one feedback card + Start/Stop + Voice.
-- **Advanced (gear icon):** camera/source, polling interval, sample fps, max tokens,
+Two modes, switched by the tabs at the top (both share the feedback panel, voice, and theme):
+- **Live Coaching:** big live webcam video + one feedback card + Start/Stop.
+- **Analyze a Video:** choose a video file → it uploads and plays → **Analyze** runs the
+  model over the clip in windows and streams feedback (same card + Recent list).
+  Uploads are stored under `uploads/` and processed via the file-inference path.
+  *(No `python-multipart` needed — the file is sent as the raw request body.)*
+- **Advanced (gear icon):** camera (Live), polling interval, capture fps, max tokens,
   base model, **LoRA weights**, prompt, warmup, naturalizer.
 
 ## Endpoints
@@ -37,6 +42,7 @@ Then open **`http://<jetson-ip>:8000`** from any device on the same network.
 |---|---|
 | `GET /` | patient UI |
 | `GET /api/preview.mjpg` | live camera preview (MJPEG) |
+| `POST /api/upload?filename=…` | upload a video (raw body) → saved to `uploads/` |
 | `GET /api/stream` | feedback stream (SSE) |
 | `POST /api/start` / `POST /api/stop` | session control |
 | `GET /api/cameras` · `/api/sample_videos` · `/api/config` · `/api/status` | options/state |
