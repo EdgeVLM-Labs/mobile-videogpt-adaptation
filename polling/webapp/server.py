@@ -478,14 +478,26 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
 if __name__ == "__main__":
-    import uvicorn
-    # HTTPS (required for phone-camera mode — getUserMedia needs a secure context).
-    # Enabled when MVGPT_SSL_CERT/KEY point to a cert pair (see gen_cert.sh).
+    import uvicorn, asyncio
     cert, key = os.environ.get("MVGPT_SSL_CERT"), os.environ.get("MVGPT_SSL_KEY")
-    kw = {}
-    if cert and key and os.path.exists(cert) and os.path.exists(key):
-        kw = {"ssl_certfile": cert, "ssl_keyfile": key}
-        logger.info(f"Serving HTTPS on 0.0.0.0:8000 (cert={cert})")
+    http_port = int(os.environ.get("MVGPT_HTTP_PORT", "8000"))
+    https_port = int(os.environ.get("MVGPT_HTTPS_PORT", "8443"))
+    have_cert = bool(cert and key and os.path.exists(cert) and os.path.exists(key))
+
+    if have_cert:
+        # Serve BOTH from one process (one model load): HTTP on http_port AND
+        # HTTPS on https_port. HTTP keeps Jetson-cam/upload working and lets
+        # Android use chrome://flags (http origin) for camera; HTTPS serves iOS
+        # and any device that trusts the cert.
+        logger.info(f"Serving HTTP on :{http_port}  AND  HTTPS on :{https_port} (cert={cert})")
+
+        async def _serve_both():
+            http_srv = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=http_port))
+            https_srv = uvicorn.Server(uvicorn.Config(
+                app, host="0.0.0.0", port=https_port, ssl_certfile=cert, ssl_keyfile=key))
+            await asyncio.gather(http_srv.serve(), https_srv.serve())
+
+        asyncio.run(_serve_both())
     else:
-        logger.info("Serving HTTP on 0.0.0.0:8000 (phone camera needs HTTPS — see gen_cert.sh)")
-    uvicorn.run(app, host="0.0.0.0", port=8000, **kw)
+        logger.info(f"Serving HTTP on :{http_port} (phone camera needs HTTPS — see gen_cert.sh)")
+        uvicorn.run(app, host="0.0.0.0", port=http_port)

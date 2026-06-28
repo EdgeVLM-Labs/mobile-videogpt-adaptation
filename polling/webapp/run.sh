@@ -30,7 +30,9 @@ export USE_TRT_CLIP=1
 CERT="$(pwd)/polling/webapp/cert.pem"; KEY="$(pwd)/polling/webapp/key.pem"
 if [ -f "$CERT" ] && [ -f "$KEY" ]; then
   export MVGPT_SSL_CERT="$CERT" MVGPT_SSL_KEY="$KEY"
-  echo "HTTPS enabled -> https://<jetson-ip>:8000  (phone camera supported)"
+  echo "Serving BOTH:"
+  echo "   HTTP  -> http://<jetson-ip>:8000   (Jetson cam / upload; Android phone cam via chrome://flags)"
+  echo "   HTTPS -> https://<jetson-ip>:8443  (iOS phone cam, or any device that trusts the cert)"
 else
   echo "HTTP only -> http://<jetson-ip>:8000  (for phone camera run: bash polling/webapp/gen_cert.sh)"
 fi
