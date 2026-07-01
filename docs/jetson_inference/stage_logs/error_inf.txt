@@ -1,0 +1,139 @@
+(mvgpt) edgevlm@edgevlm-desktop:~/Documents/mobile-videogpt-adaptation$ python polling/run_polling.py sample_videos/00000340.mp4 --max-polls 1
+
+╔══════════════════════════════════════════════════════════════════╗
+║         Mobile-VideoGPT Polling Inference Engine                 ║
+║                                                                  ║
+║  Real-time Exercise Form Evaluation with LoRA Adapters           ║
+╚══════════════════════════════════════════════════════════════════╝
+
+
+📋 Configuration:
+   Base Model: Amshaker/Mobile-VideoGPT-0.5B
+   LoRA Weights: EdgeVLM-Labs/mobile-videogpt-finetune-2000
+   Video Source: sample_videos/00000340.mp4
+   Polling Interval: 3.0s
+   Max Duration: 300.0s
+   Num Frames: 16
+   Confidence Scoring: Disabled
+   Prompt: Please evaluate the exercise form shown. What mistakes, if any, are present, and...
+
+🔄 Loading model...
+2026-03-21 16:14:58 | INFO     | PollingInference | ============================================================
+2026-03-21 16:14:58 | INFO     | PollingInference | ============================================================
+2026-03-21 16:14:58 | INFO     | PollingInference | LOADING MODEL WITH LORA ADAPTERS
+2026-03-21 16:14:58 | INFO     | PollingInference | LOADING MODEL WITH LORA ADAPTERS
+2026-03-21 16:14:58 | INFO     | PollingInference | ============================================================
+2026-03-21 16:14:58 | INFO     | PollingInference | ============================================================
+2026-03-21 16:14:58 | INFO     | PollingInference | Base model: Amshaker/Mobile-VideoGPT-0.5B
+2026-03-21 16:14:58 | INFO     | PollingInference | Base model: Amshaker/Mobile-VideoGPT-0.5B
+2026-03-21 16:14:58 | INFO     | PollingInference | LoRA weights: EdgeVLM-Labs/mobile-videogpt-finetune-2000
+2026-03-21 16:14:58 | INFO     | PollingInference | LoRA weights: EdgeVLM-Labs/mobile-videogpt-finetune-2000
+2026-03-21 16:15:02 | WARNING  | PollingInference | Flash Attention 2 not available, using SDPA
+2026-03-21 16:15:02 | WARNING  | PollingInference | Flash Attention 2 not available, using SDPA
+2026-03-21 16:15:02 | INFO     | PollingInference | Loading model configuration from base model...
+2026-03-21 16:15:02 | INFO     | PollingInference | Loading model configuration from base model...
+2026-03-21 16:15:02 | INFO     | PollingInference | Loading tokenizer...
+2026-03-21 16:15:02 | INFO     | PollingInference | Loading tokenizer...
+Special tokens have been added in the vocabulary, make sure the associated word embeddings are fine-tuned or trained.
+Uncaught exception in compile_worker subprocess
+Traceback (most recent call last):
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/torch/_inductor/compile_worker/__main__.py", line 42, in main
+    pre_fork_setup()
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/torch/_inductor/async_compile.py", line 63, in pre_fork_setup
+    from triton.compiler.compiler import triton_key
+ImportError: cannot import name 'triton_key' from 'triton.compiler.compiler' (/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/triton/compiler/compiler.py)
+W0321 16:15:04.373000 281469032853792 torch/_inductor/compile_worker/subproc_pool.py:164] SubprocPool unclean exit
+2026-03-21 16:15:04 | INFO     | PollingInference | CUDA budget: 1.68GB (free: 3.05GB)
+2026-03-21 16:15:04 | INFO     | PollingInference | CUDA budget: 1.68GB (free: 3.05GB)
+2026-03-21 16:15:04 | INFO     | PollingInference | Loading base model...
+2026-03-21 16:15:04 | INFO     | PollingInference | Loading base model...
+config MobileVideoGPTQwenConfig {
+  "_name_or_path": "Amshaker/Mobile-VideoGPT-0.5B",
+  "architectures": [
+    "MobileVideoGPTQwenForCausalLM"
+  ],
+  "attention_dropout": 0.0,
+  "bos_token_id": 151643,
+  "eos_token_id": 151645,
+  "freeze_mm_mlp_adapter": false,
+  "hidden_act": "silu",
+  "hidden_size": 896,
+  "image_aspect_ratio": "pad",
+  "image_grid_pinpoints": null,
+  "image_mm_hidden_size": 768,
+  "image_mm_projector_type": "etp",
+  "image_mm_vision_tower": "openai/clip-vit-base-patch16",
+  "initializer_range": 0.02,
+  "intermediate_size": 4864,
+  "max_position_embeddings": 32768,
+  "max_window_layers": 21,
+  "mm_hidden_size": 768,
+  "mm_projector_lr": 2e-05,
+  "mm_projector_type": "etp",
+  "mm_use_box_start_end": false,
+  "mm_use_im_patch_token": false,
+  "mm_use_im_start_end": false,
+  "mm_vision_select_feature": "patch",
+  "mm_vision_select_layer": -2,
+  "mm_vision_tower": "OpenGVLab/VideoMamba/videomamba_m16_25M_f8_res224.pth",
+  "model_type": "MobileVideoGPT_qwen",
+  "num_attention_heads": 14,
+  "num_hidden_layers": 24,
+  "num_key_value_heads": 2,
+  "rms_norm_eps": 1e-06,
+  "rope_scaling": null,
+  "rope_theta": 1000000.0,
+  "sliding_window": 32768,
+  "tie_word_embeddings": true,
+  "torch_dtype": "float16",
+  "transformers_version": "4.41.0",
+  "tune_mm_mlp_adapter": false,
+  "use_cache": true,
+  "use_mm_proj": true,
+  "use_sliding_window": false,
+  "vocab_size": 151666
+}
+
+Building OpenGVLab/VideoMamba/videomamba_m16_25M_f8_res224.pth
+2026-03-21 16:15:13 | INFO     | mobilevideogpt.model.videomamba.videomamba | Use checkpoint: False
+2026-03-21 16:15:13 | INFO     | mobilevideogpt.model.videomamba.videomamba | Checkpoint number: 0
+2026-03-21 16:15:13 | INFO     | mobilevideogpt.model.videomamba.videomamba | Student return index: [31]
+2026-03-21 16:15:13 | INFO     | mobilevideogpt.model.videomamba.videomamba | Pool type: cls+avg
+2026-03-21 16:15:17 | INFO     | mobilevideogpt.model.videomamba.videomamba | No pretrained weights!!!
+Building openai/clip-vit-base-patch16
+Building etp
+Building etp
+NvMapMemAllocInternalTagged: 1075072515 error 12
+NvMapMemHandleAlloc: error 0
+NvMapMemAllocInternalTagged: 1075072515 error 12
+NvMapMemHandleAlloc: error 0
+2026-03-21 16:15:19 | ERROR    | PollingInference | Failed to load model: NVML_SUCCESS == r INTERNAL ASSERT FAILED at "/opt/pytorch/pytorch/c10/cuda/CUDACachingAllocator.cpp":838, please report a bug to PyTorch. 
+Traceback (most recent call last):
+  File "/home/edgevlm/Documents/mobile-videogpt-adaptation/polling/inference_engine.py", line 241, in load_model
+    self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/transformers/modeling_utils.py", line 3754, in from_pretrained
+    ) = cls._load_pretrained_model(
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/transformers/modeling_utils.py", line 4214, in _load_pretrained_model
+    new_error_msgs, offload_index, state_dict_index = _load_state_dict_into_meta_model(
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/transformers/modeling_utils.py", line 887, in _load_state_dict_into_meta_model
+    set_module_tensor_to_device(model, param_name, param_device, **set_module_kwargs)
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/accelerate/utils/modeling.py", line 343, in set_module_tensor_to_device
+    new_value = value.to(device, non_blocking=non_blocking)
+RuntimeError: NVML_SUCCESS == r INTERNAL ASSERT FAILED at "/opt/pytorch/pytorch/c10/cuda/CUDACachingAllocator.cpp":838, please report a bug to PyTorch. 
+2026-03-21 16:15:19 | ERROR    | PollingInference | Failed to load model: NVML_SUCCESS == r INTERNAL ASSERT FAILED at "/opt/pytorch/pytorch/c10/cuda/CUDACachingAllocator.cpp":838, please report a bug to PyTorch. 
+Traceback (most recent call last):
+  File "/home/edgevlm/Documents/mobile-videogpt-adaptation/polling/inference_engine.py", line 241, in load_model
+    self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/transformers/modeling_utils.py", line 3754, in from_pretrained
+    ) = cls._load_pretrained_model(
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/transformers/modeling_utils.py", line 4214, in _load_pretrained_model
+    new_error_msgs, offload_index, state_dict_index = _load_state_dict_into_meta_model(
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/transformers/modeling_utils.py", line 887, in _load_state_dict_into_meta_model
+    set_module_tensor_to_device(model, param_name, param_device, **set_module_kwargs)
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/accelerate/utils/modeling.py", line 343, in set_module_tensor_to_device
+    new_value = value.to(device, non_blocking=non_blocking)
+RuntimeError: NVML_SUCCESS == r INTERNAL ASSERT FAILED at "/opt/pytorch/pytorch/c10/cuda/CUDACachingAllocator.cpp":838, please report a bug to PyTorch. 
+❌ Failed to load model
+2026-03-21 16:15:19 | INFO     | VideoStreamHandler | Stopped stream capture
+2026-03-21 16:15:20 | INFO     | PollingInference | Resources cleaned up
+2026-03-21 16:15:20 | INFO     | PollingInference | Resources cleaned up

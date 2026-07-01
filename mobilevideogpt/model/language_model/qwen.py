@@ -86,7 +86,18 @@ class MobileVideoGPTQwenForCausalLM(Qwen2ForCausalLM, MobileVideoGPTMetaForCausa
         )
 
         hidden_states = outputs[0]
-        logits = self.lm_head(hidden_states)
+        # Memory optimization for autoregressive generation on memory-constrained
+        # devices (Jetson 8GB): during inference prefill, we only need logits
+        # for the LAST position to predict the next token — not for all 450 input
+        # positions. Skipping the rest avoids a 137MB temporary allocation that
+        # was causing lm_head OOMs when Qwen2 is fully on GPU.
+        # Only apply when NOT training (labels is None) AND during prefill
+        # (seq_len > 1). When labels is provided, we need all positions for loss.
+        if labels is None and hidden_states.shape[1] > 1:
+            hidden_states_for_lm = hidden_states[:, -1:, :]
+        else:
+            hidden_states_for_lm = hidden_states
+        logits = self.lm_head(hidden_states_for_lm)
 
         loss = None
         if labels is not None:

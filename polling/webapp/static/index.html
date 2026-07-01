@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mobile-VideoGPT Coach</title>
+  <link rel="stylesheet" href="/static/styles.css?v=4" />
+  <script>
+    // Set theme before first paint (no flash): saved choice, else OS preference.
+    (function () {
+      var t;
+      try { t = localStorage.getItem("mvgpt-theme"); } catch (e) {}
+      if (!t) t = window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+</head>
+<body>
+  <!-- Header -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">MV</div>
+      <div class="brand-text">
+        <h1>Mobile-VideoGPT Coach</h1>
+        <p>Real-time exercise form feedback</p>
+      </div>
+    </div>
+    <div class="badges">
+      <span class="badge">0.5B</span>
+      <span class="badge">VideoMamba + Qwen2</span>
+      <button id="themeBtn" class="gear" title="Toggle theme" aria-label="Toggle light/dark theme">☀</button>
+      <button id="gearBtn" class="gear" title="Advanced settings" aria-label="Advanced settings">⚙</button>
+    </div>
+  </header>
+
+  <!-- Mode tabs (segmented control) -->
+  <nav class="mode-tabs">
+    <div class="segmented" role="tablist">
+      <button id="tabLive" class="mode-tab active" role="tab">● Live Coaching</button>
+      <button id="tabUpload" class="mode-tab" role="tab">⬆ Analyze a Video</button>
+    </div>
+    <label class="voice-toggle tab-voice"><input type="checkbox" id="voiceToggle" /> 🔊 Voice</label>
+  </nav>
+
+  <!-- Main view; data-view = live | upload-empty | upload-ready -->
+  <main class="stage" id="stage" data-view="live">
+    <!-- LIVE -->
+    <section class="video-col live-only" id="liveCol">
+      <div class="video-wrap">
+        <img id="preview" alt="camera preview" />
+        <video id="liveLocalVideo" muted playsinline hidden></video>
+        <div id="statusPill" class="status-pill idle">Idle</div>
+        <div id="videoPlaceholder" class="video-placeholder">
+          <div class="ph-icon">▶</div>
+          <p>Press <b>Start</b> to begin coaching</p>
+        </div>
+      </div>
+      <div class="controls">
+        <select id="liveSource" class="src-select" title="Camera source">
+          <option value="jetson">Jetson camera</option>
+          <option value="device">This phone / laptop</option>
+        </select>
+        <button id="startBtn" class="btn btn-primary">▶ Start</button>
+        <button id="stopBtn" class="btn btn-stop" disabled>■ Stop</button>
+      </div>
+    </section>
+
+    <!-- UPLOAD · empty state (full-width dropzone) -->
+    <section class="dropzone upload-empty-only" id="uploadDropzone">
+      <input type="file" id="fileInput" accept="video/*" hidden />
+      <div class="dz-inner">
+        <div class="dz-icon">⬆</div>
+        <h3>Drag &amp; drop a video to analyze</h3>
+        <p class="dz-sub">or <span class="link">click to browse</span></p>
+        <p class="dz-hint">MP4 · MOV · WEBM</p>
+      </div>
+    </section>
+
+    <!-- UPLOAD · loaded state (player) -->
+    <section class="video-col upload-ready-only" id="uploadCol">
+      <div class="video-wrap">
+        <video id="uploadVideo" playsinline controls></video>
+        <div id="uploadStatusPill" class="status-pill idle">Ready</div>
+      </div>
+      <div class="controls">
+        <button id="changeVideoBtn" class="btn btn-stop">↺ Change</button>
+        <button id="analyzeBtn" class="btn btn-primary" disabled>▶ Analyze</button>
+        <button id="analyzeStopBtn" class="btn btn-stop" disabled>■ Stop</button>
+      </div>
+      <p id="uploadHint" class="hint"></p>
+    </section>
+
+    <!-- Shared feedback (live + upload-ready) -->
+    <section class="feedback-col live-or-ready" id="feedbackCol">
+      <div id="feedbackCard" class="feedback-card state-idle">
+        <div class="fb-label">COACHING FEEDBACK</div>
+        <div id="fbExercise" class="fb-exercise">—</div>
+        <div id="fbText" class="fb-text">Waiting to start…</div>
+        <div id="fbMeta" class="fb-meta"></div>
+      </div>
+      <div class="history">
+        <div class="history-title">Recent</div>
+        <ul id="historyList"></ul>
+      </div>
+    </section>
+  </main>
+
+  <!-- Advanced drawer -->
+  <div id="overlay" class="overlay hidden"></div>
+  <aside id="drawer" class="drawer hidden">
+    <div class="drawer-head">
+      <h2>Advanced</h2>
+      <button id="closeDrawer" class="gear" aria-label="Close">✕</button>
+    </div>
+    <div class="drawer-body">
+      <div class="field">
+        <label>Camera (Live mode)</label>
+        <select id="cameraSelect"></select>
+      </div>
+
+      <hr/>
+      <div class="grid2">
+        <div class="field"><label>Polling interval (s)</label><input type="number" id="pollingInterval" step="0.5" min="1" max="10"/></div>
+        <div class="field"><label>Capture FPS (preview)</label><input type="number" id="fps" step="1" min="1" max="30"/></div>
+        <div class="field"><label>Frames per poll</label><input type="number" id="numFrames" value="16" disabled title="Fixed by model (16)"/></div>
+        <div class="field"><label>Max new tokens</label><input type="number" id="maxTokens" step="16" min="32" max="256"/></div>
+        <div class="field"><label>Warmup runs</label><input type="number" id="warmup" value="1" min="0" max="5"/></div>
+      </div>
+
+      <hr/>
+      <div class="field"><label>Base model</label><input type="text" id="baseModel"/></div>
+      <div class="field"><label>LoRA weights</label><input type="text" id="loraWeights"/></div>
+      <div class="field"><label>Prompt</label><textarea id="prompt" rows="3"></textarea></div>
+      <label class="voice-toggle"><input type="checkbox" id="naturalizer"/> Enable feedback naturalizer</label>
+      <p class="hint">Changing model/LoRA reloads the model on next Start.</p>
+    </div>
+  </aside>
+
+  <script src="/static/app.js?v=4"></script>
+</body>
+</html>

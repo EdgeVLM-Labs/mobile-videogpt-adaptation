@@ -28,9 +28,9 @@ MAX_DURATION="${MAX_DURATION:-300}"            # maximum total duration in secon
 MAX_POLLS="${MAX_POLLS:-}"                     # maximum number of polls (empty = unlimited)
 
 # Video processing
-NUM_FRAMES="${NUM_FRAMES:-16}"                 # frames per inference
+NUM_FRAMES="${NUM_FRAMES:-16}"                 # frames per inference (fixed by mm_projector square-grid constraint)
 FPS="${FPS:-1}"                                # frame sampling rate
-MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-512}"        # max generation tokens
+MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-64}"         # max generation tokens
 WARMUP_RUNS="${WARMUP_RUNS:-0}"                # number of warmup runs
 
 # Inference prompt
@@ -137,7 +137,7 @@ setup_environment() {
     log "INFO" "Setting up environment..."
 
     # Activate conda environment
-    CONDA_ENV="mobile_videogpt"
+    CONDA_ENV="mvgpt"
     log "INFO" "Activating conda environment: ${CONDA_ENV}"
 
     # Initialize conda for bash
@@ -149,7 +149,7 @@ setup_environment() {
     # Activate environment
     conda activate "${CONDA_ENV}" || {
         log "ERROR" "Failed to activate conda environment: ${CONDA_ENV}"
-        log "ERROR" "Please create it first with: conda create -n mobile_videogpt python=3.10"
+        log "ERROR" "Please create it first by running: bash setup_jetson.sh"
         exit 1
     }
 

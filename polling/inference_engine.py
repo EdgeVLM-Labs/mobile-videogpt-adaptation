@@ -15,8 +15,42 @@ from dataclasses import dataclass
 os.environ['PYTHONWARNINGS'] = 'ignore'
 warnings.filterwarnings("ignore")
 
+# Reduce CUDA allocator fragmentation on memory-constrained devices (Jetson 8GB)
+os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+
 import torch
 from transformers import AutoTokenizer, AutoConfig
+
+# Patch Triton's autotuner cache-flush buffer — default 256MB fails on fragmented
+# Jetson memory. A tiny buffer keeps autotuning functional; the only cost is
+# slightly noisier benchmark timings on the first call (no accuracy impact).
+def _install_triton_patch():
+    try:
+        import triton
+        # Patch the active driver instance
+        try:
+            driver = triton.runtime.driver.active
+            def _tiny(*args, **kwargs):
+                return torch.empty(1024, dtype=torch.int, device='cuda')
+            driver.get_empty_cache_for_benchmark = _tiny
+        except Exception:
+            pass
+
+        # Also patch the class so any future instances get the tiny version
+        try:
+            from triton.backends.nvidia import driver as _trtdrv
+            for name in dir(_trtdrv):
+                cls = getattr(_trtdrv, name)
+                if isinstance(cls, type) and hasattr(cls, "get_empty_cache_for_benchmark"):
+                    cls.get_empty_cache_for_benchmark = lambda self: torch.empty(
+                        1024, dtype=torch.int, device='cuda'
+                    )
+        except Exception:
+            pass
+    except Exception:
+        pass  # Triton not installed — safe to skip
+
+_install_triton_patch()
 
 # PyTorch optimizations for faster inference
 torch.set_float32_matmul_precision('high')  # Use TF32 on Ampere+ GPUs
@@ -27,6 +61,36 @@ if torch.cuda.is_available():
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# ---------------------------------------------------------------------------
+# Monkey-patch mamba_ssm to work with causal_conv1d >= 1.5.0
+# In newer versions, causal_conv1d_cuda.causal_conv1d_fwd requires a pre-allocated
+# output tensor (8 args) instead of returning it (7 args).
+# This patch is applied in our repo so fresh clones don't need to edit site-packages.
+# ---------------------------------------------------------------------------
+def _patch_mamba_causal_conv1d():
+    try:
+        import causal_conv1d_cuda
+        import mamba_ssm.ops.selective_scan_interface as ssi
+        import inspect
+
+        source = inspect.getsource(ssi.MambaInnerFn.forward)
+        # Check if already using 8-arg API (has torch.empty_like before the call)
+        if 'torch.empty_like' not in source and 'causal_conv1d_cuda.causal_conv1d_fwd' in source:
+            _orig_fwd = causal_conv1d_cuda.causal_conv1d_fwd
+
+            def _patched_fwd(x, weight, bias, seq_idx=None, initial_states=None,
+                             final_states_out=None, activation=True):
+                out = torch.empty_like(x)
+                _orig_fwd(x, weight, bias, seq_idx, initial_states, out, final_states_out, activation)
+                return out
+
+            causal_conv1d_cuda.causal_conv1d_fwd = _patched_fwd
+            logging.getLogger(__name__).info("Patched mamba_ssm for causal_conv1d >= 1.5 API")
+    except (ImportError, Exception):
+        pass  # mamba_ssm or causal_conv1d not installed, skip
+
+_patch_mamba_causal_conv1d()
 
 from mobilevideogpt.model import MobileVideoGPTQwenForCausalLM
 from mobilevideogpt.mm_utils import tokenizer_image_token
@@ -96,6 +160,7 @@ class PollingInferenceEngine:
             num_frames=config.num_frames,
             fps=config.fps,
             image_resolution=config.image_resolution,
+            inference_window_seconds=getattr(config, "inference_window_seconds", 0.0),
         )
 
         # First token streamer
@@ -159,17 +224,29 @@ class PollingInferenceEngine:
                 from transformers import BitsAndBytesConfig
                 kwargs['quantization_config'] = BitsAndBytesConfig(
                     load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.bfloat16,  # Use bfloat16 for better precision
+                    bnb_4bit_compute_dtype=torch.float16,
                     bnb_4bit_use_double_quant=True,
-                    bnb_4bit_quant_type='nf4'
+                    bnb_4bit_quant_type='nf4',
+                    llm_int8_skip_modules=['lm_head'],
                 )
                 # Note: Flash Attention incompatible with 4-bit quantization
+            elif os.environ.get("USE_QUANTO", "0") == "1":
+                # optimum-quanto INT8 weight quantization (Jetson-friendly).
+                # Saves ~50% memory vs FP16, accuracy drop <0.5% for structured outputs.
+                # We DON'T use transformers' QuantoConfig (requires old 'quanto' pkg);
+                # instead we load the model normally then apply quanto post-load below.
+                kwargs['torch_dtype'] = torch.float16
+                kwargs['attn_implementation'] = 'sdpa'
+                quanto_weight = os.environ.get("QUANTO_WEIGHTS", "int8")
+                self.logger.info(f"Post-load INT8 quantization via optimum-quanto (weights={quanto_weight})")
             else:
-                kwargs['torch_dtype'] = torch.bfloat16  # Use bfloat16 for better stability
+                kwargs['torch_dtype'] = torch.float16  # Use float16 (matches model config)
                 try:
-                    kwargs['attn_implementation'] = 'flash_attention_2'  # Enable Flash Attention 2
-                except:
-                    self.logger.warning("Flash Attention 2 not available")
+                    import flash_attn  # noqa: F401
+                    kwargs['attn_implementation'] = 'flash_attention_2'
+                except ImportError:
+                    kwargs['attn_implementation'] = 'sdpa'  # PyTorch native SDPA fallback
+                    self.logger.warning("Flash Attention 2 not available, using SDPA")
 
             # Load config from base model (LoRA adapters don't have config.json)
             self.logger.info("Loading model configuration from base model...")
@@ -183,37 +260,109 @@ class PollingInferenceEngine:
             )
             self.tokenizer.add_tokens(["<image>"], special_tokens=True)
 
-            # Load base model
-            self.logger.info("Loading base model...")
-            try:
-                self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
-                    self.config.base_model_path,
-                    low_cpu_mem_usage=False,
-                    config=model_cfg,
-                    num_select_k_frames_in_chunk=self.config.num_select_k_frames_in_chunk,
-                    topk=self.config.topk,
-                    **kwargs
-                )
-            except Exception as quant_error:
-                if self.config.load_4bit or self.config.load_8bit:
-                    self.logger.warning(f"Quantization failed: {quant_error}")
-                    self.logger.info("Retrying without quantization...")
-                    # Fallback to FP16 without quantization
-                    kwargs = {'torch_dtype': torch.bfloat16}
-                    try:
-                        kwargs['attn_implementation'] = 'flash_attention_2'
-                    except:
-                        pass
-                    self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
-                        self.config.base_model_path,
-                        low_cpu_mem_usage=False,
-                        config=model_cfg,
-                        num_select_k_frames_in_chunk=self.config.num_select_k_frames_in_chunk,
-                        topk=self.config.topk,
-                        **kwargs
-                    )
+            # Optionally preload TensorRT CLIP engine BEFORE the main model.
+            # Enable with: USE_TRT_CLIP=1 in environment.
+            # Disabled by default because TRT CLIP + Qwen2 don't reliably fit on 8GB
+            # Jetson Orin Nano — the lm_head during generation OOMs.
+            # Works fine on boards with more memory (Orin NX 8GB+, etc.)
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
+            trt_clip = None
+            if os.environ.get("USE_TRT_CLIP", "0") == "1":
+                from mobilevideogpt.model.multimodal_encoder.clip_trt import preload_trt_clip
+                trt_clip = preload_trt_clip()
+                if trt_clip is not None:
+                    self.logger.info("TensorRT CLIP preloaded on GPU (USE_TRT_CLIP=1)")
                 else:
-                    raise
+                    self.logger.info("TensorRT CLIP preload failed — using PyTorch CPU")
+
+            # Load base model
+            # On Jetson (8GB unified), use device_map="auto" with max_memory
+            # so accelerate splits the model between CUDA and CPU as needed.
+            use_quanto = os.environ.get("USE_QUANTO", "0") == "1"
+            use_full_gpu = os.environ.get("USE_FULL_GPU", "0") == "1"
+            if torch.cuda.is_available():
+                free_mem = torch.cuda.mem_get_info()[0]
+                # CUDA budget % depends on whether TRT CLIP is holding memory and
+                # whether we're using quanto (INT8 weights = ~50% smaller, so can fit more).
+                if use_full_gpu:
+                    # Aggressive: fit all Qwen2 layers on GPU to avoid CPU<->GPU
+                    # transfer bounce during autoregressive generation.
+                    # Risk: lm_head output tensor (~140MB) might OOM during generate().
+                    # If it does, we fall back to moving lm_head explicitly to CPU.
+                    budget_pct = 0.75
+                elif use_quanto:
+                    # With INT8 Qwen2 (~500MB instead of 1GB), bigger budget to keep
+                    # the whole model on GPU and avoid CPU offload.
+                    budget_pct = 0.55 if trt_clip is not None else 0.65
+                elif trt_clip is not None:
+                    budget_pct = 0.30  # With TRT CLIP holding ~500MB
+                else:
+                    budget_pct = 0.40  # Baseline FP16, no TRT CLIP
+                cuda_budget = max(int(free_mem * budget_pct), 512 * 1024 * 1024)
+                max_memory = {0: cuda_budget, "cpu": "2GiB"}
+                if use_full_gpu:
+                    mode_tag = "FULL-GPU" + ("+TRT-CLIP" if trt_clip else "")
+                elif use_quanto:
+                    mode_tag = "QUANTO-INT8"
+                else:
+                    mode_tag = "FP16+TRT-CLIP" if trt_clip else "FP16"
+                self.logger.info(
+                    f"CUDA budget: {cuda_budget / 1e9:.2f}GB ({int(budget_pct*100)}% of "
+                    f"{free_mem / 1e9:.2f}GB free, mode={mode_tag})"
+                )
+            else:
+                max_memory = None
+                use_full_gpu = False
+
+            self.logger.info("Loading base model...")
+            self.model = MobileVideoGPTQwenForCausalLM.from_pretrained(
+                self.config.base_model_path,
+                low_cpu_mem_usage=True,
+                device_map="auto",
+                max_memory=max_memory,
+                offload_folder="offload",
+                config=model_cfg,
+                num_select_k_frames_in_chunk=self.config.num_select_k_frames_in_chunk,
+                topk=self.config.topk,
+                **kwargs
+            )
+
+            # Diagnostic: report where Qwen2 layers actually ended up after
+            # accelerate's device_map placement. Helps verify USE_FULL_GPU works.
+            try:
+                layer_devices = {}
+                for i, layer in enumerate(self.model.model.layers):
+                    dev = str(next(layer.parameters()).device)
+                    layer_devices[dev] = layer_devices.get(dev, 0) + 1
+                self.logger.info(
+                    f"Qwen2 layer placement: {layer_devices}  "
+                    f"(lm_head: {next(self.model.lm_head.parameters()).device})"
+                )
+            except Exception:
+                pass
+
+            # Post-load INT8 quantization of Qwen2 LLM layers only.
+            # We intentionally skip the vision tower, image tower, projectors, and
+            # lm_head — those use custom kernels (mamba_ssm, VideoMamba) or are the
+            # final output layer where precision matters most.
+            if use_quanto:
+                from optimum.quanto import quantize, freeze, qint8, qint4
+                qtype = qint4 if quanto_weight == "int4" else qint8
+                # Only quantize the Qwen2 transformer backbone (self.model.model.layers)
+                # Leaves embeddings, lm_head, vision_tower, image_vision_tower, projectors in FP16.
+                qwen_backbone = self.model.model
+                t0 = time.time()
+                self.logger.info(f"Quantizing Qwen2 backbone ({quanto_weight})...")
+                quantize(qwen_backbone.layers, weights=qtype)
+                freeze(qwen_backbone.layers)
+                self.logger.info(f"Quantization done in {time.time() - t0:.1f}s")
+                gc.collect()
+                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    free_after = torch.cuda.mem_get_info()[0] / 1e9
+                    self.logger.info(f"CUDA free after quantization: {free_after:.2f}GB")
 
             # Resize token embeddings
             token_num, token_dim = self.model.lm_head.out_features, self.model.lm_head.in_features
@@ -268,8 +417,22 @@ class PollingInferenceEngine:
                 self.model = self.model.merge_and_unload()
                 self.logger.info("LoRA adapters loaded and merged successfully")
             except Exception as e:
-                self.logger.warning(f"Could not load LoRA adapters: {e}")
-                self.logger.info("Proceeding with base model only")
+                # DO NOT silently fall back to the base model. The base
+                # Mobile-VideoGPT is a generic video captioner ("The man is
+                # doing ..."), so a swallowed failure here produces an app that
+                # looks alive but gives garbage instead of finetuned coaching.
+                # A 401 / "Repository Not Found" here means the (private) LoRA
+                # repo is not accessible from this host — fix by either:
+                #   * `hf auth login` with a token that can read the repo, or
+                #   * set HF_TOKEN before launching, or
+                #   * make the repo public, or
+                #   * point lora_weights_path at a LOCAL adapter directory.
+                raise RuntimeError(
+                    f"Failed to load LoRA adapter from '{self.config.lora_weights_path}': {e}. "
+                    "Refusing to run on the base model (it would produce generic "
+                    "captions, not finetuned coaching). Authenticate (hf auth login / "
+                    "HF_TOKEN), make the repo public, or use a local adapter path."
+                ) from e
 
             # Setup special tokens
             mm_use_im_start_end = getattr(self.model.config, "mm_use_im_start_end", False)
@@ -288,18 +451,10 @@ class PollingInferenceEngine:
 
             self.model.resize_token_embeddings(len(self.tokenizer))
 
-            # Move to device
-            self.model.to(self.config.device)
+            # Model placed by device_map="auto" — clean up and set eval mode
+            gc.collect()
+            torch.cuda.empty_cache()
             self.model.eval()
-
-            # Compile model for faster inference (PyTorch 2.0+)
-            try:
-                self.logger.info("Compiling model with torch.compile()...")
-                self.model = torch.compile(self.model, mode="reduce-overhead")
-                self.logger.info("Model compiled successfully")
-            except Exception as e:
-                self.logger.warning(f"torch.compile() not available or failed: {e}")
-                self.logger.info("Proceeding without compilation")
 
             # Setup vision processors
             self.logger.info("Setting up vision processors...")
@@ -363,7 +518,7 @@ class PollingInferenceEngine:
         dummy_frames = [
             torch.zeros(
                 (3, self.config.image_resolution, self.config.image_resolution),
-                dtype=torch.bfloat16,
+                dtype=torch.float16,
                 device=self.config.device
             )
             for _ in range(self.config.num_frames)
@@ -372,7 +527,7 @@ class PollingInferenceEngine:
         dummy_context = [
             torch.zeros(
                 (3, self.config.image_resolution, self.config.image_resolution),
-                dtype=torch.bfloat16,
+                dtype=torch.float16,
                 device=self.config.device
             )
             for _ in range(self.config.num_context_images)
@@ -418,8 +573,8 @@ class PollingInferenceEngine:
         input_ids, stop_str = self.prepare_prompt(prompt, slice_len)
 
         # Prepare frames with bfloat16 to match model dtype
-        video_tensor = torch.stack(video_frames, dim=0).to(dtype=torch.bfloat16, device=self.config.device)
-        context_tensor = torch.stack(context_frames, dim=0).to(dtype=torch.bfloat16, device=self.config.device)
+        video_tensor = torch.stack(video_frames, dim=0).to(dtype=torch.float16, device=self.config.device)
+        context_tensor = torch.stack(context_frames, dim=0).to(dtype=torch.float16, device=self.config.device)
 
         input_token_count = input_ids.shape[1]
 
@@ -493,6 +648,117 @@ class PollingInferenceEngine:
             ttft = (generation_end - self._first_token_streamer.start_time) / max(output_tokens, 1) * 2
 
         return response, ttft, input_token_count, output_tokens
+
+    def run_single_inference_streaming(
+        self,
+        video_frames,
+        context_frames,
+        prompt: str,
+        slice_len: int,
+    ):
+        """
+        Streaming variant of run_single_inference.
+
+        Yields tuples of (partial_response, is_final, elapsed_seconds, metrics).
+        The final yield has is_final=True with final metrics populated:
+            metrics = dict(ttft=float, input_tokens=int, output_tokens=int)
+
+        Usage:
+            for partial, done, elapsed, metrics in engine.run_single_inference_streaming(...):
+                ui.update(partial)
+                if done: break
+        """
+        import threading
+        from transformers import TextIteratorStreamer
+
+        input_ids, stop_str = self.prepare_prompt(prompt, slice_len)
+        video_tensor = torch.stack(video_frames, dim=0).to(
+            dtype=torch.float16, device=self.config.device
+        )
+        context_tensor = torch.stack(context_frames, dim=0).to(
+            dtype=torch.float16, device=self.config.device
+        )
+        input_token_count = input_ids.shape[1]
+
+        streamer = TextIteratorStreamer(
+            self.tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+            timeout=60.0,  # safety net
+        )
+
+        gen_kwargs = dict(
+            images=video_tensor,
+            context_images=context_tensor,
+            do_sample=self.config.do_sample,
+            num_beams=self.config.num_beams,
+            max_new_tokens=self.config.max_new_tokens,
+            use_cache=True,
+            streamer=streamer,
+        )
+
+        thread_error = {"exc": None}
+
+        def _generate():
+            try:
+                with torch.inference_mode():
+                    self.model.generate(input_ids, **gen_kwargs)
+            except Exception as exc:  # pass error out to main thread
+                thread_error["exc"] = exc
+            finally:
+                streamer.end()
+
+        t_start = time.time()
+        thread = threading.Thread(target=_generate, daemon=True)
+        thread.start()
+
+        # Poll the streamer queue with short timeout so the caller can yield
+        # progress updates while prefill is still running (no tokens yet).
+        # Returns None every `poll_interval` seconds during quiet periods.
+        import queue as _queue
+        poll_interval = 0.8  # seconds between progress pings
+        accumulated = ""
+        ttft = 0.0
+        try:
+            while True:
+                try:
+                    token_text = streamer.text_queue.get(timeout=poll_interval)
+                except _queue.Empty:
+                    # No token yet — yield a "no-progress" heartbeat so caller
+                    # can refresh UI with a progress indicator.
+                    yield None, False, time.time() - t_start, None
+                    continue
+
+                # `streamer.end()` sends the stop_signal sentinel
+                if token_text is streamer.stop_signal:
+                    break
+
+                if ttft == 0.0 and token_text:
+                    ttft = time.time() - t_start
+                accumulated += token_text
+                yield accumulated, False, time.time() - t_start, None
+        finally:
+            thread.join()
+
+        if thread_error["exc"] is not None:
+            raise thread_error["exc"]
+
+        # Strip end-of-turn marker if present
+        final_text = accumulated
+        if final_text.endswith(stop_str):
+            final_text = final_text[: -len(stop_str)].strip()
+
+        # Estimate output_tokens by re-tokenizing final text (fast enough)
+        try:
+            output_tokens = len(self.tokenizer(final_text, add_special_tokens=False).input_ids)
+        except Exception:
+            output_tokens = 0
+
+        yield final_text, True, time.time() - t_start, {
+            "ttft": ttft,
+            "input_tokens": input_token_count,
+            "output_tokens": output_tokens,
+        }
 
     def run_polling_loop(
         self,
@@ -587,11 +853,27 @@ class PollingInferenceEngine:
 
                     self.logger.info(f"Extracted {slice_len} frames in {frame_time*1000:.1f}ms")
 
-                    # Run inference
+                    # Run inference with one OOM-retry for reliability on
+                    # memory-constrained devices. First CUDA OOM we clear cache
+                    # and try again — usually succeeds after defragmentation.
                     inference_start = time.time()
-                    response, ttft, input_tokens, output_tokens = self.run_single_inference(
-                        video_frames, context_frames, prompt, slice_len
-                    )
+                    try:
+                        response, ttft, input_tokens, output_tokens = self.run_single_inference(
+                            video_frames, context_frames, prompt, slice_len
+                        )
+                    except RuntimeError as oom_err:
+                        if 'out of memory' in str(oom_err).lower() or 'NVML_SUCCESS' in str(oom_err):
+                            self.logger.warning(f"Inference OOM — clearing cache and retrying once")
+                            import gc
+                            gc.collect()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                                torch.cuda.synchronize()
+                            response, ttft, input_tokens, output_tokens = self.run_single_inference(
+                                video_frames, context_frames, prompt, slice_len
+                            )
+                        else:
+                            raise
                     inference_time = time.time() - inference_start
                     self.metrics.record_timing("generation_time", inference_time)
 
@@ -618,6 +900,13 @@ class PollingInferenceEngine:
                     self.logger.error(f"Inference failed: {e}", exc_info=True)
 
                 poll_index += 1
+
+                # Free CUDA tensor cache between polls — prevents fragmentation
+                # that causes OOM on the lm_head projection during generate().
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
                 # Wait for next poll
                 if not self.stream_handler.is_exhausted:

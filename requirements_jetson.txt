@@ -1,0 +1,42 @@
+# Requirements for Jetson Orin Nano (inference only)
+#
+# DO NOT include: torch, torchvision, torchaudio, decord, causal-conv1d, mamba-ssm
+# These are handled separately by setup_jetson.sh
+
+# Transformers & model loading
+transformers==4.41.0
+peft==0.10.0
+huggingface_hub
+accelerate
+hf_transfer
+
+# Tokenizer
+tokenizers
+sentencepiece
+
+# Vision & video processing
+# NVIDIA torch wheel requires numpy 1.x — do NOT remove this pin
+numpy>=1.26,<2.0
+Pillow
+opencv-contrib-python
+
+# Model architecture deps
+einops
+einops-exts
+timm
+mmengine
+
+# Quantization (optional, for 4-bit/8-bit inference)
+bitsandbytes
+
+# Gradio UI
+gradio
+gradio_client
+
+# Misc
+pydantic
+loguru
+requests
+httpx
+shortuuid
+markdown2[all]

@@ -191,7 +191,9 @@ class MobileVideoGPTMetaForCausalLM(ABC):
             chunk_features = chunk_batch
 
             seleted_indices,pooled_image_features = self.select_frame_in_chunk(chunk_features,batch_size)
-            batch_indices = torch.arange(num_chunks).unsqueeze(1).repeat(1, topK).to(seleted_indices.device)  # Shape (B, K)
+            # Move indices to video device (CLIP features may be on CPU while video is on CUDA)
+            batch_indices = torch.arange(num_chunks).unsqueeze(1).repeat(1, topK).to(video_batch.device)  # Shape (B, K)
+            seleted_indices = seleted_indices.to(video_batch.device)
 
             select_video = video_batch[batch_indices, seleted_indices]
 
@@ -208,6 +210,9 @@ class MobileVideoGPTMetaForCausalLM(ABC):
 
         video_features = rearrange(video_features, 'b p (c l) d -> (b p) (c l) d', c=topK)# c=CHUNK_SIZE)
 
+        # Ensure context features are on the same device as video features
+        if context_image_features.device != video_features.device:
+            context_image_features = context_image_features.to(video_features.device)
         return video_features, context_image_features
 
     def project(self, video_features, context_features=None, input_type="image"):

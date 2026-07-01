@@ -1,0 +1,269 @@
+(base) edgevlm@edgevlm-desktop:~$ sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+cd ~/Documents/mobile-videogpt-adaptation && conda activate mvgpt && python polling/run_polling.py sample_videos/00000340.mp4
+[sudo] password for edgevlm: 
+
+╔══════════════════════════════════════════════════════════════════╗
+║         Mobile-VideoGPT Polling Inference Engine                 ║
+║                                                                  ║
+║  Real-time Exercise Form Evaluation with LoRA Adapters           ║
+╚══════════════════════════════════════════════════════════════════╝
+
+
+📋 Configuration:
+   Base Model: Amshaker/Mobile-VideoGPT-0.5B
+   LoRA Weights: EdgeVLM-Labs/mobile-videogpt-finetune-2000
+   Video Source: sample_videos/00000340.mp4
+   Polling Interval: 3.0s
+   Max Duration: 300.0s
+   Num Frames: 16
+   Confidence Scoring: Disabled
+   Prompt: Please evaluate the exercise form shown. What mistakes, if any, are present, and...
+
+🔄 Loading model...
+2026-03-21 13:27:15 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:15 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:15 | INFO     | PollingInference | LOADING MODEL WITH LORA ADAPTERS
+2026-03-21 13:27:15 | INFO     | PollingInference | LOADING MODEL WITH LORA ADAPTERS
+2026-03-21 13:27:15 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:15 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:15 | INFO     | PollingInference | Base model: Amshaker/Mobile-VideoGPT-0.5B
+2026-03-21 13:27:15 | INFO     | PollingInference | Base model: Amshaker/Mobile-VideoGPT-0.5B
+2026-03-21 13:27:15 | INFO     | PollingInference | LoRA weights: EdgeVLM-Labs/mobile-videogpt-finetune-2000
+2026-03-21 13:27:15 | INFO     | PollingInference | LoRA weights: EdgeVLM-Labs/mobile-videogpt-finetune-2000
+2026-03-21 13:27:18 | WARNING  | PollingInference | Flash Attention 2 not available, using SDPA
+2026-03-21 13:27:18 | WARNING  | PollingInference | Flash Attention 2 not available, using SDPA
+2026-03-21 13:27:18 | INFO     | PollingInference | Loading model configuration from base model...
+2026-03-21 13:27:18 | INFO     | PollingInference | Loading model configuration from base model...
+2026-03-21 13:27:19 | INFO     | PollingInference | Loading tokenizer...
+2026-03-21 13:27:19 | INFO     | PollingInference | Loading tokenizer...
+Uncaught exception in compile_worker subprocess
+Traceback (most recent call last):
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/torch/_inductor/compile_worker/__main__.py", line 42, in main
+    pre_fork_setup()
+  File "/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/torch/_inductor/async_compile.py", line 63, in pre_fork_setup
+    from triton.compiler.compiler import triton_key
+ImportError: cannot import name 'triton_key' from 'triton.compiler.compiler' (/home/edgevlm/miniconda3/envs/mvgpt/lib/python3.10/site-packages/triton/compiler/compiler.py)
+W0321 13:27:20.782000 281469882134816 torch/_inductor/compile_worker/subproc_pool.py:164] SubprocPool unclean exit
+Special tokens have been added in the vocabulary, make sure the associated word embeddings are fine-tuned or trained.
+2026-03-21 13:27:21 | INFO     | PollingInference | CUDA budget: 2.90GB (free: 5.28GB)
+2026-03-21 13:27:21 | INFO     | PollingInference | CUDA budget: 2.90GB (free: 5.28GB)
+2026-03-21 13:27:21 | INFO     | PollingInference | Loading base model...
+2026-03-21 13:27:21 | INFO     | PollingInference | Loading base model...
+config MobileVideoGPTQwenConfig {
+  "_name_or_path": "Amshaker/Mobile-VideoGPT-0.5B",
+  "architectures": [
+    "MobileVideoGPTQwenForCausalLM"
+  ],
+  "attention_dropout": 0.0,
+  "bos_token_id": 151643,
+  "eos_token_id": 151645,
+  "freeze_mm_mlp_adapter": false,
+  "hidden_act": "silu",
+  "hidden_size": 896,
+  "image_aspect_ratio": "pad",
+  "image_grid_pinpoints": null,
+  "image_mm_hidden_size": 768,
+  "image_mm_projector_type": "etp",
+  "image_mm_vision_tower": "openai/clip-vit-base-patch16",
+  "initializer_range": 0.02,
+  "intermediate_size": 4864,
+  "max_position_embeddings": 32768,
+  "max_window_layers": 21,
+  "mm_hidden_size": 768,
+  "mm_projector_lr": 2e-05,
+  "mm_projector_type": "etp",
+  "mm_use_box_start_end": false,
+  "mm_use_im_patch_token": false,
+  "mm_use_im_start_end": false,
+  "mm_vision_select_feature": "patch",
+  "mm_vision_select_layer": -2,
+  "mm_vision_tower": "OpenGVLab/VideoMamba/videomamba_m16_25M_f8_res224.pth",
+  "model_type": "MobileVideoGPT_qwen",
+  "num_attention_heads": 14,
+  "num_hidden_layers": 24,
+  "num_key_value_heads": 2,
+  "rms_norm_eps": 1e-06,
+  "rope_scaling": null,
+  "rope_theta": 1000000.0,
+  "sliding_window": 32768,
+  "tie_word_embeddings": true,
+  "torch_dtype": "float16",
+  "transformers_version": "4.41.0",
+  "tune_mm_mlp_adapter": false,
+  "use_cache": true,
+  "use_mm_proj": true,
+  "use_sliding_window": false,
+  "vocab_size": 151666
+}
+
+Building OpenGVLab/VideoMamba/videomamba_m16_25M_f8_res224.pth
+2026-03-21 13:27:30 | INFO     | mobilevideogpt.model.videomamba.videomamba | Use checkpoint: False
+2026-03-21 13:27:30 | INFO     | mobilevideogpt.model.videomamba.videomamba | Checkpoint number: 0
+2026-03-21 13:27:30 | INFO     | mobilevideogpt.model.videomamba.videomamba | Student return index: [31]
+2026-03-21 13:27:30 | INFO     | mobilevideogpt.model.videomamba.videomamba | Pool type: cls+avg
+2026-03-21 13:27:33 | INFO     | mobilevideogpt.model.videomamba.videomamba | No pretrained weights!!!
+Building openai/clip-vit-base-patch16
+Building etp
+Building etp
+Some weights of the model checkpoint at Amshaker/Mobile-VideoGPT-0.5B were not used when initializing MobileVideoGPTQwenForCausalLM: ['model.vision_tower.vision_encoder.layers.0.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.0.mixer.D_b', 'model.vision_tower.vision_encoder.layers.0.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.0.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.0.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.0.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.0.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.1.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.1.mixer.D_b', 'model.vision_tower.vision_encoder.layers.1.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.1.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.1.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.1.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.1.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.10.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.10.mixer.D_b', 'model.vision_tower.vision_encoder.layers.10.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.10.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.10.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.10.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.10.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.11.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.11.mixer.D_b', 'model.vision_tower.vision_encoder.layers.11.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.11.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.11.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.11.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.11.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.12.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.12.mixer.D_b', 'model.vision_tower.vision_encoder.layers.12.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.12.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.12.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.12.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.12.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.13.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.13.mixer.D_b', 'model.vision_tower.vision_encoder.layers.13.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.13.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.13.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.13.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.13.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.14.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.14.mixer.D_b', 'model.vision_tower.vision_encoder.layers.14.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.14.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.14.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.14.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.14.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.15.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.15.mixer.D_b', 'model.vision_tower.vision_encoder.layers.15.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.15.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.15.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.15.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.15.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.16.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.16.mixer.D_b', 'model.vision_tower.vision_encoder.layers.16.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.16.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.16.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.16.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.16.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.17.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.17.mixer.D_b', 'model.vision_tower.vision_encoder.layers.17.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.17.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.17.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.17.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.17.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.18.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.18.mixer.D_b', 'model.vision_tower.vision_encoder.layers.18.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.18.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.18.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.18.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.18.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.19.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.19.mixer.D_b', 'model.vision_tower.vision_encoder.layers.19.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.19.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.19.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.19.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.19.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.2.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.2.mixer.D_b', 'model.vision_tower.vision_encoder.layers.2.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.2.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.2.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.2.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.2.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.20.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.20.mixer.D_b', 'model.vision_tower.vision_encoder.layers.20.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.20.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.20.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.20.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.20.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.21.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.21.mixer.D_b', 'model.vision_tower.vision_encoder.layers.21.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.21.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.21.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.21.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.21.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.22.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.22.mixer.D_b', 'model.vision_tower.vision_encoder.layers.22.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.22.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.22.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.22.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.22.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.23.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.23.mixer.D_b', 'model.vision_tower.vision_encoder.layers.23.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.23.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.23.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.23.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.23.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.24.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.24.mixer.D_b', 'model.vision_tower.vision_encoder.layers.24.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.24.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.24.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.24.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.24.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.25.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.25.mixer.D_b', 'model.vision_tower.vision_encoder.layers.25.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.25.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.25.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.25.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.25.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.26.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.26.mixer.D_b', 'model.vision_tower.vision_encoder.layers.26.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.26.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.26.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.26.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.26.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.27.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.27.mixer.D_b', 'model.vision_tower.vision_encoder.layers.27.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.27.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.27.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.27.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.27.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.28.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.28.mixer.D_b', 'model.vision_tower.vision_encoder.layers.28.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.28.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.28.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.28.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.28.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.29.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.29.mixer.D_b', 'model.vision_tower.vision_encoder.layers.29.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.29.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.29.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.29.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.29.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.3.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.3.mixer.D_b', 'model.vision_tower.vision_encoder.layers.3.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.3.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.3.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.3.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.3.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.30.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.30.mixer.D_b', 'model.vision_tower.vision_encoder.layers.30.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.30.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.30.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.30.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.30.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.31.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.31.mixer.D_b', 'model.vision_tower.vision_encoder.layers.31.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.31.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.31.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.31.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.31.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.4.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.4.mixer.D_b', 'model.vision_tower.vision_encoder.layers.4.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.4.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.4.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.4.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.4.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.5.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.5.mixer.D_b', 'model.vision_tower.vision_encoder.layers.5.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.5.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.5.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.5.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.5.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.6.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.6.mixer.D_b', 'model.vision_tower.vision_encoder.layers.6.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.6.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.6.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.6.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.6.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.7.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.7.mixer.D_b', 'model.vision_tower.vision_encoder.layers.7.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.7.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.7.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.7.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.7.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.8.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.8.mixer.D_b', 'model.vision_tower.vision_encoder.layers.8.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.8.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.8.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.8.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.8.mixer.x_proj_b.weight', 'model.vision_tower.vision_encoder.layers.9.mixer.A_b_log', 'model.vision_tower.vision_encoder.layers.9.mixer.D_b', 'model.vision_tower.vision_encoder.layers.9.mixer.conv1d_b.bias', 'model.vision_tower.vision_encoder.layers.9.mixer.conv1d_b.weight', 'model.vision_tower.vision_encoder.layers.9.mixer.dt_proj_b.bias', 'model.vision_tower.vision_encoder.layers.9.mixer.dt_proj_b.weight', 'model.vision_tower.vision_encoder.layers.9.mixer.x_proj_b.weight']
+- This IS expected if you are initializing MobileVideoGPTQwenForCausalLM from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing MobileVideoGPTQwenForCausalLM from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+2026-03-21 13:27:43 | INFO     | PollingInference | Loading non-LoRA trainables...
+2026-03-21 13:27:43 | INFO     | PollingInference | Loading non-LoRA trainables...
+2026-03-21 13:27:44 | WARNING  | PollingInference | Could not load non_lora_trainables from hub: 401 Client Error. (Request ID: Root=1-69be4f77-3e5c0d6b5fda1f68588423c8;3b0be6b4-5ddf-4da5-945c-285c128429e9)
+
+Repository Not Found for url: https://huggingface.co/EdgeVLM-Labs/mobile-videogpt-finetune-2000/resolve/main/non_lora_trainables.bin.
+Please make sure you specified the correct `repo_id` and `repo_type`.
+If you are trying to access a private or gated repo, make sure you are authenticated. For more details, see https://huggingface.co/docs/huggingface_hub/authentication
+Invalid username or password.
+2026-03-21 13:27:44 | WARNING  | PollingInference | Could not load non_lora_trainables from hub: 401 Client Error. (Request ID: Root=1-69be4f77-3e5c0d6b5fda1f68588423c8;3b0be6b4-5ddf-4da5-945c-285c128429e9)
+
+Repository Not Found for url: https://huggingface.co/EdgeVLM-Labs/mobile-videogpt-finetune-2000/resolve/main/non_lora_trainables.bin.
+Please make sure you specified the correct `repo_id` and `repo_type`.
+If you are trying to access a private or gated repo, make sure you are authenticated. For more details, see https://huggingface.co/docs/huggingface_hub/authentication
+Invalid username or password.
+2026-03-21 13:27:44 | WARNING  | PollingInference | No non_lora_trainables found, proceeding without
+2026-03-21 13:27:44 | WARNING  | PollingInference | No non_lora_trainables found, proceeding without
+2026-03-21 13:27:44 | INFO     | PollingInference | Loading LoRA adapter weights...
+2026-03-21 13:27:44 | INFO     | PollingInference | Loading LoRA adapter weights...
+2026-03-21 13:27:44 | WARNING  | PollingInference | Could not load LoRA adapters: Can't find 'adapter_config.json' at 'EdgeVLM-Labs/mobile-videogpt-finetune-2000'
+2026-03-21 13:27:44 | WARNING  | PollingInference | Could not load LoRA adapters: Can't find 'adapter_config.json' at 'EdgeVLM-Labs/mobile-videogpt-finetune-2000'
+2026-03-21 13:27:44 | INFO     | PollingInference | Proceeding with base model only
+2026-03-21 13:27:44 | INFO     | PollingInference | Proceeding with base model only
+2026-03-21 13:27:44 | INFO     | PollingInference | Setting up vision processors...
+2026-03-21 13:27:44 | INFO     | PollingInference | Setting up vision processors...
+2026-03-21 13:27:56 | INFO     | PollingInference | Model loaded successfully in 41.56s
+2026-03-21 13:27:56 | INFO     | PollingInference | Model loaded successfully in 41.56s
+2026-03-21 13:27:56 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:56 | INFO     | PollingInference | ============================================================
+✅ Model loaded successfully
+
+🎬 Starting polling on: sample_videos/00000340.mp4
+   Press Ctrl+C to stop
+
+2026-03-21 13:27:56 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:56 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:56 | INFO     | PollingInference | STARTING POLLING LOOP
+2026-03-21 13:27:56 | INFO     | PollingInference | STARTING POLLING LOOP
+2026-03-21 13:27:56 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:56 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:56 | INFO     | PollingInference | Video source: sample_videos/00000340.mp4
+2026-03-21 13:27:56 | INFO     | PollingInference | Video source: sample_videos/00000340.mp4
+2026-03-21 13:27:56 | INFO     | PollingInference | Polling interval: 3.0s
+2026-03-21 13:27:56 | INFO     | PollingInference | Polling interval: 3.0s
+2026-03-21 13:27:56 | INFO     | PollingInference | Prompt: Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections wo...
+2026-03-21 13:27:56 | INFO     | PollingInference | Prompt: Please evaluate the exercise form shown. What mistakes, if any, are present, and what corrections wo...
+2026-03-21 13:27:56 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:56 | INFO     | PollingInference | ============================================================
+2026-03-21 13:27:57 | INFO     | VideoStreamHandler | Opened video: sample_videos/00000340.mp4, FPS: 30.00, Total frames: 145
+2026-03-21 13:27:57 | INFO     | MetricsTracker | Started metrics session: 20260321_132757
+2026-03-21 13:27:57 | INFO     | MetricsTracker | Log file: logs/polling/polling_20260321_132757.log
+2026-03-21 13:27:57 | INFO     | PollingInference | 
+========================================
+2026-03-21 13:27:57 | INFO     | PollingInference | 
+========================================
+2026-03-21 13:27:57 | INFO     | PollingInference | POLL #1
+2026-03-21 13:27:57 | INFO     | PollingInference | POLL #1
+2026-03-21 13:27:57 | INFO     | PollingInference | Video position: 0.00s / 4.83s
+2026-03-21 13:27:57 | INFO     | PollingInference | Video position: 0.00s / 4.83s
+2026-03-21 13:27:57 | INFO     | PollingInference | ========================================
+2026-03-21 13:27:57 | INFO     | PollingInference | ========================================
+2026-03-21 13:27:57 | WARNING  | VideoStreamHandler | Decord extraction failed, using OpenCV fallback: 'Tensor' object has no attribute 'asnumpy'
+2026-03-21 13:27:58 | INFO     | VideoStreamHandler | OpenCV fallback: extracted 16 frames (16 good, 0 padded)
+2026-03-21 13:27:58 | INFO     | PollingInference | Extracted 16 frames in 1145.2ms
+2026-03-21 13:27:58 | INFO     | PollingInference | Extracted 16 frames in 1145.2ms
+NvMapMemAllocInternalTagged: 1075072515 error 12
+NvMapMemHandleAlloc: error 0
+NvMapMemAllocInternalTagged: 1075072515 error 12
+NvMapMemHandleAlloc: error 0
+2026-03-21 13:28:34 | INFO     | MetricsTracker | Poll #0: Latency=37208.9ms, TTFT=72037.9ms, Tokens/s=-1.1, Output=-42 tokens
+2026-03-21 13:28:34 | INFO     | PollingInference | 
+📝 Response:
+The exercise form shown is incorrect, as indicated by the text 'Incorrect Form' and a red circle. The correct form should be to extend your arms forward while bending at the hips and knees.
+
+2026-03-21 13:28:34 | INFO     | PollingInference | 
+📝 Response:
+The exercise form shown is incorrect, as indicated by the text 'Incorrect Form' and a red circle. The correct form should be to extend your arms forward while bending at the hips and knees.
+
+
+────────────────────────────────────────────────────────────
+📊 Poll #1 Complete
+   Latency: 37208.9ms
+   TTFT: 72037.9ms
+   Tokens/s: -1.1
+────────────────────────────────────────────────────────────
+
+2026-03-21 13:28:34 | INFO     | PollingInference | Waiting 3.0s until next poll...
+2026-03-21 13:28:34 | INFO     | PollingInference | Waiting 3.0s until next poll...
+2026-03-21 13:28:37 | INFO     | PollingInference | 
+========================================
+2026-03-21 13:28:37 | INFO     | PollingInference | 
+========================================
+2026-03-21 13:28:37 | INFO     | PollingInference | POLL #2
+2026-03-21 13:28:37 | INFO     | PollingInference | POLL #2
+2026-03-21 13:28:37 | INFO     | PollingInference | Video position: 3.00s / 4.83s
+2026-03-21 13:28:37 | INFO     | PollingInference | Video position: 3.00s / 4.83s
+2026-03-21 13:28:37 | INFO     | PollingInference | ========================================
+2026-03-21 13:28:37 | INFO     | PollingInference | ========================================
+2026-03-21 13:28:37 | WARNING  | VideoStreamHandler | Decord extraction failed, using OpenCV fallback: 'Tensor' object has no attribute 'asnumpy'
+2026-03-21 13:28:39 | INFO     | VideoStreamHandler | OpenCV fallback: extracted 16 frames (16 good, 0 padded)
+2026-03-21 13:28:39 | INFO     | PollingInference | Extracted 16 frames in 2149.5ms
+2026-03-21 13:28:39 | INFO     | PollingInference | Extracted 16 frames in 2149.5ms
+2026-03-21 13:29:02 | INFO     | MetricsTracker | Poll #1: Latency=24780.3ms, TTFT=45198.8ms, Tokens/s=-1.6, Output=-39 tokens
+2026-03-21 13:29:02 | INFO     | PollingInference | 
+📝 Response:
+The exercise form shown is incorrect, as the person's body position and arm movements are not consistent with the correct form. A correction would be to adjust their posture and arm positions for a proper squatting motion.
+
+2026-03-21 13:29:02 | INFO     | PollingInference | 
+📝 Response:
+The exercise form shown is incorrect, as the person's body position and arm movements are not consistent with the correct form. A correction would be to adjust their posture and arm positions for a proper squatting motion.
+
+
+────────────────────────────────────────────────────────────
+📊 Poll #2 Complete
+   Latency: 24780.3ms
+   TTFT: 45198.8ms
+   Tokens/s: -1.6
+────────────────────────────────────────────────────────────
+
+2026-03-21 13:29:02 | INFO     | PollingInference | Video exhausted
+2026-03-21 13:29:02 | INFO     | PollingInference | Video exhausted
+2026-03-21 13:29:02 | INFO     | VideoStreamHandler | Stopped stream capture
+2026-03-21 13:29:02 | INFO     | MetricsTracker | ============================================================
+2026-03-21 13:29:02 | INFO     | MetricsTracker | SESSION SUMMARY
+2026-03-21 13:29:02 | INFO     | MetricsTracker | ============================================================
+2026-03-21 13:29:02 | INFO     | MetricsTracker | Session ID: 20260321_132757
+2026-03-21 13:29:02 | INFO     | MetricsTracker | Duration: 65.01s
+2026-03-21 13:29:02 | INFO     | MetricsTracker | Total Polls: 2 (2 successful)
+2026-03-21 13:29:02 | INFO     | MetricsTracker | Mean Latency: 30994.60ms
+2026-03-21 13:29:02 | INFO     | MetricsTracker | Mean TTFT: 58618.35ms
+2026-03-21 13:29:02 | INFO     | MetricsTracker | Mean Tokens/s: 0.00
+2026-03-21 13:29:02 | INFO     | MetricsTracker | ============================================================
+2026-03-21 13:29:02 | INFO     | MetricsTracker | Metrics saved to: logs/polling/metrics_20260321_132757.json
+2026-03-21 13:29:02 | INFO     | MetricsTracker | Summary saved to: results/polling/summary_20260321_132757.json
+
+============================================================
+📊 SESSION SUMMARY
+============================================================
+   Session ID: 20260321_132757
+   Duration: 65.01s
+   Total Polls: 2
+   Success Rate: 100.0%
+
+   Latency (ms):
+      Mean: 30994.60
+      Median: 30994.60
+      Min: 24780.30
+      Max: 37208.90
+
+   Time to First Token (ms):
+      Mean: 58618.35
+      Median: 58618.35
+
+   Throughput: 0.00 tokens/s
+============================================================
+
+💾 Summary saved to: results/polling/summary_20260321_132757.json
+2026-03-21 13:29:02 | INFO     | VideoStreamHandler | Stopped stream capture
+2026-03-21 13:29:02 | INFO     | PollingInference | Resources cleaned up
+2026-03-21 13:29:02 | INFO     | PollingInference | Resources cleaned up

@@ -8,18 +8,19 @@
 
 echo "🔧 Creating workspace..."
 
-cd ..
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
-bash miniconda.sh -b -p $HOME/miniconda
-export PATH="$HOME/miniconda/bin:$PATH"
+# cd ..
+# wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
+# bash miniconda.sh -b -p $HOME/miniconda
+# export PATH="$HOME/miniconda/bin:$PATH"
 conda init bash
-# source ~/.bashrc
-source $HOME/miniconda/etc/profile.d/conda.sh
+# # source ~/.bashrc
+# source $HOME/miniconda/etc/profile.d/conda.sh
 
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 
-conda create --name=mobile_videogpt python=3.11
+conda create --name=mobile_videogpt python=3.12
+conda init
 conda activate mobile_videogpt
 
 pip install --upgrade pip
@@ -35,7 +36,7 @@ echo "📦 Cloning repositories..."
 # --------------------------------------------------
 echo "🧱 Installing base Python packages..."
 
-cd mobile-videogpt-adaptation/
+# cd mobile-videogpt-adaptation/
 
 pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu118
 

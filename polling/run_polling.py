@@ -100,7 +100,8 @@ def parse_args():
         "--num-frames",
         type=int,
         default=16,
-        help="Number of frames to sample per inference",
+        help="Number of frames to sample per inference (fixed at 16 due to mm_projector "
+             "square-grid assumption; num_context_images auto-set to match)",
     )
     parser.add_argument(
         "--fps",

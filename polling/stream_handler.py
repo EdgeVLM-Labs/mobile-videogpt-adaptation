@@ -8,6 +8,7 @@ import sys
 import time
 import logging
 import threading
+import subprocess
 import warnings
 from typing import List, Tuple, Optional, Generator
 from collections import deque
@@ -64,17 +65,42 @@ class VideoStreamHandler:
     Supports both video files and live camera/RTSP streams.
     """
 
+    @staticmethod
+    def test_webcam_availability(index: int = 0) -> bool:
+        """Test if a webcam is available at the given index."""
+        try:
+            cap = cv2.VideoCapture(index)
+            is_opened = cap.isOpened()
+            cap.release()
+            # Just check if it opens, don't try to read (which can timeout)
+            return is_opened
+        except:
+            return False
+
+    @staticmethod
+    def is_wsl2() -> bool:
+        """Check if running in WSL2."""
+        try:
+            with open('/proc/version', 'r') as f:
+                return 'microsoft' in f.read().lower()
+        except:
+            return False
+
     def __init__(
         self,
         buffer_size: int = 64,
         num_frames: int = 16,
         fps: int = 1,
         image_resolution: int = 224,
+        inference_window_seconds: float = 0.0,
     ):
         self.buffer_size = buffer_size
         self.num_frames = num_frames
         self.fps = fps
         self.image_resolution = image_resolution
+        # If > 0, webcam inference samples num_frames across this many seconds of
+        # recent buffer (decoupled from capture fps). 0 = legacy frame-count tail.
+        self.inference_window_seconds = inference_window_seconds
 
         self.logger = logging.getLogger("VideoStreamHandler")
 
@@ -87,11 +113,25 @@ class VideoStreamHandler:
         self._cap: Optional[cv2.VideoCapture] = None
         self._video_reader: Optional[VideoReader] = None
 
+        # FFmpeg process for WSL2 cameras
+        self._ffmpeg_proc: Optional[subprocess.Popen] = None
+        self._use_ffmpeg_capture = False
+        self._frame_width = 640
+        self._frame_height = 480
+
         # Video file state
         self._video_path: Optional[str] = None
         self._video_fps: float = 30.0
         self._total_frames: int = 0
         self._current_frame_idx: int = 0
+
+        # Verification: counts polls when MVGPT_DEBUG_FRAMES=1 (see _debug_dump_frames)
+        self._debug_poll_count = 0
+
+        # Push mode: frames arrive from a remote client (phone/laptop) instead of
+        # a local camera (see start_push_stream / push_frame).
+        self._push_mode = False
+        self._push_frame_idx = 0
 
     def open_video_file(self, video_path: str) -> bool:
         """Open a video file for frame extraction."""
@@ -128,11 +168,42 @@ class VideoStreamHandler:
             # Try to parse as camera index
             if source.isdigit():
                 source = int(source)
+                self.logger.info(f"Attempting to open webcam with index: {source}")
 
-            self._cap = cv2.VideoCapture(source)
+            # For webcam on WSL2, use ffmpeg subprocess (much more reliable)
+            if isinstance(source, int) and self.is_wsl2():
+                self.logger.info("WSL2 detected - using ffmpeg subprocess for camera capture")
+                return self._open_stream_ffmpeg(source)
+
+            # For webcam, use FFMPEG backend which is more reliable
+            if isinstance(source, int):
+                self.logger.info("Using FFMPEG backend for webcam...")
+                self._cap = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
+
+                if not self._cap.isOpened():
+                    self.logger.warning("FFMPEG failed, trying default V4L2...")
+                    self._cap = cv2.VideoCapture(source)
+            else:
+                self._cap = cv2.VideoCapture(source)
+
             if not self._cap.isOpened():
-                self.logger.error(f"Failed to open stream: {source}")
-                return False
+                # Try different backends for better compatibility
+                if isinstance(source, int):
+                    self.logger.warning(f"Trying CAP_V4L2 explicitly...")
+                    self._cap = cv2.VideoCapture(source, cv2.CAP_V4L2)
+
+                if not self._cap.isOpened():
+                    self.logger.error(
+                        f"Failed to open stream: {source}. "
+                        f"Possible issues: No camera detected, camera in use by another app, "
+                        f"or permission denied."
+                    )
+                    return False
+
+            # Set buffer size to 1 for low latency (webcam only)
+            if isinstance(source, int):
+                self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                self.logger.info("Set camera buffer size to 1 for low latency")
 
             self._video_fps = self._cap.get(cv2.CAP_PROP_FPS) or 30.0
             self.logger.info(f"Opened stream: {source}, FPS: {self._video_fps:.2f}")
@@ -142,21 +213,133 @@ class VideoStreamHandler:
             self.logger.error(f"Failed to open stream: {e}")
             return False
 
+    def _open_stream_ffmpeg(self, camera_index: int) -> bool:
+        """Open camera using ffmpeg subprocess - works better on WSL2."""
+        try:
+            device = f"/dev/video{camera_index}"
+
+            # Build ffmpeg command to output raw RGB frames to stdout
+            cmd = [
+                'ffmpeg',
+                '-f', 'v4l2',
+                '-framerate', '30',
+                '-video_size', f'{self._frame_width}x{self._frame_height}',
+                '-i', device,
+                '-f', 'rawvideo',
+                '-pix_fmt', 'rgb24',
+                '-loglevel', 'error',
+                '-'  # Output to stdout
+            ]
+
+            self.logger.info(f"Starting ffmpeg: {' '.join(cmd)}")
+
+            self._ffmpeg_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=self._frame_width * self._frame_height * 3 * 2  # Buffer 2 frames
+            )
+
+            # Give ffmpeg a moment to start
+            time.sleep(0.5)
+
+            # Check if process is still running
+            if self._ffmpeg_proc.poll() is not None:
+                stderr = self._ffmpeg_proc.stderr.read().decode()
+                self.logger.error(f"ffmpeg failed to start: {stderr}")
+                return False
+
+            self._use_ffmpeg_capture = True
+            self._video_fps = 30.0
+            self.logger.info(f"ffmpeg capture started for {device}, FPS: {self._video_fps:.2f}")
+            return True
+
+        except FileNotFoundError:
+            self.logger.error("ffmpeg not found! Install with: sudo apt install ffmpeg")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to start ffmpeg capture: {e}")
+            return False
+
+    def start_push_stream(self):
+        """Prepare to receive frames PUSHED from a remote client (a phone or
+        laptop browser) instead of capturing from a local camera. Frames arrive
+        via push_frame() (from the ingest websocket) and land in the same buffer
+        the inference path samples, so get_frames_for_inference() is unchanged."""
+        self.close()
+        self.frame_buffer.clear()
+        self._is_running = True
+        self._push_mode = True
+        self._push_frame_idx = 0
+        self.logger.info("Push stream ready — awaiting frames from a remote client")
+
+    def push_frame(self, jpeg_bytes: bytes) -> bool:
+        """Decode a JPEG frame pushed from a remote client and append it to the
+        buffer as RGB (matching the local capture loops)."""
+        if not jpeg_bytes:
+            return False
+        arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return False
+        frame_rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        self.frame_buffer.append(FrameData(
+            frame=frame_rgb, timestamp=time.time(), frame_index=self._push_frame_idx))
+        self._push_frame_idx += 1
+        return True
+
     def start_stream_capture(self, source: str):
         """Start background thread to capture frames from stream."""
         if not self.open_stream(source):
             return
 
+        # Skip warmup for ffmpeg mode (it handles initialization internally)
+        if not self._use_ffmpeg_capture:
+            # Give camera time to initialize (V4L2 needs this)
+            if isinstance(source, int) or (isinstance(source, str) and source.isdigit()):
+                self.logger.info("Warming up camera...")
+                time.sleep(0.5)  # 500ms warmup for V4L2 cameras
+                # Try to grab a few frames to flush camera buffer
+                for _ in range(5):
+                    self._cap.grab()
+                self.logger.info("Camera warmup complete")
+
         self._is_running = True
-        self._stream_thread = threading.Thread(target=self._capture_loop, daemon=True)
+
+        # Choose appropriate capture loop
+        if self._use_ffmpeg_capture:
+            self._stream_thread = threading.Thread(target=self._capture_loop_ffmpeg, daemon=True)
+        else:
+            self._stream_thread = threading.Thread(target=self._capture_loop, daemon=True)
+
         self._stream_thread.start()
         self.logger.info("Started stream capture thread")
 
     def _capture_loop(self):
         """Background loop to capture frames from stream."""
         frame_interval = 1.0 / self.fps
-        last_capture = 0
+        last_capture = time.time()  # Initialize to current time
         frame_idx = 0
+        consecutive_failures = 0
+        max_consecutive_failures = 30  # Stop after 30 consecutive failures
+
+        self.logger.info(f"Capture loop started: target FPS={self.fps}, interval={frame_interval:.4f}s")
+
+        # Try to capture first frame immediately
+        ret, frame = self._cap.read()
+        if ret:
+            self.logger.info(f"First frame captured successfully! Shape: {frame.shape}")
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_data = FrameData(
+                frame=frame_rgb,
+                timestamp=time.time(),
+                frame_index=frame_idx,
+            )
+            self.frame_buffer.append(frame_data)
+            frame_idx += 1
+            last_capture = time.time()
+        else:
+            self.logger.warning("Failed to capture first frame, will retry...")
 
         while self._is_running and self._cap is not None:
             current_time = time.time()
@@ -165,8 +348,22 @@ class VideoStreamHandler:
             if current_time - last_capture >= frame_interval:
                 ret, frame = self._cap.read()
                 if not ret:
-                    self.logger.warning("Failed to read frame from stream")
+                    consecutive_failures += 1
+                    if consecutive_failures <= 5:  # Only log first few failures
+                        self.logger.warning(f"Failed to read frame from stream (attempt {consecutive_failures})")
+
+                    if consecutive_failures >= max_consecutive_failures:
+                        self.logger.error(f"Failed to read {max_consecutive_failures} consecutive frames, stopping capture")
+                        self._is_running = False
+                        break
+
+                    time.sleep(0.1)  # Wait a bit before retrying
                     continue
+
+                # Successfully read a frame
+                if consecutive_failures > 0:
+                    self.logger.info(f"Successfully resumed frame capture after {consecutive_failures} failures")
+                consecutive_failures = 0
 
                 # Convert BGR to RGB
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -183,6 +380,87 @@ class VideoStreamHandler:
 
             time.sleep(0.001)  # Small sleep to prevent CPU spinning
 
+    def _capture_loop_ffmpeg(self):
+        """Background loop to capture frames from ffmpeg subprocess (for WSL2)."""
+        frame_size = self._frame_width * self._frame_height * 3  # RGB24
+        frame_interval = 1.0 / self.fps
+        last_capture = time.time()
+        frame_idx = 0
+        consecutive_failures = 0
+        max_consecutive_failures = 30
+
+        self.logger.info(f"FFmpeg capture loop started: target FPS={self.fps}, frame size={frame_size} bytes")
+
+        while self._is_running and self._ffmpeg_proc is not None:
+            current_time = time.time()
+
+            # Sample at target FPS
+            if current_time - last_capture >= frame_interval:
+                try:
+                    # Read one frame worth of raw RGB data from ffmpeg stdout
+                    raw_frame = self._ffmpeg_proc.stdout.read(frame_size)
+
+                    if len(raw_frame) != frame_size:
+                        consecutive_failures += 1
+                        if consecutive_failures <= 5:
+                            self.logger.warning(f"FFmpeg: incomplete frame read ({len(raw_frame)}/{frame_size} bytes)")
+
+                        if consecutive_failures >= max_consecutive_failures:
+                            self.logger.error(f"FFmpeg: {max_consecutive_failures} consecutive failures, stopping")
+                            self._is_running = False
+                            break
+
+                        # Check if ffmpeg process died
+                        if self._ffmpeg_proc.poll() is not None:
+                            stderr = self._ffmpeg_proc.stderr.read().decode()
+                            self.logger.error(f"FFmpeg process died: {stderr}")
+                            self._is_running = False
+                            break
+
+                        time.sleep(0.01)
+                        continue
+
+                    # Convert raw bytes to numpy array (already RGB)
+                    frame_rgb = np.frombuffer(raw_frame, dtype=np.uint8).reshape(
+                        (self._frame_height, self._frame_width, 3)
+                    )
+
+                    # Log first successful frame
+                    if frame_idx == 0:
+                        self.logger.info(f"FFmpeg: First frame captured! Shape: {frame_rgb.shape}")
+
+                    if consecutive_failures > 0:
+                        self.logger.info(f"FFmpeg: Resumed after {consecutive_failures} failures")
+                    consecutive_failures = 0
+
+                    frame_data = FrameData(
+                        frame=frame_rgb.copy(),  # Copy to prevent buffer overwrite
+                        timestamp=current_time,
+                        frame_index=frame_idx,
+                    )
+                    self.frame_buffer.append(frame_data)
+
+                    frame_idx += 1
+                    last_capture = current_time
+
+                    # Log progress periodically
+                    if frame_idx % 100 == 0:
+                        self.logger.info(f"FFmpeg: Captured {frame_idx} frames, buffer size: {len(self.frame_buffer)}")
+
+                except Exception as e:
+                    consecutive_failures += 1
+                    if consecutive_failures <= 5:
+                        self.logger.warning(f"FFmpeg capture error: {e}")
+
+                    if consecutive_failures >= max_consecutive_failures:
+                        self.logger.error(f"FFmpeg: Too many errors, stopping")
+                        self._is_running = False
+                        break
+
+            time.sleep(0.001)  # Small sleep to prevent CPU spinning
+
+        self.logger.info(f"FFmpeg capture loop ended after {frame_idx} frames")
+
     def stop_stream(self):
         """Stop the stream capture."""
         self._is_running = False
@@ -191,6 +469,14 @@ class VideoStreamHandler:
         if self._cap:
             self._cap.release()
             self._cap = None
+        if self._ffmpeg_proc:
+            self._ffmpeg_proc.terminate()
+            try:
+                self._ffmpeg_proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self._ffmpeg_proc.kill()
+            self._ffmpeg_proc = None
+            self._use_ffmpeg_capture = False
         self.logger.info("Stopped stream capture")
 
     def extract_frames_from_file(
@@ -347,6 +633,7 @@ class VideoStreamHandler:
             Tuple of (video_frames, context_frames, slice_len)
         """
         # Get raw frames
+        windowed_fd = None  # FrameData (with timestamps) of the selected window — webcam only
         if self._video_reader is not None:
             # Video file mode - use polling_interval as both duration and advance_by
             # This ensures we sample from a window equal to polling_interval and advance by the same amount
@@ -356,14 +643,30 @@ class VideoStreamHandler:
                 advance_by=polling_interval
             )
         elif len(self.frame_buffer) > 0:
-            # Stream mode - get frames from buffer
+            # Stream mode (real-time camera): use the MOST RECENT num_video_frames
+            # frames from the buffer, not a uniform sample across the whole buffer.
+            #
+            # Why: for live exercise feedback the model must reason about "what
+            # the patient is doing right now". Uniform sampling across a 64s
+            # buffer would mix multiple exercises (squats + push-ups + lunges)
+            # into a single inference, producing confused/generic responses.
+            # Capture runs fast (smooth preview), but the model needs a fixed
+            # TEMPORAL window of "what the patient is doing right now". Select the
+            # frames from the last `inference_window_seconds`; the uniform sample
+            # below then picks num_video_frames evenly across that window — so the
+            # model input is independent of capture fps. Falls back to a frame-count
+            # tail if no window is configured or too few frames are present.
             buffer_frames = list(self.frame_buffer)
-            if len(buffer_frames) >= num_video_frames:
-                # Uniform sample from buffer
-                step = len(buffer_frames) // num_video_frames
-                raw_frames = [buffer_frames[i * step].frame for i in range(num_video_frames)]
+            window = getattr(self, "inference_window_seconds", 0.0)
+            if window and window > 0:
+                cutoff = buffer_frames[-1].timestamp - window
+                windowed = [f for f in buffer_frames if f.timestamp >= cutoff]
+                if len(windowed) < num_video_frames:
+                    windowed = buffer_frames[-num_video_frames:]
             else:
-                raw_frames = [f.frame for f in buffer_frames]
+                windowed = buffer_frames[-num_video_frames:]
+            raw_frames = [f.frame for f in windowed]
+            windowed_fd = windowed
             slice_len = len(raw_frames)
         else:
             return [], [], 0
@@ -374,6 +677,24 @@ class VideoStreamHandler:
         # Uniform sample to target counts
         video_frames_raw = self._uniform_sample(raw_frames, min(num_video_frames, len(raw_frames)))
         context_frames_raw = self._uniform_sample(raw_frames, min(num_context_images, len(raw_frames)))
+
+        # CRITICAL: slice_len must equal the number of video frames actually fed to
+        # the model — it sets the count of <image> placeholder tokens in the prompt.
+        # The webcam window may hold e.g. 40 frames but we sample 16, so recompute
+        # here. If slice_len stays 40, the prompt gets 40 image tokens for 16 frames,
+        # which balloons prefill (TTFT) AND misaligns the visual tokens so the model
+        # falls back to generic captioning instead of the finetuned feedback.
+        slice_len = len(video_frames_raw)
+
+        # Verification: dump the EXACT frames being fed to the model this poll.
+        # Enable with MVGPT_DEBUG_FRAMES=1. Off by default → zero runtime cost.
+        if os.environ.get("MVGPT_DEBUG_FRAMES", "0") == "1":
+            sampled_fd = (self._uniform_sample(windowed_fd, len(video_frames_raw))
+                          if windowed_fd is not None else None)
+            try:
+                self._debug_dump_frames(video_frames_raw, sampled_fd, slice_len)
+            except Exception as e:
+                self.logger.warning(f"debug frame dump failed: {e}")
 
         # Process for video encoder
         video_frames = video_processor.preprocess(video_frames_raw)['pixel_values']
@@ -396,11 +717,74 @@ class VideoStreamHandler:
         return video_frames, context_frames, slice_len
 
     def _uniform_sample(self, lst: List, n: int) -> List:
-        """Uniformly sample n items from list."""
+        """Uniformly sample n items, endpoint-inclusive (matches the np.linspace
+        sampling in training/eval: dataloader.py / video_encoding.py).
+
+        The old `step = len//n` version was front-biased: for 40 frames -> 16 it
+        picked indices 0..30, dropping the newest ~1s and spanning only ~3s of a
+        4s window. linspace includes both the first and the LAST frame, so the
+        live path sees frames the same way the model was trained — and always
+        includes the most recent moment (critical for "what is the patient doing
+        right now")."""
         if n >= len(lst):
             return lst
-        step = len(lst) // n
-        return [lst[i * step] for i in range(n)]
+        idxs = np.linspace(0, len(lst) - 1, num=n, dtype=int)
+        return [lst[i] for i in idxs]
+
+    def _debug_dump_frames(self, frames_raw: List[np.ndarray],
+                           sampled_fd: Optional[List["FrameData"]], slice_len: int):
+        """Verification helper: log metadata + save a montage of the frames that
+        are actually fed to the model this poll. Gated by MVGPT_DEBUG_FRAMES=1.
+
+        Proves: (a) exactly num_frames go in, (b) they are real, distinct frames,
+        (c) they span the intended temporal window, (d) no blank padding."""
+        self._debug_poll_count += 1
+        poll = self._debug_poll_count
+        out_dir = os.path.join("logs", "debug_frames")
+        os.makedirs(out_dir, exist_ok=True)
+
+        n = len(frames_raw)
+        # --- metadata / sanity log ---
+        if sampled_fd:
+            ts = [f.timestamp for f in sampled_fd]
+            idxs = [f.frame_index for f in sampled_fd]
+            span = ts[-1] - ts[0] if len(ts) > 1 else 0.0
+            gaps = [round(ts[i + 1] - ts[i], 3) for i in range(len(ts) - 1)]
+            dup = len(idxs) - len(set(idxs))
+            self.logger.info(
+                f"[DEBUG_FRAMES] poll {poll}: fed={n} frames | slice_len={slice_len} | "
+                f"span={span:.2f}s | first_ts={ts[0]:.2f} last_ts={ts[-1]:.2f} | "
+                f"duplicate_frames={dup}"
+            )
+            self.logger.info(f"[DEBUG_FRAMES] poll {poll}: inter-frame gaps(s)={gaps}")
+            self.logger.info(f"[DEBUG_FRAMES] poll {poll}: source frame_indices={idxs}")
+        else:
+            self.logger.info(
+                f"[DEBUG_FRAMES] poll {poll}: fed={n} frames | slice_len={slice_len} "
+                f"(no timestamps — file mode)"
+            )
+
+        # --- montage (4xN grid) with index + timestamp overlay ---
+        tiles, cols = [], 4
+        for i, fr in enumerate(frames_raw):
+            img = cv2.cvtColor(fr, cv2.COLOR_RGB2BGR) if fr.ndim == 3 else fr
+            img = cv2.resize(img, (160, 120))
+            label = f"#{i}"
+            if sampled_fd and i < len(sampled_fd):
+                label += f" t={sampled_fd[i].timestamp:.2f}"
+            cv2.putText(img, label, (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                        (0, 255, 0), 1, cv2.LINE_AA)
+            tiles.append(img)
+        rows = []
+        for r in range(0, len(tiles), cols):
+            row = tiles[r:r + cols]
+            while len(row) < cols:  # pad last row with black so hstack works
+                row.append(np.zeros_like(tiles[0]))
+            rows.append(np.hstack(row))
+        montage = np.vstack(rows) if rows else np.zeros((120, 640, 3), np.uint8)
+        path = os.path.join(out_dir, f"poll_{poll:03d}.jpg")
+        cv2.imwrite(path, montage)
+        self.logger.info(f"[DEBUG_FRAMES] poll {poll}: montage saved -> {path}")
 
     def get_remaining_duration(self) -> float:
         """Get remaining video duration in seconds."""
