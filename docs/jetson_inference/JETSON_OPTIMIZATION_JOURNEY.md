@@ -224,6 +224,82 @@ recent 4 s of activity) rather than how fast the model processes them.
 
 ---
 
+### Stage 9: Input Gating — Don't Talk When Nobody's Exercising
+
+Up to Stage 8 the pipeline was fast and temporally grounded, but it was
+**unconditionally generative**: every poll (~3 s) ran the VLM and the VLM
+*always* produced text — because it has no "abstain" option and the prompt
+itself presupposes an exercise is happening
+([`config.py`](../../polling/config.py) → *"Please evaluate the exercise form
+shown…"*). The result: an empty room, a person standing idle, or someone doing
+an **untrained** exercise all still got confident-sounding coaching.
+
+This is not a model bug — it's a missing **gate** in front of the model. The fix
+is a cheap pre-check that decides whether to invoke the VLM at all. We split it
+into two tiers by what they detect:
+
+| Tier | Detects | Status |
+|---|---|---|
+| **Tier 1 — Motion gate** | "Is anything happening?" (empty / idle scene) | ✅ **Shipped** |
+| **Tier 2 — Exercise gate** | "Is this a *trained* exercise?" (rejects untrained movement) | 📝 Designed — see [TIER2_EXERCISE_GATE_DESIGN.md](./TIER2_EXERCISE_GATE_DESIGN.md) |
+
+#### Tier 1 — Motion gate (shipped)
+
+| # | Change | File |
+|---|---|---|
+| 9.1 | `compute_motion_score()` — mean absolute inter-frame pixel delta over the most-recent window, on 64×64 grayscale thumbnails (a few ms, noise-robust) | [`stream_handler.py`](../../polling/stream_handler.py) |
+| 9.2 | `enable_motion_gate` / `motion_threshold` config, **env-driven and OFF by default** (`MOTION_GATE=1 MOTION_THRESHOLD=2.5`) | [`config.py`](../../polling/config.py) |
+| 9.3 | Loop hook **before** metrics/inference start — on a static scene, show *"⏸ Waiting for exercise…"* and skip the poll (no compute, no poll-number consumed) | [`gradio_app.py`](../../polling/gradio_app.py), [`inference_engine.py`](../../polling/inference_engine.py) |
+| 9.4 | **Hysteresis** (`motion_idle_polls`, default 2) — only declare idle after N *consecutive* below-threshold polls; any active poll resets the streak. Stops a single low-motion poll (slow rep phase, brief pause) from flipping the UI to "waiting" mid-exercise | [`config.py`](../../polling/config.py), both loops |
+
+**Properties:**
+- **Latency:** the gate itself is ~10–20 ms. On a *passing* poll the visible path
+  is unchanged (TTFT still ~2.3 s). On a *gated* poll it skips the whole ~5–10 s
+  VLM — so on average it makes the system faster and lower-power.
+- **Safety:** purely additive. With `MOTION_GATE` unset the pipeline behaves
+  exactly as before. Applies to the live (direct-webcam) path only — browser
+  webcam replicates a single frame (no motion to measure) and video-file mode
+  doesn't use the live buffer (`compute_motion_score` returns +inf → never
+  gates).
+- **Tuning:** `motion_threshold` is on a 0–255 scale; typical 1.5–4.0 depending
+  on camera/lighting. The gated/idle motion score is logged each poll so it can
+  be tuned from real session logs. If it still flips to "waiting" mid-exercise,
+  raise `MOTION_IDLE_POLLS` (debounce) and/or lower `MOTION_THRESHOLD`.
+
+> ⚠️ **Known limitation — isometric / static-hold exercises.** A motion gate
+> keys on *movement*, so a held plank, wall-sit, or any near-still hold reads as
+> "no activity" and gets gated — even though the person is actively exercising.
+> Motion gating fundamentally cannot cover these. The fix is **presence/posture
+> detection** rather than motion: the Tier 2 exercise gate matches the *posture*
+> embedding (a plank has a distinctive pose) and so handles static holds
+> correctly — see [TIER2_EXERCISE_GATE_DESIGN.md](./TIER2_EXERCISE_GATE_DESIGN.md).
+> Until Tier 2 ships, either leave the motion gate off when demoing holds, or
+> rely on it only for dynamic exercises.
+
+> **Note on confidence-based suppression.** We *also* have a confidence module
+> (`is_confident()` in [`calculate_confidence.py`](../../utils/confidence_scoring/calculate_confidence.py)),
+> but it currently only *labels* output `(NOT CONFIDENT)` and is computed from
+> generation scores that exist only on the **non-streaming** path. Using it to
+> *suppress* would force the demo off token-streaming (losing the 2.3 s TTFT
+> feel), so it is intentionally left off for the live demo. The motion gate is
+> the preferred Tier-1 mechanism because it's free and streaming-compatible.
+
+#### Tier 2 — Exercise-relevance gate (designed, not yet built)
+
+Handles the harder case (moving, but untrained exercise) via image-embedding
+**prototype matching** that reuses the CLIP features the VLM already computes.
+Full spec — including the key constraint that the deployed engine emits
+penultimate-layer *patch* features (not CLIP's text-image space, so text
+zero-shot doesn't apply), the two implementation options (standalone +0.2 s vs
+embedding-reuse ~free), and the calibration plan — is in
+[**TIER2_EXERCISE_GATE_DESIGN.md**](./TIER2_EXERCISE_GATE_DESIGN.md).
+
+**Result:** the live demo no longer narrates to an empty stage. Combined with
+the designed Tier 2, the pipeline will also decline gracefully on untrained
+movements instead of bluffing.
+
+---
+
 ## 📊 Latency Breakdown (Current — Phase 7)
 
 ```
@@ -268,6 +344,7 @@ The Qwen2 time drop (5-6s → 3-4s) comes from eliminating CPU offload bouncing 
 - **Full-GPU Qwen2** (all 24 layers on CUDA, no CPU bounce)
 - **Token streaming** (progressive UI updates, perceived TTFT = 2.3s)
 - **Real-time frame buffering** (tail sampling + 4 fps capture + cold-start guard) — Phase 8
+- **Motion gate** (Tier 1 input gating — skip the VLM on an empty/idle scene, env-driven, off by default) — Phase 9
 
 ### 🔍 Architectural Findings (from codebase review)
 
@@ -333,11 +410,12 @@ Phase 5 (DONE):   ~11s/poll  — MAXN_SUPER, max_tokens→64
 Phase 6 (DONE):   INT8 quant dead-end (kept as opt-in)
 Phase 7 (DONE):   🎯 TTFT 2.3s / Full 5-10s — Streaming + full-GPU + TRT CLIP
 Phase 8 (DONE):   Real-time frame buffering (each poll = last 4 s of activity)
+Phase 9 (DONE):   Input gating — Tier 1 motion gate (don't run the VLM on an idle scene); Tier 2 exercise gate designed
 
-— Phases 7-8 together are our shipping configuration. Further wins below are post-demo —
+— Phases 7-9 together are our shipping configuration. Further wins below are post-demo —
 
-Phase 9 (Future): ~3-5s actual    — TensorRT-LLM Qwen2 (multi-week work)
-Phase 10 (Future): ~1-2s perceived — KV cache + speculative decoding
+Phase 10 (Future): ~3-5s actual    — TensorRT-LLM Qwen2 (multi-week work)
+Phase 11 (Future): ~1-2s perceived — KV cache + speculative decoding
 ```
 
 **Note**: Phase 7 hits the 5s-feedback target through real GPU optimization
@@ -416,6 +494,10 @@ sudo jetson_clocks          # Lock clocks at max
 sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 conda activate mvgpt
 USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/gradio_app.py
+
+# Optional — add the motion gate so it stays quiet on an empty/idle stage
+# (Stage 9, Tier 1). Off unless MOTION_GATE=1; tune MOTION_THRESHOLD per camera.
+# USE_FULL_GPU=1 USE_TRT_CLIP=1 MOTION_GATE=1 MOTION_THRESHOLD=2.5 python polling/gradio_app.py
 ```
 
 Open the printed URL in a browser. Model loads once (~40s), then every
@@ -473,12 +555,14 @@ USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/run_polling.py \
 | 2026-04-19 | **Result**: TTFT **2.3s** (was 11s), Poll #0 total latency **5.6s** | **TTFT 2.3s** |
 | 2026-05-02 | Power profile measured (avg 8.7 W, peak 19.0 W, idle 7.0 W) | — |
 | 2026-05-04 | **Phase 8** — Real-time frame buffering: tail sampling, 4 fps capture, buffer 32, cold-start guard. Each poll now covers the most recent 4 seconds of activity (no exercise contamination across polls) | TTFT unchanged; semantics fixed |
+| 2026-06-22 | **Phase 9** — Input gating. Tier 1 motion gate shipped (skip the VLM on an empty/idle scene; `MOTION_GATE=1`, off by default; ~10–20 ms gate, skips ~5–10 s VLM when idle). Tier 2 exercise-relevance gate designed ([TIER2_EXERCISE_GATE_DESIGN.md](./TIER2_EXERCISE_GATE_DESIGN.md)) | TTFT unchanged on passing polls |
 
 ---
 
 ## 📚 Related Docs
 
 - [`README.md`](./README.md) — entry point and reading-order index for this folder
+- [`TIER2_EXERCISE_GATE_DESIGN.md`](./TIER2_EXERCISE_GATE_DESIGN.md) — design for the Tier 2 exercise-relevance gate (Stage 9)
 - [`INSTALL_NOTES.md`](./INSTALL_NOTES.md) — why each step in `setup_jetson.sh` exists
 - [`HEADLESS_DEMO_SETUP.md`](./HEADLESS_DEMO_SETUP.md) — SSH + headless launch guide
 - [`POWER_MEASUREMENT.md`](./POWER_MEASUREMENT.md) — How to capture power numbers

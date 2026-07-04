@@ -33,6 +33,15 @@ Documentation for **Mobile-VideoGPT** deployed on **NVIDIA Jetson Orin Nano Supe
 
 ---
 
+## 🚦 Input gating (don't run the VLM when nobody's exercising)
+
+- **[TIER2_EXERCISE_GATE_DESIGN.md](./TIER2_EXERCISE_GATE_DESIGN.md)** — design
+  for the Tier 2 exercise-relevance gate (rejects untrained movements). The
+  Tier 1 motion gate (skip on an empty/idle scene) is already shipped — see
+  JOURNEY § Stage 9.
+
+---
+
 ## 📝 Paper / reviewer support
 
 - **[REVIEWER_RESPONSE.md](./REVIEWER_RESPONSE.md)** — targeted
@@ -61,7 +70,8 @@ Documentation for **Mobile-VideoGPT** deployed on **NVIDIA Jetson Orin Nano Supe
 | Question | Where |
 |---|---|
 | What is the current TTFT? | JOURNEY § Summary Table — **2.3 s** |
-| How do I launch a demo? | HEADLESS_DEMO_SETUP.md → "Running the Demo" |
+| How do I launch a demo? | `./run_demo.sh` (preflight + launch) — or HEADLESS_DEMO_SETUP.md → "Running the Demo" |
+| How do I just verify the rig is demo-ready? | `./run_demo.sh --check` |
 | How does the demo UI work? | HEADLESS_DEMO_SETUP.md → "Demo UI Walkthrough" |
 | How does voice feedback work? | HEADLESS_DEMO_SETUP.md → "Voice feedback" — runs **client-side** in the browser |
 | How do I measure power? | POWER_MEASUREMENT.md |
@@ -69,4 +79,6 @@ Documentation for **Mobile-VideoGPT** deployed on **NVIDIA Jetson Orin Nano Supe
 | What's the recommended invocation? | JOURNEY § How to Run → `USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/gradio_app.py` |
 | Did we use quantization? | REVIEWER_RESPONSE.md § 4 — **No, by design** |
 | Why does each poll cover only the last 4 seconds? | JOURNEY § Stage 8 (Real-Time Frame Buffering) |
-| What were the problems we hit and fixed? | JOURNEY § Stages 1–8 |
+| How do I stop it reacting to an empty room? | JOURNEY § Stage 9 — launch with `MOTION_GATE=1` |
+| How do I make it ignore untrained exercises? | TIER2_EXERCISE_GATE_DESIGN.md (designed, not yet built) |
+| What were the problems we hit and fixed? | JOURNEY § Stages 1–9 |

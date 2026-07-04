@@ -130,6 +130,23 @@ sudo jetson_clocks          # lock max clocks
 
 ### Launch the inference server (every demo session):
 
+**Easiest — one command** (preflight checks + drops caches + launches in fast mode):
+
+```bash
+ssh edgevlm@192.168.1.126
+cd ~/Documents/mobile-videogpt-adaptation
+./run_demo.sh                 # fast mode (USE_FULL_GPU + USE_TRT_CLIP)
+# ./run_demo.sh --check       # preflight only — verify env/engine/webcam/power/RAM
+# ./run_demo.sh --motion-gate # also enable the Tier-1 motion gate
+# ./run_demo.sh --safe        # CPU-CLIP fallback (slower, bulletproof)
+```
+
+`run_demo.sh` activates the `mvgpt` env, verifies the TensorRT engine / webcam /
+power mode / free RAM, drops page caches, then launches — so you don't have to
+remember the flags. The manual equivalent is below.
+
+**Manual equivalent:**
+
 ```bash
 ssh edgevlm@192.168.1.126
 cd ~/Documents/mobile-videogpt-adaptation
@@ -140,6 +157,13 @@ sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
 # Launch with full performance flags
 USE_FULL_GPU=1 USE_TRT_CLIP=1 python polling/gradio_app.py
+
+# Optional: add MOTION_GATE=1 so an empty/idle stage shows "Waiting for
+# exercise…" instead of generating feedback (Stage 9 / Tier 1). Off by default.
+# Tune MOTION_THRESHOLD (0-255 scale, ~1.5-4.0) and MOTION_IDLE_POLLS (debounce;
+# raise if it flips to "waiting" mid-exercise). NOTE: motion gating does not
+# suit static holds (plank/wall-sit) — leave it off when demoing those.
+# USE_FULL_GPU=1 USE_TRT_CLIP=1 MOTION_GATE=1 MOTION_THRESHOLD=2.5 MOTION_IDLE_POLLS=2 python polling/gradio_app.py
 ```
 
 The terminal will print a URL like:
@@ -147,6 +171,25 @@ The terminal will print a URL like:
 ```
 Running on local URL:  http://0.0.0.0:7860
 ```
+
+### Showing the demo on multiple devices (panel phones/laptops)
+
+The LAN URL (`http://<jetson-ip>:7860`) only works if every device is on the
+same network **and** that network allows device-to-device traffic. Many phone
+hotspots and guest/corporate WiFi networks use **client isolation**, which
+blocks it — symptom: "it works on one device but not others."
+
+Fix: launch with a public share link (needs internet on the Jetson):
+
+```bash
+./run_demo.sh --share
+```
+
+This prints a `https://xxxx.gradio.live` URL in addition to the local one. Hand
+that link to the panel — it opens on any device on any network, no install,
+isolation-proof. Inference still runs locally on the Jetson; only the web UI is
+tunneled. A new link is generated each launch (valid ~1 week), so generate it
+right before the demo.
 
 ### Open the URL on your operator laptop:
 

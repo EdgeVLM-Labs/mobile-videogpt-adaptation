@@ -81,6 +81,33 @@ class PollingConfig:
     # Confidence scoring configuration
     enable_confidence_scoring: bool = False  # Toggle confidence-based filtering
 
+    # Motion gate (Tier 1): when enabled, skip the VLM on a static scene
+    # (empty room / person standing idle) so the model doesn't emit feedback
+    # when nobody is exercising. Purely additive and OFF by default — the
+    # existing always-on polling path is unchanged unless MOTION_GATE=1.
+    #
+    # `motion_threshold` is the mean absolute inter-frame pixel delta on a
+    # 0-255 grayscale scale (computed on 64x64 thumbnails); scenes below it
+    # are treated as "no activity". Tune per camera/lighting (typical 1.5-4.0).
+    # Both are env-driven so a fresh launch can opt in without code changes:
+    #   MOTION_GATE=1 MOTION_THRESHOLD=2.5 python polling/gradio_app.py
+    enable_motion_gate: bool = field(
+        default_factory=lambda: os.getenv("MOTION_GATE", "0") == "1"
+    )
+    motion_threshold: float = field(
+        default_factory=lambda: float(os.getenv("MOTION_THRESHOLD", "2.5"))
+    )
+    # Hysteresis / debounce for the motion gate. A single low-motion poll (the
+    # slow bottom of a rep, a brief pause between reps) should NOT flip the UI to
+    # "waiting" mid-exercise. We only declare the scene idle after this many
+    # *consecutive* below-threshold polls; any active poll resets the streak.
+    # 2 → ~2 polls (~6 s at a 3 s interval) of genuine stillness before going
+    # quiet. Raise it if it still flips mid-exercise; lower it (1) to go quiet
+    # faster on a truly empty stage.
+    motion_idle_polls: int = field(
+        default_factory=lambda: int(os.getenv("MOTION_IDLE_POLLS", "2"))
+    )
+
 
     def __post_init__(self):
         """Create necessary directories. num_frames is fixed at 16 due to model constraints."""
