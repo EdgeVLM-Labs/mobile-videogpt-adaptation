@@ -89,9 +89,18 @@ pip install datasets
 echo -e "${GREEN}✓ HuggingFace packages installed${NC}"
 echo ""
 
+# Verify PyTorch installation
+echo "Verifying PyTorch installation..."
+python -c "import torch; print(f'PyTorch {torch.__version__} loaded successfully')" || {
+    echo -e "${RED}❌ PyTorch verification failed${NC}"
+    exit 1
+}
+
 # Install additional dependencies
 echo "Installing additional dependencies..."
 pip install numpy
+pip install packaging
+pip install ninja  # Required for building extensions
 pip install tqdm
 pip install pandas
 pip install openpyxl  # For Excel output
@@ -103,10 +112,13 @@ pip install decord  # For video processing
 echo "Installing Triton..."
 pip install triton>=2.1.0
 
-# Install Mamba SSM and VideoMamba dependencies
+# Install causal-conv1d first (dependency of mamba-ssm)
+echo "Installing causal-conv1d..."
+pip install causal-conv1d>=1.1.0
+
+# Install Mamba SSM (requires torch to be already installed)
 echo "Installing Mamba SSM..."
-pip install mamba-ssm
-pip install causal-conv1d
+pip install mamba-ssm --no-build-isolation
 
 echo -e "${GREEN}✓ Additional dependencies installed${NC}"
 echo ""
