@@ -188,6 +188,9 @@ def scan_dataset_folder(data_path: str):
                     'exercise_class': exercise_class
                 })
     
+    # Sort videos: first by exercise class, then by filename
+    videos.sort(key=lambda x: (x['exercise_class'], x['video_filename'].lower()))
+    
     print(f"✅ Found {len(videos)} videos")
     return videos
 
