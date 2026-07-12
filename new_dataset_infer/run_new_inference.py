@@ -5,9 +5,11 @@ New Dataset Inference Script
 This script runs inference on videos from the new dataset using a finetuned model.
 It scans the dataset/ folder for all videos and generates predictions.
 
+NOTE: This script is designed to be called from run_new_inference.sh
+      Update configuration (prompt, model path) in the bash script, not here.
+
 Usage:
-    python new_dataset_infer/run_new_inference.py --model_path EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed
-    python new_dataset_infer/run_new_inference.py --model_path EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed --limit 10
+    bash new_dataset_infer/run_new_inference.sh [options]
 """
 
 import sys
@@ -144,7 +146,7 @@ def run_inference(model, tokenizer, video_path: str, prompt: str, device: str = 
     }
 
 
-def warmup_gpu(model, tokenizer, warmup_videos: list, device: str = "cuda", max_new_tokens: int = 512, prompt: str = "Watch the exercise being performed and provide short corrective feedback to help improve the form."):
+def warmup_gpu(model, tokenizer, warmup_videos: list, device: str = "cuda", max_new_tokens: int = 512, prompt: str = None):
     """Warm up GPU with sample videos before actual inference."""
     print("\n🔥 Warming up GPU...")
     for video_path in warmup_videos[:3]:  # Use up to 3 videos for warmup
@@ -213,10 +215,9 @@ def save_results_to_excel(results: list, output_path: str):
 
 
 def main():
-    # Hardcoded model path
-    MODEL_PATH = "EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed"
-    
     parser = argparse.ArgumentParser(description="Run inference on new dataset videos")
+    parser.add_argument("--model_path", type=str, required=True,
+                        help="Path to finetuned model (set in bash script)")
     parser.add_argument("--data_path", type=str, default="dataset",
                         help="Base path for video files (default: dataset)")
     parser.add_argument("--output_dir", type=str, default="new_dataset_infer/results",
@@ -229,8 +230,8 @@ def main():
                         help="Base model to use when loading LoRA adapters")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit number of videos to process (for testing)")
-    parser.add_argument("--prompt", type=str, default="Watch the exercise being performed and provide short corrective feedback to help improve the form.",
-                        help="Prompt to use for inference")
+    parser.add_argument("--prompt", type=str, required=True,
+                        help="Prompt to use for inference (set in bash script)")
 
     args = parser.parse_args()
 
@@ -247,9 +248,9 @@ def main():
     print()
 
     # Load model
-    print(f"📦 Loading model from: {MODEL_PATH}")
+    print(f"📦 Loading model from: {args.model_path}")
     model, tokenizer = load_model(
-        MODEL_PATH,
+        args.model_path,
         device=args.device,
         base_model=args.base_model
     )

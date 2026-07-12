@@ -5,6 +5,13 @@
 
 set -e  # Exit on error
 
+# ============================================================
+# CONFIGURATION - Update prompt here (must match Python script)
+# ============================================================
+PROMPT="Watch the exercise being performed and provide short corrective feedback to help improve the form."
+MODEL_PATH="EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed"
+# ============================================================
+
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -17,14 +24,12 @@ echo -e "${BLUE}  New Dataset Inference${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
 # Default values
-MODEL_PATH="EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed"
 DATA_PATH="dataset"
 OUTPUT_DIR="new_dataset_infer/results"
 DEVICE="cuda"
 MAX_NEW_TOKENS=64
 BASE_MODEL="Amshaker/Mobile-VideoGPT-0.5B"
 LIMIT=""
-PROMPT="Watch the exercise being performed and provide short corrective feedback to help improve the form."
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -113,6 +118,7 @@ echo ""
 
 # Build command
 CMD="python new_dataset_infer/run_new_inference.py \
+    --model_path \"$MODEL_PATH\" \
     --data_path \"$DATA_PATH\" \
     --output_dir \"$OUTPUT_DIR\" \
     --device \"$DEVICE\" \
