@@ -113,7 +113,6 @@ echo ""
 
 # Build command
 CMD="python new_dataset_infer/run_new_inference.py \
-    --model_path \"$MODEL_PATH\" \
     --data_path \"$DATA_PATH\" \
     --output_dir \"$OUTPUT_DIR\" \
     --device \"$DEVICE\" \
