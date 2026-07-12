@@ -5,13 +5,6 @@
 
 set -e  # Exit on error
 
-# ============================================================
-# CONFIGURATION - Update prompt here (must match Python script)
-# ============================================================
-PROMPT="Watch the exercise being performed and provide short corrective feedback to help improve the form."
-MODEL_PATH="EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed"
-# ============================================================
-
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -23,13 +16,21 @@ echo -e "${BLUE}=========================================${NC}"
 echo -e "${BLUE}  New Dataset Inference${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
-# Default values
+# ============================================
+# UPDATE MODEL & PROMPT HERE (Single source of truth)
+# ============================================
+MODEL_PATH="EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed"
 DATA_PATH="dataset"
 OUTPUT_DIR="new_dataset_infer/results"
 DEVICE="cuda"
 MAX_NEW_TOKENS=64
 BASE_MODEL="Amshaker/Mobile-VideoGPT-0.5B"
 LIMIT=""
+
+# ============================================
+# UPDATE PROMPT HERE (Single source of truth)
+# ============================================
+PROMPT="Watch the exercise being performed and provide short corrective feedback to help improve the form."
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -65,7 +66,8 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: bash new_dataset_infer/run_new_inference.sh [options]"
             echo ""
-            echo "Model: EdgeVLM-Labs/mobile-videogpt-finetune-v2-mixed (hardcoded)"
+            echo "To change the model: Edit the MODEL_PATH variable in this script (line 20)"
+            echo "To change the prompt: Edit the PROMPT variable in this script (line 31)"
             echo ""
             echo "Optional:"
             echo "  --data_path       Base path for video files (default: dataset)"
@@ -74,7 +76,6 @@ while [[ $# -gt 0 ]]; do
             echo "  --max_new_tokens  Max tokens to generate (default: 64)"
             echo "  --base_model      Base model for LoRA adapters (default: Amshaker/Mobile-VideoGPT-0.5B)"
             echo "  --limit           Limit number of videos (for testing)"
-            echo "  --prompt          Custom prompt (default: 'Watch the exercise being performed and provide short corrective feedback to help improve the form.')"
             echo ""
             echo "Examples:"
             echo "  # Run inference on all videos:"

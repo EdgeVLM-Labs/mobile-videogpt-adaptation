@@ -5,11 +5,13 @@ New Dataset Inference Script
 This script runs inference on videos from the new dataset using a finetuned model.
 It scans the dataset/ folder for all videos and generates predictions.
 
-NOTE: This script is designed to be called from run_new_inference.sh
-      Update configuration (prompt, model path) in the bash script, not here.
+IMPORTANT: Run this via the bash wrapper script, not directly!
+To change the model: Edit the MODEL_PATH variable in run_new_inference.sh (line 20)
+To change the prompt: Edit the PROMPT variable in run_new_inference.sh (line 31)
 
 Usage:
-    bash new_dataset_infer/run_new_inference.sh [options]
+    bash new_dataset_infer/run_new_inference.sh
+    bash new_dataset_infer/run_new_inference.sh --limit 10
 """
 
 import sys
@@ -148,6 +150,8 @@ def run_inference(model, tokenizer, video_path: str, prompt: str, device: str = 
 
 def warmup_gpu(model, tokenizer, warmup_videos: list, device: str = "cuda", max_new_tokens: int = 512, prompt: str = None):
     """Warm up GPU with sample videos before actual inference."""
+    if prompt is None:
+        raise ValueError("Prompt must be provided")
     print("\n🔥 Warming up GPU...")
     for video_path in warmup_videos[:3]:  # Use up to 3 videos for warmup
         if not os.path.exists(video_path):
@@ -217,7 +221,7 @@ def save_results_to_excel(results: list, output_path: str):
 def main():
     parser = argparse.ArgumentParser(description="Run inference on new dataset videos")
     parser.add_argument("--model_path", type=str, required=True,
-                        help="Path to finetuned model (set in bash script)")
+                        help="Path to finetuned model (set in run_new_inference.sh)")
     parser.add_argument("--data_path", type=str, default="dataset",
                         help="Base path for video files (default: dataset)")
     parser.add_argument("--output_dir", type=str, default="new_dataset_infer/results",
@@ -231,7 +235,7 @@ def main():
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit number of videos to process (for testing)")
     parser.add_argument("--prompt", type=str, required=True,
-                        help="Prompt to use for inference (set in bash script)")
+                        help="Prompt to use for inference (set in run_new_inference.sh)")
 
     args = parser.parse_args()
 
