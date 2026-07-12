@@ -144,7 +144,7 @@ def run_inference(model, tokenizer, video_path: str, prompt: str, device: str = 
     }
 
 
-def warmup_gpu(model, tokenizer, warmup_videos: list, device: str = "cuda", max_new_tokens: int = 512, prompt: str = "Analyze this physiotherapy exercise video and provide feedback."):
+def warmup_gpu(model, tokenizer, warmup_videos: list, device: str = "cuda", max_new_tokens: int = 512, prompt: str = "Watch the exercise being performed and provide short corrective feedback to help improve the form."):
     """Warm up GPU with sample videos before actual inference."""
     print("\n🔥 Warming up GPU...")
     for video_path in warmup_videos[:3]:  # Use up to 3 videos for warmup
@@ -226,7 +226,7 @@ def main():
                         help="Base model to use when loading LoRA adapters")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit number of videos to process (for testing)")
-    parser.add_argument("--prompt", type=str, default="Analyze this physiotherapy exercise video and provide feedback.",
+    parser.add_argument("--prompt", type=str, default="Watch the exercise being performed and provide short corrective feedback to help improve the form.",
                         help="Prompt to use for inference")
 
     args = parser.parse_args()

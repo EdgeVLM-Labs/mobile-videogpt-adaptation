@@ -24,7 +24,7 @@ DEVICE="cuda"
 MAX_NEW_TOKENS=64
 BASE_MODEL="Amshaker/Mobile-VideoGPT-0.5B"
 LIMIT=""
-PROMPT="Analyze this physiotherapy exercise video and provide feedback."
+PROMPT="Watch the exercise being performed and provide short corrective feedback to help improve the form."
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -69,7 +69,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --max_new_tokens  Max tokens to generate (default: 64)"
             echo "  --base_model      Base model for LoRA adapters (default: Amshaker/Mobile-VideoGPT-0.5B)"
             echo "  --limit           Limit number of videos (for testing)"
-            echo "  --prompt          Custom prompt (default: 'Analyze this physiotherapy exercise video and provide feedback.')"
+            echo "  --prompt          Custom prompt (default: 'Watch the exercise being performed and provide short corrective feedback to help improve the form.')"
             echo ""
             echo "Examples:"
             echo "  # Run inference on all videos:"
