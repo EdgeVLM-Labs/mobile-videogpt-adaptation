@@ -50,36 +50,42 @@ echo -e "${YELLOW}[3/6] Installing core dependencies...${NC}"
 echo "This may take several minutes..."
 echo ""
 
-# Install PyTorch (check CUDA version first)
-if command_exists nvcc; then
-    CUDA_VERSION=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]\+\)\.\([0-9]\+\).*/\1.\2/p')
-    echo "CUDA $CUDA_VERSION detected"
-    
-    # Force CUDA 12.1 for CUDA 12.x versions (most compatible)
-    if [[ "$CUDA_VERSION" == "12."* ]]; then
-        echo "Installing PyTorch for CUDA 12.1 (compatible with CUDA 12.x)..."
-        pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
-    elif [[ "$CUDA_VERSION" == "11."* ]]; then
-        echo "Installing PyTorch for CUDA 11.8..."
-        pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
-    else
-        echo -e "${YELLOW}⚠ Unknown CUDA version, installing PyTorch for CUDA 12.1${NC}"
-        pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
-    fi
+# Check if PyTorch is already installed
+if python -c "import torch" 2>/dev/null; then
+    TORCH_VERSION=$(python -c "import torch; print(torch.__version__)" 2>/dev/null)
+    echo -e "${GREEN}✓ PyTorch $TORCH_VERSION already installed${NC}"
+    echo "Skipping PyTorch installation (using existing version)"
 else
-    echo -e "${YELLOW}⚠ CUDA not detected, installing CPU-only PyTorch${NC}"
-    pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
-fi
+    # Install PyTorch (check CUDA version first)
+    if command_exists nvcc; then
+        CUDA_VERSION=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]\+\)\.\([0-9]\+\).*/\1.\2/p')
+        echo "CUDA $CUDA_VERSION detected"
+        
+        # Force CUDA 12.1 for CUDA 12.x versions (most compatible)
+        if [[ "$CUDA_VERSION" == "12."* ]]; then
+            echo "Installing PyTorch for CUDA 12.1 (compatible with CUDA 12.x)..."
+            pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
+        elif [[ "$CUDA_VERSION" == "11."* ]]; then
+            echo "Installing PyTorch for CUDA 11.8..."
+            pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
+        else
+            echo -e "${YELLOW}⚠ Unknown CUDA version, installing PyTorch for CUDA 12.1${NC}"
+            pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
+        fi
+    else
+        echo -e "${YELLOW}⚠ CUDA not detected, installing CPU-only PyTorch${NC}"
+        pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+    fi
 
-echo -e "${GREEN}✓ PyTorch installed${NC}"
+    echo -e "${GREEN}✓ PyTorch installed${NC}"
+fi
 echo ""
 
 # Install transformers and related packages
 echo -e "${YELLOW}[4/6] Installing transformers and model dependencies...${NC}"
-pip install transformers>=4.37.0
-pip install accelerate
-pip install peft  # For LoRA adapters
-pip install bitsandbytes  # Optional but useful for quantization
+pip install transformers==4.45.0
+pip install accelerate==0.34.0
+pip install peft==0.13.0  # For LoRA adapters - compatible with transformers 4.45.0
 echo -e "${GREEN}✓ Transformers packages installed${NC}"
 echo ""
 
