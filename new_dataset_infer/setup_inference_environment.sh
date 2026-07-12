@@ -55,19 +55,20 @@ if command_exists nvcc; then
     CUDA_VERSION=$(nvcc --version | grep "release" | sed -n 's/.*release \([0-9]\+\)\.\([0-9]\+\).*/\1.\2/p')
     echo "CUDA $CUDA_VERSION detected"
     
+    # Force CUDA 12.1 for CUDA 12.x versions (most compatible)
     if [[ "$CUDA_VERSION" == "12."* ]]; then
-        echo "Installing PyTorch for CUDA 12.1..."
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+        echo "Installing PyTorch for CUDA 12.1 (compatible with CUDA 12.x)..."
+        pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
     elif [[ "$CUDA_VERSION" == "11."* ]]; then
         echo "Installing PyTorch for CUDA 11.8..."
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+        pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
     else
-        echo -e "${YELLOW}⚠ Unknown CUDA version, installing default PyTorch${NC}"
-        pip install torch torchvision torchaudio
+        echo -e "${YELLOW}⚠ Unknown CUDA version, installing PyTorch for CUDA 12.1${NC}"
+        pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
     fi
 else
     echo -e "${YELLOW}⚠ CUDA not detected, installing CPU-only PyTorch${NC}"
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+    pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
 fi
 
 echo -e "${GREEN}✓ PyTorch installed${NC}"
@@ -112,13 +113,26 @@ pip install decord  # For video processing
 echo "Installing Triton..."
 pip install triton>=2.1.0
 
-# Install causal-conv1d first (dependency of mamba-ssm)
-echo "Installing causal-conv1d..."
-pip install causal-conv1d>=1.1.0
+# Install causal-conv1d and mamba-ssm (optional, may fail on some systems)
+echo "Installing causal-conv1d and mamba-ssm..."
+echo -e "${YELLOW}Note: These packages may take several minutes to build...${NC}"
 
-# Install Mamba SSM (requires torch to be already installed)
-echo "Installing Mamba SSM..."
-pip install mamba-ssm --no-build-isolation
+# Try to install causal-conv1d
+if pip install causal-conv1d>=1.1.0 --no-build-isolation 2>/dev/null; then
+    echo -e "${GREEN}✓ causal-conv1d installed${NC}"
+    
+    # Try to install mamba-ssm
+    if pip install mamba-ssm --no-build-isolation 2>/dev/null; then
+        echo -e "${GREEN}✓ mamba-ssm installed${NC}"
+    else
+        echo -e "${YELLOW}⚠ Warning: mamba-ssm installation failed${NC}"
+        echo -e "${YELLOW}  The model may not work if it requires VideoMamba${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠ Warning: causal-conv1d installation failed${NC}"
+    echo -e "${YELLOW}  Skipping mamba-ssm (depends on causal-conv1d)${NC}"
+    echo -e "${YELLOW}  The model may not work if it requires VideoMamba${NC}"
+fi
 
 echo -e "${GREEN}✓ Additional dependencies installed${NC}"
 echo ""
