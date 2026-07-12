@@ -118,14 +118,14 @@ echo -e "${BLUE}=========================================${NC}"
 echo ""
 
 # Build command
-CMD="python new_dataset_infer/run_new_inference.py \
-    --model_path \"$MODEL_PATH\" \
-    --data_path \"$DATA_PATH\" \
-    --output_dir \"$OUTPUT_DIR\" \
-    --device \"$DEVICE\" \
-    --max_new_tokens \"$MAX_NEW_TOKENS\" \
-    --base_model \"$BASE_MODEL\" \
-    --prompt \"$PROMPT\""
+CMD="python new_dataset_infer/run_new_inference.py"
+CMD="$CMD --model_path \"$MODEL_PATH\""
+CMD="$CMD --data_path \"$DATA_PATH\""
+CMD="$CMD --output_dir \"$OUTPUT_DIR\""
+CMD="$CMD --device \"$DEVICE\""
+CMD="$CMD --max_new_tokens \"$MAX_NEW_TOKENS\""
+CMD="$CMD --base_model \"$BASE_MODEL\""
+CMD="$CMD --prompt \"$PROMPT\""
 
 if [ -n "$LIMIT" ]; then
     CMD="$CMD --limit $LIMIT"
